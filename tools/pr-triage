@@ -3,11 +3,12 @@
 #
 # Run from any GitHub repo checkout. Infers owner/repo from the cwd's origin
 # remote. Fetches PR metadata via `gh` GraphQL, scores each PR with tunable
-# heuristics, and prints a ranked markdown report grouped by action bucket.
+# heuristics, and prints a ranked report grouped by action bucket.
 #
 # Usage:
 #   pr-triage              ranked report for the current repo
 #   pr-triage --json       raw scored JSON (pipe to jq, feed to LLM, etc.)
+#   pr-triage --md         markdown output (for piping to files/LLMs)
 #   pr-triage --llm        append an LLM judgment pass on ambiguous PRs
 #   pr-triage --author X   override author (default: `gh` authenticated user)
 #   pr-triage --repo o/r   override repo (default: cwd origin)
@@ -21,21 +22,36 @@ set -euo pipefail
 
 AUTHOR=""
 REPO=""
-OUTPUT="markdown"
+OUTPUT="tui"
 LLM=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --json)    OUTPUT="json";  shift ;;
-    --llm)     LLM=true;      shift ;;
-    --author)  AUTHOR="$2";   shift 2 ;;
-    --repo)    REPO="$2";     shift 2 ;;
+    --json)    OUTPUT="json";     shift ;;
+    --md)      OUTPUT="markdown"; shift ;;
+    --llm)     LLM=true;         shift ;;
+    --author)  AUTHOR="$2";      shift 2 ;;
+    --repo)    REPO="$2";        shift 2 ;;
     --help|-h)
       sed -n '2,/^$/{ s/^# //; s/^#$//; p }' "$0"
       exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 1 ;;
   esac
 done
+
+# ── colors ───────────────────────────────────────────────────────────────────
+
+if [[ -t 1 && "$OUTPUT" == "tui" ]]; then
+  BOLD=$'\033[1m'    DIM=$'\033[2m'     RESET=$'\033[0m'
+  RED=$'\033[31m'    GREEN=$'\033[32m'   YELLOW=$'\033[33m'
+  BLUE=$'\033[34m'   CYAN=$'\033[36m'    WHITE=$'\033[37m'
+  BG_GREEN=$'\033[42;30m'  BG_YELLOW=$'\033[43;30m'
+  BG_RED=$'\033[41;37m'    BG_BLUE=$'\033[44;37m'   BG_DIM=$'\033[100;37m'
+else
+  BOLD="" DIM="" RESET=""
+  RED="" GREEN="" YELLOW="" BLUE="" CYAN="" WHITE=""
+  BG_GREEN="" BG_YELLOW="" BG_RED="" BG_BLUE="" BG_DIM=""
+fi
 
 # ── repo detection ───────────────────────────────────────────────────────────
 
@@ -111,6 +127,7 @@ fi
 SCORED=$(echo "$ALL_PRS" | jq --argjson now "$NOW" '
   def age_days: ((($now - (. | sub("(\\.[0-9]+)?Z$";"") | strptime("%Y-%m-%dT%H:%M:%S") | mktime)) / 86400) | floor);
   def ci_state: .statusCheckRollup.nodes[0].commit.statusCheckRollup.state // "UNKNOWN";
+  def merge_clean: . == "CLEAN" or . == "UNKNOWN";
 
   [ .[] | {
     number,
@@ -146,7 +163,7 @@ SCORED=$(echo "$ALL_PRS" | jq --argjson now "$NOW" '
          else 0 end)
       # draft penalty
       + (if .draft then -2 else 0 end)
-      # merge state
+      # merge state (UNKNOWN is neutral - GitHub has not computed it yet)
       + (if .merge_state == "DIRTY" then -3
          elif .merge_state == "BEHIND" then -1
          elif .merge_state == "CLEAN" then 2
@@ -168,7 +185,7 @@ SCORED=$(echo "$ALL_PRS" | jq --argjson now "$NOW" '
   } | . + {
     # ── bucketing (rules beat raw score) ──
     bucket: (
-      if (.draft | not) and .ci == "SUCCESS" and .merge_state == "CLEAN"
+      if (.draft | not) and .ci == "SUCCESS" and (.merge_state | merge_clean)
          and (.review == "APPROVED" or .review == "NONE")
       then "easy_merge"
       elif .age_days > 30 and (.draft or .merge_state == "DIRTY")
@@ -176,7 +193,7 @@ SCORED=$(echo "$ALL_PRS" | jq --argjson now "$NOW" '
       then "easy_close"
       elif .age_days < 30 and (.ci == "FAILURE" or .merge_state == "DIRTY")
       then "needs_attention"
-      elif .age_days > 30 and .ci == "SUCCESS" and .merge_state == "CLEAN"
+      elif .age_days > 30 and .ci == "SUCCESS" and (.merge_state | merge_clean)
       then "decision_needed"
       elif .age_days > 30
       then "decision_needed"
@@ -193,16 +210,125 @@ if [[ "$OUTPUT" == "json" ]]; then
   exit 0
 fi
 
-# ── markdown report ──────────────────────────────────────────────────────────
+# ── helpers ──────────────────────────────────────────────────────────────────
 
-print_section() {
+ci_icon() {
+  case "$1" in
+    SUCCESS) echo "${GREEN}✓${RESET}" ;;
+    FAILURE) echo "${RED}✗${RESET}" ;;
+    ERROR)   echo "${RED}!${RESET}" ;;
+    *)       echo "${DIM}?${RESET}" ;;
+  esac
+}
+
+merge_tag() {
+  case "$1" in
+    CLEAN)   echo "${GREEN}clean${RESET}" ;;
+    DIRTY)   echo "${RED}conflicts${RESET}" ;;
+    BEHIND)  echo "${YELLOW}behind${RESET}" ;;
+    BLOCKED) echo "${RED}blocked${RESET}" ;;
+    UNSTABLE) echo "${YELLOW}unstable${RESET}" ;;
+    *)       echo "${DIM}—${RESET}" ;;
+  esac
+}
+
+score_color() {
+  local s=$1
+  if (( s >= 3 )); then   echo "${GREEN}${BOLD}"
+  elif (( s >= 0 )); then echo "${WHITE}"
+  elif (( s >= -5 )); then echo "${YELLOW}"
+  else                     echo "${RED}"
+  fi
+}
+
+age_str() {
+  local d=$1
+  if (( d >= 365 )); then echo "$((d/365))y"
+  elif (( d >= 30 )); then echo "$((d/30))mo"
+  elif (( d >= 7 )); then echo "$((d/7))w"
+  else echo "${d}d"
+  fi
+}
+
+size_str() {
+  local s=$1
+  if (( s >= 1000 )); then echo "$((s/1000))k"
+  else echo "$s"
+  fi
+}
+
+# ── tui report ───────────────────────────────────────────────────────────────
+
+print_tui_section() {
+  local bucket="$1" heading="$2" badge_color="$3"
+
+  local items
+  items=$(echo "$SCORED" | jq -r --arg b "$bucket" '
+    [ .[] | select(.bucket == $b) ] |
+    if length == 0 then empty
+    else .[] |
+      "\(.score)\t#\(.number)\t\(.title)\t\(.ci)\t\(.merge_state)\t\(.age_days)\t\(.size)\t\(.draft)\t\(.review)\t\(.url)"
+    end
+  ')
+
+  [[ -z "$items" ]] && return
+
+  local count
+  count=$(echo "$SCORED" | jq --arg b "$bucket" '[ .[] | select(.bucket == $b) ] | length')
+
+  echo ""
+  echo " ${badge_color} ${heading} ${RESET}  ${DIM}${count} PRs${RESET}"
+  echo ""
+
+  while IFS=$'\t' read -r score num title ci merge age size draft review url; do
+    local sc
+    sc=$(score_color "$score")
+    local ci_i
+    ci_i=$(ci_icon "$ci")
+    local merge_t
+    merge_t=$(merge_tag "$merge")
+    local age_s
+    age_s=$(age_str "$age")
+    local size_s
+    size_s=$(size_str "$size")
+
+    # Score column (right-aligned, 4 chars)
+    local score_fmt
+    if (( score >= 0 )); then
+      score_fmt=$(printf "%s+%d%s" "$sc" "$score" "$RESET")
+    else
+      score_fmt=$(printf "%s%d%s" "$sc" "$score" "$RESET")
+    fi
+
+    # Draft indicator
+    local draft_tag=""
+    if [[ "$draft" == "true" ]]; then
+      draft_tag=" ${DIM}draft${RESET}"
+    fi
+
+    # Review indicator
+    local review_tag=""
+    case "$review" in
+      APPROVED)          review_tag=" ${GREEN}approved${RESET}" ;;
+      CHANGES_REQUESTED) review_tag=" ${YELLOW}changes req${RESET}" ;;
+    esac
+
+    printf "  %4s  ${BOLD}%-6s${RESET} %s%s%s\n" \
+      "$score_fmt" "$num" "$title" "$draft_tag" "$review_tag"
+    printf "        ${DIM}%s  CI %s  %s  %sL${RESET}\n" \
+      "$age_s" "$ci_i" "$merge_t" "$size_s"
+    printf "        ${DIM}%s${RESET}\n" "$url"
+  done <<< "$items"
+}
+
+print_md_section() {
   local bucket="$1" heading="$2" emoji="$3"
   local items
   items=$(echo "$SCORED" | jq -r --arg b "$bucket" '
     [ .[] | select(.bucket == $b) ] |
     if length == 0 then empty
     else .[] |
-      "- [\(.title)](https://github.com/'"$REPO"'/pull/\(.number)) — "
+      "- [\(.title)](\(.url)) — "
       + "score \(.score) · "
       + (if .draft then "draft · " else "" end)
       + "CI \(.ci | ascii_downcase) · "
@@ -222,17 +348,31 @@ print_section() {
   fi
 }
 
-echo "# PR Triage: ${REPO}"
-echo ""
-echo "_${COUNT} open PRs by ${AUTHOR} · $(date -u +%Y-%m-%d)_"
+if [[ "$OUTPUT" == "tui" ]]; then
+  echo ""
+  echo " ${BOLD}PR Triage: ${REPO}${RESET}"
+  echo " ${DIM}${COUNT} open PRs by ${AUTHOR} · $(date -u +%Y-%m-%d)${RESET}"
 
-print_section "easy_merge"      "Easy merges — green, clean, go"    "🟢"
-print_section "needs_attention"  "Needs attention — recent but broken" "🟡"
-print_section "decision_needed"  "Decision needed"                    "🔵"
-print_section "easy_close"       "Easy close candidates"              "🔴"
-print_section "monitor"          "Monitoring"                         "⚪"
+  print_tui_section "easy_merge"      "Easy merges"       "$BG_GREEN"
+  print_tui_section "needs_attention"  "Needs attention"   "$BG_YELLOW"
+  print_tui_section "decision_needed"  "Decision needed"   "$BG_BLUE"
+  print_tui_section "easy_close"       "Close candidates"  "$BG_RED"
+  print_tui_section "monitor"          "Monitoring"        "$BG_DIM"
 
-echo ""
+  echo ""
+else
+  echo "# PR Triage: ${REPO}"
+  echo ""
+  echo "_${COUNT} open PRs by ${AUTHOR} · $(date -u +%Y-%m-%d)_"
+
+  print_md_section "easy_merge"      "Easy merges — green, clean, go"      "🟢"
+  print_md_section "needs_attention"  "Needs attention — recent but broken" "🟡"
+  print_md_section "decision_needed"  "Decision needed"                     "🔵"
+  print_md_section "easy_close"       "Easy close candidates"               "🔴"
+  print_md_section "monitor"          "Monitoring"                          "⚪"
+
+  echo ""
+fi
 
 # ── optional LLM pass ───────────────────────────────────────────────────────
 
@@ -241,7 +381,7 @@ if [[ "$LLM" == "true" ]]; then
   AMB_COUNT=$(echo "$AMBIGUOUS" | jq length)
 
   if [[ "$AMB_COUNT" -eq 0 ]]; then
-    echo "_No ambiguous PRs — LLM pass skipped._"
+    echo "${DIM}No ambiguous PRs — LLM pass skipped.${RESET}"
     exit 0
   fi
 
@@ -267,12 +407,17 @@ Respond as a JSON array: [{\"number\": N, \"action\": \"...\", \"reason\": \"...
 PRs:
 ${CARDS}"
 
-  echo "---"
-  echo ""
-  echo "## 🤖 LLM judgment (ambiguous PRs)"
-  echo ""
+  if [[ "$OUTPUT" == "tui" ]]; then
+    echo " ${BG_DIM} 🤖 LLM judgment ${RESET}  ${DIM}${AMB_COUNT} ambiguous PRs${RESET}"
+    echo ""
+  else
+    echo "---"
+    echo ""
+    echo "## 🤖 LLM judgment (ambiguous PRs)"
+    echo ""
+  fi
 
-  # Try omp/claude/gh-copilot in order; fall back to printing the prompt
+  LLM_OUT=""
   if command -v claude &>/dev/null; then
     LLM_OUT=$(echo "$PROMPT" | claude --print 2>/dev/null) || true
   elif command -v omp &>/dev/null; then
@@ -280,20 +425,21 @@ ${CARDS}"
   fi
 
   if [[ -n "${LLM_OUT:-}" ]]; then
-    # Try to extract JSON and render as table
     JSON_BLOCK=$(echo "$LLM_OUT" | jq -r '.[] | "| #\(.number) | **\(.action)** | \(.reason) |"' 2>/dev/null) || true
     if [[ -n "${JSON_BLOCK:-}" ]]; then
-      echo "| PR | Action | Reason |"
-      echo "|---|---|---|"
-      echo "$JSON_BLOCK"
+      if [[ "$OUTPUT" == "tui" ]]; then
+        echo "$LLM_OUT" | jq -r '.[] |
+          "  #\(.number)  \(.action)  \(.reason)"' 2>/dev/null || echo "$LLM_OUT"
+      else
+        echo "| PR | Action | Reason |"
+        echo "|---|---|---|"
+        echo "$JSON_BLOCK"
+      fi
     else
       echo "$LLM_OUT"
     fi
   else
-    echo "_Could not reach an LLM. Feed this to your model of choice:_"
-    echo ""
-    echo '```'
-    echo "$PROMPT"
-    echo '```'
+    echo "${DIM}Could not reach an LLM. Feed the --json output to your model of choice.${RESET}"
   fi
+  echo ""
 fi
