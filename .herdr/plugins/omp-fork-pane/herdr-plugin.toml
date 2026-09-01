@@ -1,0 +1,30 @@
+id = "stefan.omp-fork-pane"
+name = "OMP Fork Pane"
+version = "0.3.0"
+min_herdr_version = "0.8.0"
+description = "Fork the focused OMP session into a side pane or sidecar tab"
+platforms = ["linux"]
+
+[[actions]]
+id = "fork"
+title = "Fork OMP session into side pane"
+contexts = ["pane"]
+command = ["bash", "fork.sh", "split"]
+
+[[actions]]
+id = "sidecar"
+title = "Fork OMP session into sidecar tab"
+contexts = ["pane"]
+command = ["bash", "fork.sh", "tab"]
+
+[[actions]]
+id = "distill"
+title = "Fork OMP session into side pane, distilled (/prose)"
+contexts = ["pane"]
+command = ["bash", "fork.sh", "split", "/prose"]
+
+[[panes]]
+id = "forked-omp"
+title = "Forked OMP"
+placement = "split"
+command = ["bash", "-c", 'exec omp --fork "${OMP_FORK_SESSION_ID:?not launched via the fork action}" ${OMP_FORK_PROMPT:+"$OMP_FORK_PROMPT"}']

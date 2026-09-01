@@ -1,0 +1,20 @@
+id = "stefan.pr-worktree"
+name = "PR Worktree"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Open a GitHub pull request in a dedicated Herdr worktree workspace"
+platforms = ["linux"]
+
+[[actions]]
+id = "open"
+title = "Open PR worktree"
+contexts = ["global", "workspace", "pane"]
+command = ["bash", "open.sh"]
+
+[[panes]]
+id = "popup"
+title = "Open PR worktree"
+placement = "popup"
+width = "70%"
+height = "60%"
+command = ["bash", "popup.sh"]

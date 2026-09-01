@@ -1,0 +1,16 @@
+id = "stefan.worktree-setup"
+name = "Worktree Setup"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Run <repo>/.herdr/worktree-setup.sh inside every newly created worktree"
+platforms = ["linux"]
+
+[[events]]
+on = "worktree.created"
+command = ["bash", "setup.sh"]
+
+[[actions]]
+id = "rerun"
+title = "Re-run worktree setup"
+contexts = ["workspace", "pane"]
+command = ["bash", "setup.sh"]

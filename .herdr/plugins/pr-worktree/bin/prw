@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# prw — open a GitHub PR in a Herdr worktree workspace, from any shell prompt.
+#
+# The plugin's keybind is unreachable on a phone (no chords worth typing on a
+# soft keyboard), and a PR number has to be typed either way — so a command is
+# the better mobile surface, not a fallback.
+#
+#   prw 11309
+#   prw https://github.com/owner/repo/pull/11309
+#   prw                      # prompts, same as the popup
+set -euo pipefail
+
+export PATH="$HOME/.local/share/mise/shims:$HOME/.bun/bin:$PATH"
+command -v bun >/dev/null || { printf 'prw: bun is not installed\n' >&2; exit 1; }
+
+# Resolve through symlinks: this lives in the plugin but is linked onto PATH.
+root=$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)
+
+# Captured before the cd, since bun must run from the plugin root.
+export PRWT_SOURCE_CWD="${PRWT_SOURCE_CWD:-$PWD}"
+export PRWT_SOURCE_PANE_ID="${PRWT_SOURCE_PANE_ID:-${HERDR_PANE_ID:-}}"
+export PRWT_SOURCE_WORKSPACE_ID="${PRWT_SOURCE_WORKSPACE_ID:-${HERDR_WORKSPACE_ID:-}}"
+
+cd "$root"
+exec bun src/main.ts "$@"

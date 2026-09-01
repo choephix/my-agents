@@ -1,0 +1,21 @@
+id = "stefan.tab-namer"
+name = "Tab Namer"
+version = "0.2.2"
+min_herdr_version = "0.8.0"
+description = "Name tabs from agent conversations or foreground processes"
+platforms = ["linux"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["bash", "rename.sh", "event"]
+
+[[events]]
+on = "tab.focused"
+command = ["bash", "procname.sh"]
+
+[[actions]]
+id = "rename-now"
+title = "Tab Namer: rename current tab"
+description = "Force-rename the current tab from its agent conversation."
+contexts = ["tab", "pane"]
+command = ["bash", "rename.sh", "force"]
