@@ -1,0 +1,336 @@
+#!/usr/bin/env python3
+"""link-doctor — find and repair symlinks pointing into a git repo whose files moved.
+
+Scans configured roots for symlinks whose target lies inside REPO. For broken
+links, recovers the new location using git itself (no live tracking needed):
+
+  1. git rename detection   — committed moves/renames, incl. whole folders
+  2. content (blob/tree) sha — committed moves where rename detection is unsure
+  3. basename match          — uncommitted `mv` within the working tree
+
+Usage:
+  link-doctor                 report only (default)
+  link-doctor --fix           interactively repair fixable links
+  link-doctor --fix --yes     repair all confidently-fixable links
+  link-doctor -v              also list healthy links
+  link-doctor --repo PATH --root PATH ...   override defaults
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+
+HOME = os.path.expanduser("~")
+DEFAULT_REPO = os.path.join(HOME, "workspace", "my-agents")
+DEFAULT_ROOTS = [HOME]
+
+# Directory names never descended into, anywhere.
+PRUNE_NAMES = {
+    ".git", "node_modules", ".cache", ".venv", "venv", "__pycache__",
+    ".next", ".turbo", "target", ".pnpm-store",
+}
+# Absolute path prefixes never descended into (heavy, no user links expected).
+PRUNE_PATHS = {
+    os.path.join(HOME, p) for p in (
+        ".cargo", ".rustup", ".bun", ".npm", ".nvm", ".deno",
+        ".local/share", ".local/state", ".vite-plus/js_runtime",
+        "google-cloud-sdk", "snap", ".omp/agent/sessions",
+    )
+}
+
+C_RED, C_GRN, C_YEL, C_CYN, C_DIM, C_OFF = (
+    ("\033[31m", "\033[32m", "\033[33m", "\033[36m", "\033[2m", "\033[0m")
+    if sys.stdout.isatty() else ("",) * 6
+)
+
+
+def tilde(p):
+    return "~" + p[len(HOME):] if p == HOME or p.startswith(HOME + os.sep) else p
+
+
+def git(repo, *args, check=False):
+    r = subprocess.run(["git", "-C", repo, *args],
+                       capture_output=True, text=True)
+    if check and r.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)}: {r.stderr.strip()}")
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def walk_symlinks(roots):
+    """Yield every symlink under roots, honoring prune lists."""
+    stack = [os.path.realpath(r) for r in roots]
+    seen = set()
+    while stack:
+        d = stack.pop()
+        if d in seen:
+            continue
+        seen.add(d)
+        try:
+            entries = list(os.scandir(d))
+        except OSError:
+            continue
+        for e in entries:
+            try:
+                if e.is_symlink():
+                    yield e.path
+                elif e.is_dir(follow_symlinks=False):
+                    if e.name in PRUNE_NAMES or e.path in PRUNE_PATHS:
+                        continue
+                    stack.append(e.path)
+            except OSError:
+                continue
+
+
+def is_under(path, root):
+    rel = os.path.relpath(path, root)
+    return rel != ".." and not rel.startswith(".." + os.sep)
+
+
+class RepoIndex:
+    """Lazy lookup tables over the repo's working tree and HEAD."""
+
+    def __init__(self, repo):
+        self.repo = repo
+        self._names = None      # basename -> [(relpath, is_dir)]
+        self._shas = None       # object sha -> [relpath]  (blobs and trees @HEAD)
+
+    @property
+    def names(self):
+        if self._names is None:
+            self._names = {}
+            for cur, dirs, files in os.walk(self.repo):
+                dirs[:] = [x for x in dirs if x != ".git"]
+                for n in dirs + files:
+                    rel = os.path.relpath(os.path.join(cur, n), self.repo)
+                    self._names.setdefault(n, []).append(
+                        (rel, os.path.isdir(os.path.join(cur, n))))
+        return self._names
+
+    @property
+    def shas(self):
+        if self._shas is None:
+            self._shas = {}
+            out = git(self.repo, "ls-tree", "-r", "-t", "-z", "HEAD") or ""
+            for row in out.split("\0"):
+                if not row:
+                    continue
+                meta, _, rel = row.partition("\t")
+                sha = meta.split()[2]
+                self._shas.setdefault(sha, []).append(rel)
+        return self._shas
+
+    def object_at_last_sighting(self, rel):
+        """Sha of `rel` at HEAD, or at/just-before the last commit touching it."""
+        sha = git(self.repo, "rev-parse", "-q", "--verify", f"HEAD:{rel}")
+        if sha:
+            return sha, "HEAD"
+        c = git(self.repo, "log", "-1", "--format=%H", "--", rel)
+        if not c:
+            return None, None
+        for spec in (f"{c}:{rel}", f"{c}^:{rel}"):
+            sha = git(self.repo, "rev-parse", "-q", "--verify", spec)
+            if sha:
+                return sha, c
+        return None, c
+
+    def follow_renames(self, rel):
+        """Chase committed renames of `rel` (file or directory) to a live path."""
+        cur = rel
+        for _ in range(8):
+            if os.path.lexists(os.path.join(self.repo, cur)):
+                return cur
+            c = git(self.repo, "log", "-1", "--format=%H", "--", cur)
+            if not c:
+                return None
+            diff = git(self.repo, "diff-tree", "-r", "-M", "--name-status",
+                       "--root", f"{c}^", c) \
+                or git(self.repo, "diff-tree", "-r", "-M", "--name-status",
+                       "--root", c)
+            if not diff:
+                return None
+            nxt = self._rename_target(diff, cur)
+            if not nxt or nxt == cur:
+                return None
+            cur = nxt
+        return None
+
+    @staticmethod
+    def _rename_target(diff, rel):
+        """Extract where `rel` went in one commit's -M diff; infers dir renames."""
+        prefix = rel + "/"
+        dir_maps = set()
+        for line in diff.splitlines():
+            parts = line.split("\t")
+            if len(parts) != 3 or not parts[0].startswith("R"):
+                continue
+            _, old, new = parts
+            if old == rel:
+                return new
+            if old.startswith(prefix):
+                suffix = old[len(rel):]
+                if new.endswith(suffix):
+                    dir_maps.add(new[: len(new) - len(suffix)])
+        return dir_maps.pop() if len(dir_maps) == 1 else None
+
+    def deleted_in(self, rel):
+        return git(self.repo, "log", "-1", "--format=%h %ad %s",
+                   "--date=short", "--diff-filter=D", "--", rel)
+
+
+def diagnose(idx, rel, want_dir):
+    """Return (status, new_rel_or_candidates, method)."""
+    # 1. Exact: committed rename chain.
+    moved = idx.follow_renames(rel)
+    if moved:
+        return "fixable", moved, "git rename"
+
+    # 2. Content identity: same blob/tree sha living elsewhere at HEAD.
+    sha, _ = idx.object_at_last_sighting(rel)
+    if sha:
+        live = [p for p in idx.shas.get(sha, ())
+                if p != rel and os.path.lexists(os.path.join(idx.repo, p))]
+        if len(live) > 1:  # prefer same basename among content twins
+            same = [p for p in live
+                    if os.path.basename(p) == os.path.basename(rel)]
+            live = same or live
+        if len(live) == 1:
+            return "fixable", live[0], "same content"
+        if len(live) > 1:
+            return "ambiguous", live, "same content"
+
+    # 3. Name identity in the working tree (uncommitted mv).
+    cands = [p for p, d in idx.names.get(os.path.basename(rel), ())
+             if p != rel and (want_dir is None or d == want_dir)]
+    if len(cands) == 1:
+        return "fixable", cands[0], "same name"
+    if cands:
+        return "ambiguous", cands, "same name"
+
+    # 4. Nothing. Deleted, or never tracked.
+    gone = idx.deleted_in(rel)
+    if gone:
+        return "deleted", gone, None
+    return "unresolved", None, None
+
+
+def repoint(link, old_literal, new_abs):
+    """Atomically rewrite `link`, preserving relative/absolute style."""
+    if os.path.isabs(old_literal):
+        new_target = new_abs
+    else:
+        new_target = os.path.relpath(new_abs, os.path.dirname(link))
+    tmp = f"{link}.link-doctor.{os.getpid()}"
+    os.symlink(new_target, tmp)
+    os.replace(tmp, link)
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        prog="link-doctor",
+        description=__doc__.split("\n\n")[0],
+    )
+    ap.add_argument("--repo", default=DEFAULT_REPO,
+                    help=f"git repo links point into (default {tilde(DEFAULT_REPO)})")
+    ap.add_argument("--root", action="append", dest="roots", metavar="DIR",
+                    help="scan root(s) for symlinks (default ~)")
+    ap.add_argument("--fix", action="store_true",
+                    help="offer to repair fixable links")
+    ap.add_argument("--yes", action="store_true",
+                    help="with --fix: apply all confident repairs without asking")
+    ap.add_argument("-v", "--verbose", action="store_true",
+                    help="also list healthy links")
+    args = ap.parse_args()
+
+    repo = os.path.realpath(os.path.expanduser(args.repo))
+    roots = [os.path.expanduser(r) for r in (args.roots or DEFAULT_ROOTS)]
+    if not git(repo, "rev-parse", "--show-toplevel"):
+        sys.exit(f"error: {tilde(repo)} is not a git repository")
+
+    idx = RepoIndex(repo)
+    ok, broken = [], []
+
+    for link in walk_symlinks(roots):
+        literal = os.readlink(link)
+        absolute = literal if os.path.isabs(literal) else \
+            os.path.normpath(os.path.join(os.path.dirname(link), literal))
+        absolute = os.path.normpath(absolute)
+        if not is_under(absolute, repo):
+            continue
+        if os.path.exists(link):
+            ok.append((link, absolute))
+        else:
+            broken.append((link, literal, absolute))
+
+    if args.verbose:
+        for link, tgt in sorted(ok):
+            print(f"{C_GRN}ok{C_OFF}        {tilde(link)} {C_DIM}->"
+                  f" {tilde(tgt)}{C_OFF}")
+
+    fixed = unresolved = 0
+    apply_all = args.yes
+    for link, literal, absolute in sorted(broken):
+        rel = os.path.relpath(absolute, repo)
+        want_dir = None  # unknowable once broken; sha/type checks handle it
+        status, res, method = diagnose(idx, rel, want_dir)
+        loc = tilde(link)
+
+        if status == "fixable":
+            new_abs = os.path.join(repo, res)
+            print(f"{C_YEL}moved{C_OFF}     {loc}")
+            print(f"  was  {tilde(absolute)}")
+            print(f"  now  {C_CYN}{tilde(new_abs)}{C_OFF}  {C_DIM}({method}){C_OFF}")
+            if args.fix:
+                do = apply_all
+                if not do:
+                    try:
+                        a = input("  repoint? [y/N/a(ll)/q] ").strip().lower()
+                    except EOFError:
+                        a = "q"
+                    if a == "q":
+                        print("  stopping.")
+                        break
+                    if a == "a":
+                        apply_all = do = True
+                    else:
+                        do = a == "y"
+                if do:
+                    repoint(link, literal, new_abs)
+                    fixed += 1
+                    print(f"  {C_GRN}repointed{C_OFF}")
+                else:
+                    unresolved += 1
+            else:
+                unresolved += 1
+        elif status == "ambiguous":
+            unresolved += 1
+            print(f"{C_YEL}ambiguous{C_OFF} {loc}")
+            print(f"  was  {tilde(absolute)}")
+            for p in res:
+                print(f"  {C_DIM}candidate ({method}): {tilde(os.path.join(repo, p))}{C_OFF}")
+        elif status == "deleted":
+            unresolved += 1
+            print(f"{C_RED}deleted{C_OFF}   {loc}")
+            print(f"  was  {tilde(absolute)}")
+            print(f"  {C_DIM}removed in: {res}{C_OFF}")
+        else:
+            unresolved += 1
+            print(f"{C_RED}lost{C_OFF}      {loc}")
+            print(f"  was  {tilde(absolute)}  {C_DIM}(never committed;"
+                  f" no match in working tree){C_OFF}")
+
+    n = len(ok) + len(broken)
+    bits = [f"{n} link{'s' * (n != 1)} into {tilde(repo)}", f"{len(ok)} ok"]
+    if fixed:
+        bits.append(f"{C_GRN}{fixed} repointed{C_OFF}")
+    if unresolved:
+        bits.append(f"{C_RED}{unresolved} need attention{C_OFF}")
+    if broken and not args.fix and any(True for _ in broken):
+        bits.append(f"{C_DIM}run with --fix to repair{C_OFF}")
+    print(("—" if broken or args.verbose else "") or "", end="")
+    print(", ".join(bits))
+    sys.exit(1 if unresolved else 0)
+
+
+if __name__ == "__main__":
+    main()
