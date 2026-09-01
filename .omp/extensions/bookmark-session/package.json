@@ -1,0 +1,9 @@
+{
+  "name": "@omp-extensions/bookmark-session",
+  "type": "module",
+  "omp": {
+    "extensions": [
+      "./bookmark-session.ts"
+    ]
+  }
+}

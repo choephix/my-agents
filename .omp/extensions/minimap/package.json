@@ -1,0 +1,8 @@
+{
+  "type": "module",
+  "omp": {
+    "extensions": [
+      "./minimap.ts"
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+{
+	"type": "module",
+	"omp": {
+		"extensions": ["./scribe.ts"]
+	}
+}

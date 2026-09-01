@@ -1,0 +1,9 @@
+{
+  "name": "@omp-extensions/say-last-message",
+  "type": "module",
+  "omp": {
+    "extensions": [
+      "./say-last-message.ts"
+    ]
+  }
+}

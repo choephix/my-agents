@@ -1,0 +1,8 @@
+{
+  "type": "module",
+  "omp": {
+    "extensions": [
+      "./stage-note.ts"
+    ]
+  }
+}
