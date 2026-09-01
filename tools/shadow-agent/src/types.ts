@@ -20,6 +20,16 @@ export type TurnSource = {
 	agent: string;
 	/** 0 for the main session, 1 for its subagents, 2 for theirs. */
 	depth: number;
+	/** Present when the record is assembled with a known session file. */
+	session?: TurnSession;
+};
+
+/** Where a record came from on disk. */
+export type TurnSession = {
+	file: string;
+	cwd: string;
+	/** `repo` or `repo/worktree-or-subdir`, derived from git. */
+	project: string;
 };
 
 /**

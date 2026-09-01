@@ -2,12 +2,18 @@ import { type FSWatcher, watch } from "node:fs";
 
 export type TailHandle = { stop: () => void };
 
+export type TailSpan = { start: number; end: number };
+
 export type TailOptions = {
-	/** Start at end of file, ignoring existing history. */
+	/** Start at end of file, ignoring existing history. Ignored when `fromOffset` is set. */
 	fromEnd: boolean;
+	/** Resume from this byte offset. */
+	fromOffset?: number;
 	/** Poll interval backing up fs.watch. Default 500ms. */
 	pollMs?: number;
 };
+
+export type TailListener = (entry: unknown, span: TailSpan) => void;
 
 /**
  * Follow an append-only JSONL file, emitting one parsed object per complete line.
@@ -17,9 +23,10 @@ export type TailOptions = {
  * `fs.watch`, so a path-reopening poll backs it up and a shrunken file resets the
  * read offset. Unparseable lines are skipped, matching the lenient session loader.
  */
-export function tailJsonl(file: string, options: TailOptions, onEntry: (entry: unknown) => void): TailHandle {
-	let offset = options.fromEnd ? Bun.file(file).size : 0;
+export function tailJsonl(file: string, options: TailOptions, onEntry: TailListener): TailHandle {
+	let offset = options.fromOffset ?? (options.fromEnd ? Number(Bun.file(file).size) : 0);
 	let remainder = "";
+	let remainderStart = offset;
 	let reading = false;
 	let pending = false;
 	let stopped = false;
@@ -33,29 +40,35 @@ export function tailJsonl(file: string, options: TailOptions, onEntry: (entry: u
 		reading = true;
 		try {
 			const handle = Bun.file(file);
-			const size = handle.size;
+			const size = Number(handle.size);
 			if (size < offset) {
 				// Truncated or rewritten underneath us: restart from the top.
 				offset = 0;
 				remainder = "";
+				remainderStart = 0;
 			}
 			if (size > offset) {
 				const chunk = await handle.slice(offset, size).text();
+				const chunkStart = offset;
 				offset = size;
 				const lines = (remainder + chunk).split("\n");
 				// Last element is either "" or a partial line still being written.
-				remainder = lines.pop() ?? "";
+				const nextRemainder = lines.pop() ?? "";
+				let lineStart = remainderStart;
 				for (const line of lines) {
+					const bytes = Buffer.byteLength(line, "utf8") + 1;
 					const trimmed = line.trim();
-					if (!trimmed) continue;
-					let parsed: unknown;
-					try {
-						parsed = JSON.parse(trimmed);
-					} catch {
-						continue;
+					if (trimmed) {
+						try {
+							onEntry(JSON.parse(trimmed), { start: lineStart, end: lineStart + bytes });
+						} catch {
+							// skip unparseable, matching the lenient session loader
+						}
 					}
-					onEntry(parsed);
+					lineStart += bytes;
 				}
+				remainder = nextRemainder;
+				remainderStart = chunkStart + Buffer.byteLength(chunk, "utf8") - Buffer.byteLength(remainder, "utf8");
 			}
 		} finally {
 			reading = false;

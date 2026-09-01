@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>How shadow-daemon works</title>
+  <style>
+    :root {
+      --bg: #14120f;
+      --paper: #1c1914;
+      --ink: #ece6d8;
+      --muted: #9a917e;
+      --line: #3a3428;
+      --accent: #d4a054;
+      --good: #8fbf7a;
+      --code-bg: #0e0c0a;
+      --chip: #2a2419;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+    body {
+      font: 16px/1.65 "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    }
+    main {
+      max-width: 42rem;
+      margin: 0 auto;
+      padding: 3.5rem 1.25rem 5rem;
+    }
+    h1, h2, h3 {
+      font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      line-height: 1.25;
+    }
+    h1 { font-size: 2rem; margin: 0 0 0.4rem; }
+    h2 {
+      font-size: 1.2rem;
+      margin: 2.6rem 0 0.7rem;
+      padding-top: 0.4rem;
+      border-top: 1px solid var(--line);
+    }
+    h3 { font-size: 1rem; margin: 1.6rem 0 0.4rem; color: var(--accent); }
+    p { margin: 0.7rem 0; }
+    .lede { color: var(--muted); font-size: 1.05rem; margin-bottom: 1.6rem; }
+    .kicker {
+      font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+      font-size: 0.72rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.6rem;
+    }
+    a { color: var(--accent); }
+    code, kbd, pre {
+      font-family: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+      font-size: 0.84em;
+    }
+    code {
+      background: var(--chip);
+      padding: 0.08em 0.35em;
+      border-radius: 0.25rem;
+    }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--line);
+      border-radius: 0.5rem;
+      padding: 0.9rem 1rem;
+      overflow-x: auto;
+      line-height: 1.45;
+      color: #d8d0bf;
+    }
+    pre code { background: none; padding: 0; }
+    ul, ol { padding-left: 1.2rem; }
+    li { margin: 0.3rem 0; }
+    .flow {
+      display: grid;
+      gap: 0.45rem;
+      margin: 1.1rem 0 1.4rem;
+    }
+    .step {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 0.5rem;
+      padding: 0.7rem 0.9rem;
+    }
+    .step strong {
+      font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+      font-size: 0.82rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--accent);
+      display: block;
+      margin-bottom: 0.15rem;
+    }
+    .arrow {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+      letter-spacing: 0.2em;
+    }
+    .grid {
+      display: grid;
+      gap: 0.7rem;
+      margin: 1rem 0;
+    }
+    @media (min-width: 640px) {
+      .grid.two { grid-template-columns: 1fr 1fr; }
+    }
+    .card {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 0.5rem;
+      padding: 0.85rem 1rem;
+    }
+    .card h3 { margin-top: 0; }
+    .muted { color: var(--muted); }
+    .path { word-break: break-all; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+      margin: 0.8rem 0 1.2rem;
+    }
+    th, td {
+      text-align: left;
+      vertical-align: top;
+      padding: 0.45rem 0.4rem;
+      border-bottom: 1px solid var(--line);
+    }
+    th {
+      font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .note {
+      border-left: 3px solid var(--accent);
+      padding: 0.15rem 0 0.15rem 0.85rem;
+      color: var(--muted);
+      margin: 1rem 0;
+    }
+    footer {
+      margin-top: 3rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <p class="kicker">shadow-daemon</p>
+  <h1>How it works</h1>
+  <p class="lede">
+    A cheap observer of every finished turn in this OMP profile.
+    Capture is free. Reasoning is one Luna call per session-batch.
+    Memory lives in files, not in a long shadow transcript.
+  </p>
+
+  <h2>The split</h2>
+  <p>
+    Two processes, one package. They share a folder under the agent dir and almost nothing else.
+  </p>
+  <div class="grid two">
+    <div class="card">
+      <h3>Capture</h3>
+      <p>
+        A user-level extension, loaded in every session of this profile.
+        On <code>turn_end</code> it appends a tiny pointer to a JSONL ledger.
+        No model. No tools. If the daemon is off for a week, nothing is lost.
+      </p>
+      <p class="muted path"><code>~/.omp/agent/extensions/shadow-ledger.ts</code></p>
+    </div>
+    <div class="card">
+      <h3>Daemon</h3>
+      <p>
+        A process you start yourself, one per job toml.
+        It tails the ledger, slices the real session file, and wakes an ephemeral Luna session.
+        Then it throws that session away.
+      </p>
+      <p class="muted"><code>bun shadow-daemon.ts examples/journal.toml</code></p>
+    </div>
+  </div>
+  <p>
+    The original <code>shadow-agent</code> binary is still the other entry point:
+    one session tree, one continuous shadow. This page is only the profile-wide daemon.
+  </p>
+
+  <h2>The path of one turn</h2>
+  <div class="flow">
+    <div class="step">
+      <strong>1. You finish a turn</strong>
+      The agent yields. OMP fires <code>turn_end</code> in the live session.
+    </div>
+    <div class="arrow">↓</div>
+    <div class="step">
+      <strong>2. Extension writes a pointer</strong>
+      Only if this is a main session file under <code>sessions/</code>,
+      and the assistant message actually settled
+      (<code>stop</code> / <code>length</code> with no leftover tool call, or <code>aborted</code> / <code>error</code>).
+      Subagents are skipped. Their work is already inside the parent turn as <code>task</code> results.
+    </div>
+    <div class="arrow">↓</div>
+    <div class="step">
+      <strong>3. Ledger grows by one line</strong>
+      Something like:
+<pre><code>{"ts":"2026-08-16T18:40:00.000Z",
+ "session":"/home/cx/.omp/agent/sessions/-workspace-nilo/….jsonl",
+ "cwd":"/home/cx/workspace/nilo",
+ "id":"…",
+ "leaf":"…"}</code></pre>
+      No transcript. No prose. Just enough to find the turn later.
+    </div>
+    <div class="arrow">↓</div>
+    <div class="step">
+      <strong>4. Daemon tails that one file</strong>
+      <code>tailJsonl</code> watches <code>~/.omp/agent/shadow-daemon/ledger.jsonl</code>
+      from this job’s bookmark. Each new line becomes a pending pointer,
+      unless <code>match_cwd</code> rejects it.
+    </div>
+    <div class="arrow">↓</div>
+    <div class="step">
+      <strong>5. Dispatch picks one session-batch</strong>
+      Pending pointers are grouped by session file.
+      The first group whose newest turn is older than <code>quiesce_secs</code> (default 0) is ready.
+      One wakeup at a time per job. If Luna is already running, new turns queue.
+    </div>
+    <div class="arrow">↓</div>
+    <div class="step">
+      <strong>6. Slice the real session</strong>
+      Load the JSONL, walk the leaf branch, split at the first pending user turn:
+      stripped backstory + full finished turn(s).
+    </div>
+    <div class="arrow">↓</div>
+    <div class="step">
+      <strong>7. One-shot Luna</strong>
+      Fresh session in <code>shadow-daemon-sessions/</code>, cwd = the job’s files.
+      Prompt = standing instruction + project label + prose + full turn.
+      Luna reads/writes its own files, then the session is disposed.
+    </div>
+    <div class="arrow">↓</div>
+    <div class="step">
+      <strong>8. Bookmark advances</strong>
+      The job cursor is the byte offset of the oldest still-pending ledger line,
+      or the end of what has been seen. Restart resumes from there.
+    </div>
+  </div>
+
+  <h2>What Luna actually sees</h2>
+  <p>
+    Every wakeup is a new agent. There is no “remember last Tuesday from the transcript.”
+    Continuity is whatever the job wrote to disk last time.
+  </p>
+  <p>The system prompt is the job instruction plus a short standing rule:</p>
+  <ul>
+    <li>You observe. You do not talk to Stefan.</li>
+    <li>Your working directory is the job’s files. Those files are your memory. Read them first, write them before you end.</li>
+    <li>Do the work and end the turn.</li>
+  </ul>
+  <p>The user prompt is assembled in <code>renderDaemonWakeup</code>:</p>
+<pre><code>One finished turn in the session below.
+
+project: nilo/worktrees/pr-9134
+cwd: /home/cx/workspace/nilo/worktrees/pr-9134
+session: /home/cx/.omp/agent/sessions/…jsonl
+session id: …
+job files: ~/.omp/agent/shadow-daemon/jobs/journal
+
+## Conversation so far (stripped)
+…user + assistant text only, via prose.ts…
+
+## Finished turn(s) (full)
+[@user]
+…
+[@assistant]
+…including tool calls and results…
+
+Act on your standing instruction now, then end your turn.</code></pre>
+  <p>
+    <em>Stripped</em> means the existing <code>proseOf</code> / <code>storyFold</code> from
+    <code>.omp/extensions/prose/prose.ts</code>: user and assistant text, no thinking blocks,
+    no tool noise. <em>Full</em> is the pending turn(s) with tools intact, so subagent work
+    is visible where it matters and gone from the backstory.
+  </p>
+  <p>
+    Isolation: <code>disableExtensionDiscovery</code>, empty <code>contextFiles</code> / <code>skills</code> / <code>rules</code>.
+    Luna does not inherit the observed project’s <code>AGENTS.md</code>.
+    If it needs the project, the prompt gives the absolute cwd.
+  </p>
+
+  <h2>Scheduling, without a second scheduler</h2>
+  <p>
+    Default is strictly per-turn. <code>quiesce_secs = 0</code> makes the age check vacuously true.
+    The 500ms poll already exists as the tail backup, so debounce is one comparison:
+    newest pending timestamp + quiesce ≤ now.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Situation</th><th>What happens</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Daemon idle, one turn lands</td>
+        <td>One Luna call for that session, immediately (if quiesce is 0).</td>
+      </tr>
+      <tr>
+        <td>Two turns in two sessions</td>
+        <td>Two Luna calls, sequential. One session-batch per call. Never mixed into one context.</td>
+      </tr>
+      <tr>
+        <td>Wakeup still running</td>
+        <td>New pointers queue. After dispose, the next dispatch may send several turns from the same session as one lossless batch.</td>
+      </tr>
+      <tr>
+        <td>Daemon was off; ledger grew</td>
+        <td>Resume from the job cursor. Keep the newest <code>catchup_cap</code> (default 100), drop older, log the drop.</td>
+      </tr>
+      <tr>
+        <td><code>shadow-daemon skip job.toml</code></td>
+        <td>Bookmark → current ledger EOF. Exit. No reasoning.</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="note">
+    Coalescing is backpressure, not policy. Fast daemon = one call per turn.
+    Slow or returning daemon = catch up in batches that still contain every queued turn verbatim.
+  </p>
+
+  <h2>Files on disk</h2>
+  <p>All of this is profile-local. Default profile:</p>
+  <table>
+    <thead><tr><th>Path</th><th>Role</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="path"><code>~/.omp/agent/shadow-daemon/ledger.jsonl</code></td>
+        <td>Append-only pointers. Shared by every job in this profile.</td>
+      </tr>
+      <tr>
+        <td class="path"><code>~/.omp/agent/shadow-daemon/jobs/journal.cursor</code></td>
+        <td>Byte offset into the ledger. Per job, so two daemons do not steal each other’s place.</td>
+      </tr>
+      <tr>
+        <td class="path"><code>~/.omp/agent/shadow-daemon/jobs/journal/</code></td>
+        <td>Luna’s default cwd and file memory. A job can set <code>workdir</code> to use another folder.</td>
+      </tr>
+      <tr>
+        <td class="path"><code>~/.omp/agent/shadow-daemon-sessions/</code></td>
+        <td>Throwaway one-shot transcripts. Outside <code>sessions/</code>, so the extension never recaptures them.</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Other profile: <code>--profile nilo</code> switches the agent dir to
+    <code>~/.omp/profiles/nilo/agent</code>. There is no cross-profile daemon.
+    The Nilo wall stays a wall.
+  </p>
+  <p>
+    Loop safety is the same trick as the original shadow: daemon sessions live next to,
+    not inside, <code>sessions/</code>. The extension also refuses anything under
+    <code>shadow-daemon-sessions</code> or <code>shadow-agent-sessions</code>.
+  </p>
+
+  <h2>A job is just a toml</h2>
+<pre><code>name = "journal"
+model = "openai-codex/gpt-5.6-luna"
+workdir = "."
+quiesce_secs = 0
+catchup_cap = 100
+max_cost_usd = 50
+tools = ["read", "grep", "glob", "write", "edit"]
+
+instruction_file = "journal.instructions.md"</code></pre>
+  <ul>
+    <li><code>name</code> defaults to the filename. It is the cursor and default-workdir key.</li>
+    <li><code>workdir</code> and <code>instruction_file</code> resolve relative to the job toml. Use either <code>instruction_file</code> or inline <code>instruction</code>, not both.</li>
+    <li><code>match_cwd</code> is optional. Substring filter on the pointer’s cwd. The ledger is still written; the job just ignores the rest.</li>
+    <li>Budget is in-memory for this process. Hit <code>$50</code> and the daemon exits nonzero. No persisted accounting.</li>
+    <li>No lockfile. Two daemons on the same toml will double-write the same job files. Don’t do that. Two daemons on different tomls is the point.</li>
+  </ul>
+
+  <h2>How to run it</h2>
+  <p>Existing OMP sessions do not pick up a newly linked extension. Restart or reload those. New sessions write immediately.</p>
+<pre><code># from shadow-agent/
+bun shadow-daemon.ts examples/journal.toml
+bun shadow-daemon.ts skip examples/journal.toml
+bun shadow-daemon.ts --profile nilo jobs/decisions.toml</code></pre>
+  <p>
+    It does not start itself. You start the jobs you want, when you want them:
+    a daily journal, a decisions file, a machine changelog — each a cheap Luna
+    with its own instruction and its own folder.
+  </p>
+
+  <h2>What it is not</h2>
+  <ul>
+    <li>Not a continuous conversation that watches you across projects and “feels the chaos.” That design was rejected: cheap models degrade in long mixed transcripts. Chaos arrives as inputs; memory is files the job chose to keep.</li>
+    <li>Not a file-watcher over 1300 session JSONLs. One ledger, one tail.</li>
+    <li>Not automatic. No systemd unit, no hub start, no lock.</li>
+    <li>Not the original per-session shadow. That binary is still there for “watch this one tree, keep one shadow session.”</li>
+  </ul>
+
+  <footer>
+    Shipped in <code>shadow-agent/</code>. Capture: <code>extension/shadow-ledger.ts</code>.
+    Loop: <code>src/dispatch.ts</code>. Wakeup: <code>src/wakeup.ts</code> + <code>src/session-read.ts</code>.
+  </footer>
+</main>
+</body>
+</html>

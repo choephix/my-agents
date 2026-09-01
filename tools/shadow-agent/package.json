@@ -4,7 +4,8 @@
 	"private": true,
 	"type": "module",
 	"bin": {
-		"shadow-agent": "./shadow-agent.ts"
+		"shadow-agent": "./shadow-agent.ts",
+		"shadow-daemon": "./shadow-daemon.ts"
 	},
 	"dependencies": {
 		"@oh-my-pi/pi-coding-agent": "17.2.12"

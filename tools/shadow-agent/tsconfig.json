@@ -12,5 +12,5 @@
 		"allowImportingTsExtensions": true,
 		"verbatimModuleSyntax": true
 	},
-	"include": ["shadow-agent.ts", "src/**/*.ts", "examples/**/*.ts", "scripts/**/*.ts"]
+	"include": ["shadow-agent.ts", "shadow-daemon.ts", "src/**/*.ts", "examples/**/*.ts", "scripts/**/*.ts", "extension/**/*.ts"]
 }

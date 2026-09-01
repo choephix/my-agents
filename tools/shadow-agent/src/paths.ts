@@ -22,3 +22,31 @@ export function newShadowSessionFile(cwd: string): string {
 	const id = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
 	return path.join(shadowSessionDir(cwd), `${timestamp}_shadow-${id}.jsonl`);
 }
+
+/** Profile-local home for the ledger, job cursors, and job workdirs. */
+export function shadowDaemonDir(agentDir: string): string {
+	return path.join(agentDir, "shadow-daemon");
+}
+
+export function ledgerPath(agentDir: string): string {
+	return path.join(shadowDaemonDir(agentDir), "ledger.jsonl");
+}
+
+export function jobWorkdir(agentDir: string, name: string): string {
+	return path.join(shadowDaemonDir(agentDir), "jobs", name);
+}
+
+export function cursorPath(agentDir: string, name: string): string {
+	return path.join(shadowDaemonDir(agentDir), "jobs", `${name}.cursor`);
+}
+
+/** Ephemeral one-shot sessions, outside `sessions/` so the ledger never sees them. */
+export function daemonSessionDir(agentDir: string): string {
+	return path.join(agentDir, "shadow-daemon-sessions");
+}
+
+export function newDaemonSessionFile(agentDir: string): string {
+	const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+	const id = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
+	return path.join(daemonSessionDir(agentDir), `${timestamp}_daemon-${id}.jsonl`);
+}

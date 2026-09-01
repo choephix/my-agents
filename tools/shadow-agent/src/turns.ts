@@ -211,7 +211,8 @@ function summarizeCall(call: ShadowToolCall): string {
 
 /** How a record's origin reads in a digest. */
 export function sourceLabel(source: TurnSource): string {
-	return source.kind === "main" ? "main session" : `subagent ${source.agent}`;
+	const who = source.kind === "main" ? "main session" : `subagent ${source.agent}`;
+	return source.session?.project ? `${source.session.project} · ${who}` : who;
 }
 
 const EVENT_HEADLINES: Record<string, string> = {

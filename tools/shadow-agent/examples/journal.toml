@@ -1,0 +1,16 @@
+name = "journal"
+model = "openai-codex/gpt-5.6-luna"
+quiesce_secs = 0
+catchup_cap = 100
+max_cost_usd = 50
+tools = ["read", "grep", "glob", "write", "edit"]
+
+instruction = """
+Maintain journal.md in this job's working directory.
+
+After each finished turn:
+- Read journal.md if it exists.
+- Append a dated entry for what happened in this session: the project, the decision or outcome, and anything still open.
+- Keep entries short. Do not invent work that is not in the transcript.
+- End your turn after writing.
+"""
