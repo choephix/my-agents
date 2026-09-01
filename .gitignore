@@ -1,0 +1,4 @@
+skills/vendor-*
+.agents-local
+skills/unorganised/moshi-notification/
+*.bak
