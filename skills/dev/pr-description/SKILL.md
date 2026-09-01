@@ -26,3 +26,7 @@ Headline register, by example:
 - Weak: "Refactor pointer-lock handling in ContextInputHardwareSource."
 - Strong: "Character controls work again — since #10618 they self-destructed within a frame
 of attaching, for every desktop user."
+
+---
+
+Don't reference private conversations or emails.

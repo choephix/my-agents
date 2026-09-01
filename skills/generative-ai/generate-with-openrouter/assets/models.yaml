@@ -1,0 +1,115 @@
+version: 1
+updated: "2026-09-01"
+preferences: |
+  Add your preferences here, e.g.:
+  - "User prefers google/gemini-3.1-flash-image for balanced quality and speed"
+  - "User prefers openai/gpt-5-image-mini for low-cost drafts"
+
+models:
+  - id: "google/gemini-3.1-flash-lite-image"
+    name: "Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image)"
+    aliases: ["nano banana 2 lite", "nb2 lite"]
+    capabilities: [text-to-image, image-editing]
+    description: "Google's fastest and most cost-efficient Gemini image model targets high-volume generation and reference-based editing."
+    notes: "Approx $0.039 per 1024px image, assuming about 1290 image-output tokens at $0.00003/token; actual token use varies. The Lite variant prioritizes speed and cost."
+    input:
+      required: ["prompt"]
+      params:
+        prompt: "string — what to generate or how to edit the supplied images"
+        images: "array of URLs or local paths — reference/edit inputs (optional)"
+
+  - id: "google/gemini-3.1-flash-image"
+    name: "Nano Banana 2 (Gemini 3.1 Flash Image)"
+    aliases: ["nano banana 2", "nb2"]
+    capabilities: [text-to-image, image-editing]
+    description: "Google's Nano Banana 2 delivers Pro-level image generation and editing quality at Flash speed."
+    notes: "Approx $0.077 per 1024px image, assuming about 1290 image-output tokens at $0.00006/token; actual token use varies. This is the stable target for the Nano Banana 2 aliases."
+    input:
+      required: ["prompt"]
+      params:
+        prompt: "string — what to generate or how to edit the supplied images"
+        images: "array of URLs or local paths — reference/edit inputs (optional)"
+
+  - id: "google/gemini-3-pro-image"
+    name: "Nano Banana Pro (Gemini 3 Pro Image)"
+    aliases: ["nano banana pro", "nb pro"]
+    capabilities: [text-to-image, image-editing]
+    description: "Google's most advanced Gemini image model combines high-quality generation and editing with stronger multimodal reasoning."
+    notes: "Approx $0.155 per 1024px image, assuming about 1290 image-output tokens at $0.00012/token; actual token use varies. This is the stable target for the Nano Banana Pro aliases."
+    input:
+      required: ["prompt"]
+      params:
+        prompt: "string — what to generate or how to edit the supplied images"
+        images: "array of URLs or local paths — reference/edit inputs (optional)"
+
+  - id: "openai/gpt-5.4-image-2"
+    name: "GPT-5.4 Image 2"
+    aliases: ["gpt 5.4 image 2", "gpt image 2"]
+    capabilities: [text-to-image, image-editing]
+    description: "OpenAI's GPT-5.4 Image 2 combines GPT-5.4 reasoning with GPT Image 2 generation and editing for multimodal workflows."
+    notes: "Approx $0.039 per 1024px image, derived on the same 1290 image-output-token basis at $0.00003/token; actual token use varies. The model can move between reasoning, text, and visual work in one conversation."
+    input:
+      required: ["prompt"]
+      params:
+        prompt: "string — what to generate or how to edit the supplied images"
+        images: "array of URLs or local paths — reference/edit inputs (optional)"
+
+  - id: "google/gemini-3.1-flash-image-preview"
+    name: "Nano Banana 2 (Gemini 3.1 Flash Image Preview)"
+    aliases: ["nano banana 2 preview", "nb2 preview"]
+    capabilities: [text-to-image, image-editing]
+    description: "This preview of Google's Nano Banana 2 provides fast, high-quality image generation and reference-based editing."
+    notes: "Approx $0.077 per 1024px image, assuming about 1290 image-output tokens at $0.00006/token; actual token use varies. This is a preview model, so use its explicit preview aliases and expect lifecycle changes."
+    input:
+      required: ["prompt"]
+      params:
+        prompt: "string — what to generate or how to edit the supplied images"
+        images: "array of URLs or local paths — reference/edit inputs (optional)"
+
+  - id: "google/gemini-3-pro-image-preview"
+    name: "Nano Banana Pro (Gemini 3 Pro Image Preview)"
+    aliases: ["nano banana pro preview", "nb pro preview"]
+    capabilities: [text-to-image, image-editing]
+    description: "This preview of Google's Nano Banana Pro provides advanced image generation and editing backed by Gemini 3 Pro reasoning."
+    notes: "Approx $0.155 per 1024px image, assuming about 1290 image-output tokens at $0.00012/token; actual token use varies. This is a preview model, so use its explicit preview aliases and expect lifecycle changes."
+    input:
+      required: ["prompt"]
+      params:
+        prompt: "string — what to generate or how to edit the supplied images"
+        images: "array of URLs or local paths — reference/edit inputs (optional)"
+
+  - id: "openai/gpt-5-image-mini"
+    name: "GPT-5 Image Mini"
+    aliases: ["gpt image mini", "gpt 5 image mini"]
+    capabilities: [text-to-image, image-editing]
+    description: "OpenAI's GPT-5 Image Mini pairs GPT-5 Mini language capabilities with efficient GPT Image generation and editing."
+    notes: "Approx $0.010 per 1024px image, derived on the same 1290 image-output-token basis at $0.000008/token; actual token use varies. The Mini variant prioritizes efficient, lower-cost generation."
+    input:
+      required: ["prompt"]
+      params:
+        prompt: "string — what to generate or how to edit the supplied images"
+        images: "array of URLs or local paths — reference/edit inputs (optional)"
+
+  - id: "openai/gpt-5-image"
+    name: "GPT-5 Image"
+    aliases: ["gpt image", "gpt 5 image"]
+    capabilities: [text-to-image, image-editing]
+    description: "OpenAI's GPT-5 Image combines GPT-5 reasoning with instruction-following image generation and editing."
+    notes: "Approx $0.052 per 1024px image, derived on the same 1290 image-output-token basis at $0.00004/token; actual token use varies. This is the stable target for the GPT Image alias."
+    input:
+      required: ["prompt"]
+      params:
+        prompt: "string — what to generate or how to edit the supplied images"
+        images: "array of URLs or local paths — reference/edit inputs (optional)"
+
+  - id: "google/gemini-2.5-flash-image"
+    name: "Nano Banana (Gemini 2.5 Flash Image)"
+    aliases: ["nano banana", "nb"]
+    capabilities: [text-to-image, image-editing]
+    description: "Google's generally available Nano Banana model provides context-aware image generation and editing with Gemini 2.5 Flash."
+    notes: "Approx $0.039 per 1024px image, assuming about 1290 image-output tokens at $0.00003/token; actual token use varies. This generally available model is the stable target for the original Nano Banana aliases."
+    input:
+      required: ["prompt"]
+      params:
+        prompt: "string — what to generate or how to edit the supplied images"
+        images: "array of URLs or local paths — reference/edit inputs (optional)"

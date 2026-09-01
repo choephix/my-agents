@@ -1,0 +1,546 @@
+version: 2
+updated: "2026-09-01"
+preferences: |
+  Add your preferences here, e.g.:
+  - "User prefers fal-ai/nano-banana-2 for quality"
+  - "User prefers fal-ai/flux-2/klein/9b for fast generation"
+
+endpoints:
+  - id: "fal-ai/flux-2/klein/9b"
+    aliases: ["flux klein", "flux-2 klein", "klein"]
+    category: "text-to-image"
+    description: "Fast text-to-image generation with FLUX.2 klein 9B from Black Forest Labs. Enhanced realism, crisper text generation."
+    notes: "Fast generation (4-8 steps), good for quick iterations. $0.006 per megapixel. Four steps is fastest; eight steps improves quality at roughly twice the generation time."
+    input:
+      required: ["prompt"]
+      batch: "num_images"
+      params:
+        prompt: "string — text prompt to generate from"
+        num_images: "integer — number of images to generate (range: 1-4; default: 1)"
+        seed: "integer — random seed for reproducibility (default: random)"
+        num_inference_steps: "integer — inference steps (range: 4-8; default: 4)"
+        image_size: "string preset or {width,height} — square_hd | square | portrait_4_3 | portrait_16_9 | landscape_4_3 | landscape_16_9 (default: landscape_4_3)"
+        output_format: "enum: png | jpeg | webp (default: png)"
+
+  - id: "fal-ai/flux-2"
+    aliases: ["flux 2", "flux2 dev"]
+    category: "text-to-image"
+    description: "FLUX.2 [dev] text-to-image from Black Forest Labs. Enhanced realism, crisper text generation, with adjustable inference steps."
+    notes: "$0.012 per megapixel. Supports 4-50 inference steps, acceleration modes, and prompt expansion."
+    input:
+      required: ["prompt"]
+      batch: "num_images"
+      params:
+        prompt: "string — text prompt to generate from"
+        num_images: "integer — number of images to generate (range: 1-4; default: 1)"
+        image_size: "string preset or {width,height} — square_hd | square | portrait_4_3 | portrait_16_9 | landscape_4_3 | landscape_16_9 (default: landscape_4_3)"
+        guidance_scale: "number — how closely to follow the prompt (range: 0-20; default: 2.5)"
+        num_inference_steps: "integer — inference steps (range: 4-50; default: 28)"
+        seed: "integer — seed for reproducibility (default: random)"
+        acceleration: "enum: none | regular | high (default: regular)"
+        enable_prompt_expansion: "boolean — expand the prompt for better results (default: false)"
+        enable_safety_checker: "boolean — enable the safety checker (default: true)"
+        output_format: "enum: jpeg | png | webp (default: png)"
+
+  - id: "fal-ai/flux-2/flash"
+    aliases: ["flux 2 flash", "flash"]
+    category: "text-to-image"
+    description: "FLUX.2 [dev] flash mode. Fast generation with enhanced realism and crisper text."
+    notes: "$0.005 per megapixel. Fastest FLUX.2 option. Supports prompt expansion."
+    input:
+      required: ["prompt"]
+      batch: "num_images"
+      params:
+        prompt: "string — text prompt to generate from"
+        num_images: "integer — number of images to generate (range: 1-4; default: 1)"
+        image_size: "string preset or {width,height} — square_hd | square | portrait_4_3 | portrait_16_9 | landscape_4_3 | landscape_16_9 (default: landscape_4_3)"
+        guidance_scale: "number — how closely to follow the prompt (range: 0-20; default: 2.5)"
+        seed: "integer — seed for reproducibility (default: random)"
+        enable_prompt_expansion: "boolean — expand the prompt for better results (default: false)"
+        enable_safety_checker: "boolean — enable the safety checker (default: true)"
+        output_format: "enum: jpeg | png | webp (default: png)"
+
+  - id: "fal-ai/flux-2-flex"
+    aliases: ["flux 2 flex", "flex"]
+    category: "text-to-image"
+    description: "FLUX.2 [flex] text-to-image. Adjustable inference steps and guidance scale for fine-tuned control. Enhanced typography."
+    notes: "$0.05 per megapixel (input and output). Supports 2-50 steps, guidance 1.5-10."
+    input:
+      required: ["prompt"]
+      batch: null
+      params:
+        prompt: "string — text prompt to generate from"
+        image_size: "string preset or {width,height} — square_hd | square | portrait_4_3 | portrait_16_9 | landscape_4_3 | landscape_16_9 (default: landscape_4_3)"
+        guidance_scale: "number — guidance scale (range: 1.5-10; default: 3.5)"
+        num_inference_steps: "integer — inference steps (range: 2-50; default: 28)"
+        seed: "integer — seed for reproducibility (default: random)"
+        safety_tolerance: "enum: 1 | 2 | 3 | 4 | 5 — 1 is strict and 5 is permissive (default: 2)"
+        enable_safety_checker: "boolean — enable the safety checker (default: true)"
+        output_format: "enum: jpeg | png (default: jpeg)"
+
+  - id: "fal-ai/flux-2-max"
+    aliases: ["flux 2 max", "max"]
+    category: "text-to-image"
+    description: "FLUX.2 [max] state-of-the-art image generation with exceptional realism, precision, and consistency."
+    notes: "$0.07 first megapixel + $0.03/additional. Highest quality FLUX.2 model."
+    input:
+      required: ["prompt"]
+      batch: null
+      params:
+        prompt: "string — text prompt to generate from"
+        image_size: "string preset or {width,height} — square_hd | square | portrait_4_3 | portrait_16_9 | landscape_4_3 | landscape_16_9 (default: landscape_4_3)"
+        seed: "integer — seed for reproducibility (default: random)"
+        safety_tolerance: "enum: 1 | 2 | 3 | 4 | 5 — 1 is strict and 5 is permissive (default: 2)"
+        enable_safety_checker: "boolean — enable the safety checker (default: true)"
+        output_format: "enum: jpeg | png (default: jpeg)"
+
+  - id: "fal-ai/flux-1/krea"
+    aliases: ["flux 1 krea", "krea", "flux krea"]
+    category: "text-to-image"
+    description: "FLUX.1 Krea [dev] 12B parameter model. Incredible aesthetics, suitable for personal and commercial use."
+    notes: "$0.025 per megapixel. Supports acceleration modes."
+    input:
+      required: ["prompt"]
+      batch: "num_images"
+      params:
+        prompt: "string — text prompt to generate from"
+        num_images: "integer — number of images to generate (range: 1-4; default: 1)"
+        image_size: "string preset or {width,height} — square_hd | square | portrait_4_3 | portrait_16_9 | landscape_4_3 | landscape_16_9 (default: landscape_4_3)"
+        guidance_scale: "number — CFG scale (range: 1-20; default: 4.5)"
+        num_inference_steps: "integer — inference steps (range: 1-50; default: 28)"
+        seed: "integer — seed for reproducibility (default: random)"
+        acceleration: "enum: none | regular | high (default: none)"
+        enable_safety_checker: "boolean — enable the safety checker (default: true)"
+        output_format: "enum: jpeg | png (default: jpeg)"
+
+  - id: "fal-ai/flux-2-pro"
+    aliases: ["flux 2 pro"]
+    category: "text-to-image"
+    description: "Text-to-image generation with FLUX.2 [pro] from Black Forest Labs. Optimized for maximum quality and photorealism."
+    notes: "Newer version of flux-pro with improved quality. Optimized for exceptional photorealism and artistic images."
+    input:
+      required: ["prompt"]
+      batch: null
+      params:
+        prompt: "string — text prompt to generate from"
+        seed: "integer — seed for reproducibility (default: random)"
+        image_size: "string preset or {width,height} — square_hd | square | portrait_4_3 | portrait_16_9 | landscape_4_3 | landscape_16_9 (default: landscape_4_3)"
+        output_format: "enum: jpeg | png (default: jpeg)"
+        safety_tolerance: "enum: 1 | 2 | 3 | 4 | 5 (default: 2)"
+        enable_safety_checker: "boolean — safety checker is enabled by the old tool (default: true)"
+
+  - id: "fal-ai/wan/v2.7/text-to-image"
+    aliases: ["wan 2.7", "wan", "wan 27"]
+    category: "text-to-image"
+    description: "WAN 2.7 text-to-image generation with strong prompt understanding and detailed outputs."
+    notes: "$0.03/image. Supports prompt, negative prompt, seed, safety checker, and 1-5 images. Negative prompts are limited to 500 characters."
+    input:
+      required: ["prompt"]
+      batch: "num_images"
+      params:
+        prompt: "string — text prompt to generate from"
+        image_size: "string preset or {width,height} — square_hd | square | portrait_4_3 | portrait_16_9 | landscape_4_3 | landscape_16_9 (default: square_hd)"
+        num_images: "integer — number of images to generate (range: 1-5; default: 1)"
+        negative_prompt: "string — content to avoid (maximum: 500 characters; default: empty)"
+        enable_safety_checker: "boolean — enable the safety checker (default: true)"
+        seed: "integer — random seed (range: 0-2147483647; default: random)"
+
+  - id: "fal-ai/nano-banana-2"
+    aliases: ["nano banana", "nano", "banana"]
+    category: "text-to-image"
+    description: "Google's state-of-the-art fast image generation model. Supports web search for up-to-date info."
+    notes: "$0.08/image. Higher quality than Flux. Supports resolutions 0.5K-4K. Resolution multipliers are 0.75x for 0.5K, 1.5x for 2K, and 2x for 4K; web search adds $0.015 per request."
+    input:
+      required: ["prompt"]
+      batch: "num_images"
+      params:
+        prompt: "string — text prompt to generate from"
+        num_images: "integer — output image count pinned to 1 by the old tool (default: 1)"
+        seed: "integer — random seed for reproducibility (default: random)"
+        aspect_ratio: "enum: auto | 21:9 | 16:9 | 3:2 | 4:3 | 5:4 | 1:1 | 4:5 | 3:4 | 2:3 | 9:16 | 4:1 | 1:4 | 8:1 | 1:8 (default: auto)"
+        resolution: "enum: 0.5K | 1K | 2K | 4K (default: 1K)"
+        output_format: "enum: png | jpeg | webp (default: png)"
+        safety_tolerance: "enum: 1 | 2 | 3 | 4 | 5 | 6 — 1 is strict and 6 is lenient (default: 4)"
+        limit_generations: "boolean — limit generations; fixed true by the old tool (default: true)"
+        enable_web_search: "boolean — use web search for current information (default: false)"
+
+  - id: "fal-ai/qwen-image-2/text-to-image"
+    aliases: ["qwen image 2", "qwen2", "qwen image"]
+    category: "text-to-image"
+    description: "Qwen-Image-2.0 is a next-generation foundational unified generation-and-editing model. Supports Chinese and English."
+    notes: "Supports Chinese prompts. 512-2048px range. Total pixels must be between 512x512 and 2048x2048; negative prompts are limited to 500 characters."
+    input:
+      required: ["prompt"]
+      batch: "num_images"
+      params:
+        prompt: "string — Chinese or English text prompt"
+        num_images: "integer — output image count pinned to 1 by the old tool (default: 1)"
+        seed: "integer — random seed (range: 0-2147483647; default: random)"
+        image_size: "string preset or {width,height} — square_hd | square | portrait_4_3 | portrait_16_9 | landscape_4_3 | landscape_16_9 (default: square_hd; total pixels: 512x512-2048x2048)"
+        output_format: "enum: jpeg | png | webp (default: png)"
+        negative_prompt: "string — content to avoid (maximum: 500 characters; default: empty)"
+        enable_prompt_expansion: "boolean — expand the prompt for better results (default: true)"
+        enable_safety_checker: "boolean — enable the safety checker (default: true)"
+
+  - id: "fal-ai/qwen-image-2/pro/text-to-image"
+    aliases: ["qwen image 2 pro", "qwen2 pro", "qwen pro"]
+    category: "text-to-image"
+    description: "Qwen-Image-2.0 Pro with enhanced quality. Handles long complex prompts well. Supports Chinese and English."
+    notes: "Pro version with better prompt understanding and quality. Total pixels must be between 512x512 and 2048x2048; negative prompts are limited to 500 characters."
+    input:
+      required: ["prompt"]
+      batch: "num_images"
+      params:
+        prompt: "string — Chinese or English text prompt; handles long, complex prompts"
+        num_images: "integer — output image count pinned to 1 by the old tool (default: 1)"
+        seed: "integer — random seed (range: 0-2147483647; default: random)"
+        image_size: "string preset or {width,height} — square_hd | square | portrait_4_3 | portrait_16_9 | landscape_4_3 | landscape_16_9 (default: square_hd; total pixels: 512x512-2048x2048)"
+        output_format: "enum: jpeg | png | webp (default: png)"
+        negative_prompt: "string — content to avoid (maximum: 500 characters; default: empty)"
+        enable_prompt_expansion: "boolean — expand the prompt for better results (default: true)"
+        enable_safety_checker: "boolean — enable the safety checker (default: true)"
+
+  - id: "fal-ai/stable-cascade/sote-diffusion"
+    aliases: ["sote", "sote diffusion", "stable cascade anime", "wurstchen anime"]
+    category: "text-to-image"
+    description: "Anime finetune of Würstchen V3 for text-to-image generation."
+    notes: "Stylized/anime-focused model. Supports decimal guidance scales and custom width/height. Uses two diffusion stages and returns images, seed, timings, safety concepts, and prompt."
+    input:
+      required: ["prompt"]
+      batch: "num_images"
+      params:
+        prompt: "string — text prompt"
+        negative_prompt: "string — content to avoid (default: empty)"
+        first_stage_steps: "integer — first-stage inference steps (range: 4-50; default: 25)"
+        second_stage_steps: "integer — second-stage inference steps (range: 4-24; default: 10)"
+        guidance_scale: "number — first-stage CFG scale (range: 0-20; default: 8)"
+        second_stage_guidance_scale: "number — second-stage CFG scale (range: 0-20; default: 2)"
+        image_size: "{width,height} — custom dimensions (default: {width: 1024, height: 1536})"
+        seed: "integer — random seed for reproducibility (default: random)"
+        enable_safety_checker: "boolean — enable the safety checker (default: true)"
+        num_images: "integer — output image count pinned to 1 by the old tool (default: 1)"
+
+  - id: "fal-ai/z-image/turbo/tiling"
+    aliases: ["z-image tiling", "tiling", "seamless", "tileable"]
+    category: "text-to-image"
+    description: "Generate seamlessly tiling photorealistic images. Great for textures, patterns, and tileable backgrounds."
+    notes: "$0.02/MP. Supports tile_size, tile_stride, tiling_mode (both/horizontal/vertical). 1-8 inference steps. Prompt expansion adds $0.0025."
+    input:
+      required: ["prompt"]
+      batch: "num_images"
+      params:
+        prompt: "string — text prompt"
+        num_images: "integer — output image count pinned to 1 by the old tool (default: 1)"
+        seed: "integer — random seed for reproducibility (default: random)"
+        num_inference_steps: "integer — inference steps (range: 1-8; default: 8)"
+        image_size: "string preset or {width,height} — square_hd | square | portrait_4_3 | portrait_16_9 | landscape_4_3 | landscape_16_9 | auto (default: square_hd)"
+        output_format: "enum: png | jpeg | webp (default: png)"
+        acceleration: "enum: none | regular | high (default: regular)"
+        tile_size: "integer — latent tile size (range: 32-256; default: 128; 64=512px, 128=1024px, 256=2048px)"
+        tile_stride: "integer — latent tile stride (range: 16-128; default: 64; 32=256px, 64=512px, 128=1024px)"
+        tiling_mode: "enum: both | horizontal | vertical (default: both)"
+        enable_prompt_expansion: "boolean — expand the prompt (default: false; adds $0.0025)"
+
+  - id: "xai/grok-imagine-image"
+    aliases: ["grok", "grok imagine", "grok image", "xai grok"]
+    category: "text-to-image"
+    description: "xAI's Grok image generation model. Supports long prompts (up to 8000 chars) and various aspect ratios."
+    notes: "Up to 8000 char prompts. Multiple aspect ratios including cinematic 20:9. Supports 1-4 outputs."
+    input:
+      required: ["prompt"]
+      batch: "num_images"
+      params:
+        prompt: "string — text prompt (maximum: 8000 characters)"
+        aspect_ratio: "enum: 2:1 | 20:9 | 19.5:9 | 16:9 | 4:3 | 3:2 | 1:1 | 2:3 | 3:4 | 9:16 | 9:19.5 | 9:20 | 1:2 (default: 1:1)"
+        num_images: "integer — number of images to generate (range: 1-4; default: 1)"
+        output_format: "enum: jpeg | png | webp (default: jpeg)"
+
+  - id: "fal-ai/flux-2/klein/9b/edit"
+    aliases: ["flux klein edit", "flux edit", "klein edit"]
+    category: "image-to-image"
+    description: "Image-to-image editing with FLUX.2 klein 9B. Edit images using natural language."
+    notes: "$0.011/MP for input + output. Up to 4 reference images. Input is resized to 1 MP; four steps is fastest and eight steps improves quality."
+    input:
+      required: ["prompt", "image_urls"]
+      batch: "num_images"
+      params:
+        prompt: "string — natural-language edit instruction"
+        image_urls: "string[] — 1-4 reference image URLs or local paths"
+        num_images: "integer — number of images to generate (range: 1-4; default: 1)"
+        seed: "integer — random seed for reproducibility (default: random)"
+        num_inference_steps: "integer — inference steps (range: 4-8; default: 4)"
+        image_size: "string preset or {width,height} — square_hd | square | portrait_4_3 | portrait_16_9 | landscape_4_3 | landscape_16_9 (default: input size)"
+        output_format: "enum: png | jpeg | webp (default: png)"
+
+  - id: "fal-ai/flux-pro/kontext"
+    aliases: ["flux pro kontext", "flux kontext", "kontext"]
+    category: "image-to-image"
+    description: "FLUX.1 Kontext [pro] handles both text and reference images for targeted, local edits and complex transformations."
+    notes: "Best for targeted edits. Supports aspect ratio control. Handles targeted local edits, complex transformations, and optional prompt enhancement."
+    input:
+      required: ["prompt", "image_url"]
+      batch: "num_images"
+      params:
+        prompt: "string — natural-language edit instruction"
+        image_url: "string — source image URL or local path"
+        num_images: "integer — output image count pinned to 1 by the old tool (default: 1)"
+        seed: "integer — random seed for reproducibility (default: random)"
+        guidance_scale: "number — CFG scale (range: 1-20; default: 3.5)"
+        aspect_ratio: "enum: 21:9 | 16:9 | 4:3 | 3:2 | 1:1 | 2:3 | 3:4 | 9:16 | 9:21 (default: source aspect ratio)"
+        output_format: "enum: jpeg | png (default: jpeg)"
+        safety_tolerance: "integer encoded as string — safety tolerance level 1-6 (default: 2)"
+        enhance_prompt: "boolean — enhance the prompt for better results (default: false)"
+
+  - id: "fal-ai/flux-2-pro/edit"
+    aliases: ["flux 2 pro edit"]
+    category: "image-to-image"
+    description: "Image editing with FLUX.2 [pro]. Ideal for high-quality image manipulation and style transfer."
+    notes: "Use 'auto' size to maintain input dimensions. Supports multiple reference images via the image_urls string array and sequential editing workflows."
+    input:
+      required: ["prompt", "image_urls"]
+      batch: null
+      params:
+        prompt: "string — natural-language edit instruction"
+        image_urls: "string[] — reference image URLs or local paths"
+        seed: "integer — random seed for reproducibility (default: random)"
+        image_size: "string preset or {width,height} — auto | square_hd | square | portrait_4_3 | portrait_16_9 | landscape_4_3 | landscape_16_9 (default: auto)"
+        output_format: "enum: jpeg | png (default: jpeg)"
+        safety_tolerance: "enum: 1 | 2 | 3 | 4 | 5 (default: 2)"
+        enable_safety_checker: "boolean — safety checker is enabled by the old tool (default: true)"
+
+  - id: "fal-ai/nano-banana-2/edit"
+    aliases: ["nano banana edit", "nano edit", "banana edit"]
+    category: "image-to-image"
+    description: "Google's state-of-the-art image editing model. Supports web search."
+    notes: "$0.08/image base + resolution multipliers. Web search +$0.015. Resolution multipliers are 0.75x for 0.5K, 1.5x for 2K, and 2x for 4K; safety level 1 is strict and 6 is lenient."
+    input:
+      required: ["prompt"]
+      batch: "num_images"
+      params:
+        prompt: "string — natural-language edit instruction"
+        image_urls: "string[] — source/reference image URLs or local paths"
+        num_images: "integer — output image count pinned to 1 by the old tool (default: 1)"
+        seed: "integer — random seed for reproducibility (default: random)"
+        aspect_ratio: "enum: auto | 21:9 | 16:9 | 3:2 | 4:3 | 5:4 | 1:1 | 4:5 | 3:4 | 2:3 | 9:16 | 4:1 | 1:4 | 8:1 | 1:8 (default: auto)"
+        resolution: "enum: 0.5K | 1K | 2K | 4K (default: 1K)"
+        output_format: "enum: png | jpeg | webp (default: png)"
+        safety_tolerance: "enum: 1 | 2 | 3 | 4 | 5 | 6 — 1 is strict and 6 is lenient (default: 4)"
+        limit_generations: "boolean — limit generations; fixed true by the old tool (default: true)"
+        enable_web_search: "boolean — use web search for current information (default: false)"
+
+  - id: "fal-ai/qwen-image-2/edit"
+    aliases: ["qwen image 2 edit", "qwen2 edit", "qwen edit"]
+    category: "image-to-image"
+    description: "Edit images with Qwen-Image-2.0. Supports 1-3 reference images. Reference as 'image 1', 'image 2', etc."
+    notes: "Supports Chinese prompts. Multi-image editing. Reference inputs as 'image 1', 'image 2', and 'image 3'; images must be 384-5000px per dimension, at most 10 MB, and JPEG/JPG/PNG without alpha or WEBP."
+    input:
+      required: ["prompt", "image_urls"]
+      batch: "num_images"
+      params:
+        prompt: "string — Chinese or English edit instruction (maximum: 800 characters)"
+        image_urls: "string[] — 1-3 reference image URLs or local paths"
+        num_images: "integer — output image count pinned to 1 by the old tool (default: 1)"
+        seed: "integer — random seed (range: 0-2147483647; default: random)"
+        image_size: "string preset or {width,height} — square_hd | square | portrait_4_3 | portrait_16_9 | landscape_4_3 | landscape_16_9 (default: input size)"
+        output_format: "enum: jpeg | png | webp (default: png)"
+        negative_prompt: "string — content to avoid (maximum: 500 characters; default: empty)"
+        enable_prompt_expansion: "boolean — expand the prompt for better results (default: true)"
+        enable_safety_checker: "boolean — enable the safety checker (default: true)"
+
+  - id: "fal-ai/qwen-image-2/pro/edit"
+    aliases: ["qwen image 2 pro edit", "qwen2 pro edit", "qwen pro edit"]
+    category: "image-to-image"
+    description: "Edit images with Qwen-Image-2.0 Pro. Enhanced quality for complex transformations."
+    notes: "Pro version with better editing quality. Supports 1-3 numbered reference images; images must be 384-5000px per dimension, at most 10 MB, and JPEG/JPG/PNG without alpha or WEBP."
+    input:
+      required: ["prompt", "image_urls"]
+      batch: "num_images"
+      params:
+        prompt: "string — Chinese or English edit instruction"
+        image_urls: "string[] — 1-3 reference image URLs or local paths"
+        num_images: "integer — output image count pinned to 1 by the old tool (default: 1)"
+        seed: "integer — random seed (range: 0-2147483647; default: random)"
+        image_size: "string preset or {width,height} — square_hd | square | portrait_4_3 | portrait_16_9 | landscape_4_3 | landscape_16_9 (default: input size)"
+        output_format: "enum: jpeg | png | webp (default: png)"
+        negative_prompt: "string — content to avoid (maximum: 500 characters; default: empty)"
+        enable_prompt_expansion: "boolean — expand the prompt for better results (default: true)"
+        enable_safety_checker: "boolean — enable the safety checker (default: true)"
+
+  - id: "xai/grok-imagine-image/edit"
+    aliases: ["grok edit", "grok imagine edit", "grok image edit", "xai grok edit"]
+    category: "image-to-image"
+    description: "Edit images with xAI's Grok model. Supports up to 3 reference images and long prompts."
+    notes: "Up to 8000 char prompts. Up to 3 input images. Input images are optional in the old tool; supports 1-4 outputs."
+    input:
+      required: ["prompt"]
+      batch: "num_images"
+      params:
+        prompt: "string — edit instruction (maximum: 8000 characters)"
+        image_urls: "string[] — optional source/reference image URLs or local paths (maximum: 3)"
+        num_images: "integer — number of images to generate (range: 1-4; default: 1)"
+        output_format: "enum: jpeg | png | webp (default: jpeg)"
+
+  - id: "fal-ai/bytedance/seedream/v4.5/edit"
+    aliases: ["seedream edit", "seedream v4.5 edit", "seedream", "bytedance edit"]
+    category: "image-to-image"
+    description: "ByteDance Seedream V4.5 for high-quality intelligent image editing with multiple inputs."
+    notes: "Up to 10 input images. Supports auto_2K and auto_4K sizes. Custom width and height must each be 1920-4096, or total dimensions between 2560x1440 and 4096x4096; up to 6 separate generations and 6 images per generation."
+    input:
+      required: ["prompt", "image_urls"]
+      batch: "num_images"
+      params:
+        prompt: "string — natural-language edit instruction"
+        image_urls: "string[] — 1-10 source/reference image URLs or local paths"
+        seed: "integer — random seed for reproducibility (default: random)"
+        image_size: "string preset or {width,height} — square_hd | square | portrait_4_3 | portrait_16_9 | landscape_4_3 | landscape_16_9 | auto_2K | auto_4K (default: {width: 2048, height: 2048})"
+        num_images: "integer — number of separate generations (range: 1-6; default: 1)"
+        max_images: "integer — maximum images returned per generation (range: 1-6; default: 1)"
+        enable_safety_checker: "boolean — enable the safety checker (default: true)"
+
+  - id: "fal-ai/sam-3/3d-objects"
+    aliases: ["sam 3d", "sam-3"]
+    category: "image-to-3d"
+    description: "Precise 3D reconstruction of objects from real images with accurate geometry and texture."
+    notes: "$0.02/gen. Output: GLB + Gaussian Splat (.ply). Good for real object reconstruction. Use a prompt or mask URLs to segment objects in multi-object scenes; textured GLB export bakes textures and UVs."
+    input:
+      required: ["image_url"]
+      batch: null
+      params:
+        image_url: "string — source image URL or local path"
+        prompt: "string — optional text prompt for automatic segmentation"
+        mask_urls: "string[] — optional mask URLs for segmentation"
+        export_textured_glb: "boolean — export a GLB with baked texture and UVs (default: false)"
+        seed: "integer — random seed for reproducibility (default: random)"
+
+  - id: "fal-ai/meshy/v6/text-to-3d"
+    aliases: ["meshy", "meshy text", "text-to-3d"]
+    category: "text-to-3d"
+    description: "Generate realistic, production-ready 3D models from text descriptions."
+    notes: "$0.80/gen. Output: GLB + thumbnail. Supports standard, lowpoly, and smart-topology model types. Preview mode is faster and returns untextured geometry; full mode returns a textured model with materials, and raw responses may include GLB, FBX, OBJ, USDZ, STL, and Blend formats."
+    input:
+      required: ["prompt"]
+      batch: null
+      params:
+        prompt: "string — 3D model description (maximum: 600 characters)"
+        mode: "enum: preview | full (default: full)"
+        model_type: "enum: standard | lowpoly | smart-topology"
+        topology: "enum: quad | triangle (default: triangle)"
+        target_polycount: "integer — target polygon count (range: 100-300000; default: 30000)"
+        symmetry_mode: "enum: off | auto | on (default: auto)"
+        enable_pbr: "boolean — generate PBR maps (default: false)"
+        is_a_t_pose: "boolean — generate in an A/T pose (default: false)"
+        seed: "integer — random seed for reproducibility (default: random)"
+
+  - id: "fal-ai/meshy/v6/image-to-3d"
+    aliases: ["meshy image", "image-to-3d"]
+    category: "image-to-3d"
+    description: "Generate realistic, production-ready 3D models from images."
+    notes: "$0.80/gen. Output: GLB + thumbnail. Supports PBR maps. Raw responses may include GLB, FBX, OBJ, USDZ, STL, and Blend formats; PBR mode generates metallic, roughness, and normal maps."
+    input:
+      required: ["image_url"]
+      batch: null
+      params:
+        image_url: "string — source image URL or local path"
+        topology: "enum: quad | triangle (default: triangle)"
+        target_polycount: "integer — target polygon count (range: 100-300000; default: 30000)"
+        symmetry_mode: "enum: off | auto | on (default: auto)"
+        should_texture: "boolean — generate textures (default: true)"
+        enable_pbr: "boolean — generate metallic, roughness, and normal PBR maps (default: false)"
+        is_a_t_pose: "boolean — generate in an A/T pose (default: false)"
+
+  - id: "fal-ai/trellis-2"
+    aliases: ["trellis", "trellis2"]
+    category: "image-to-3d"
+    description: "High-quality 3D model generation from images using native 3D generative model."
+    notes: "$0.25-0.35/gen based on resolution. Output: GLB. Good for game assets. 500k vertices suits most uses; 20k-50k suits web/mobile, while remeshing gives cleaner topology but is slower."
+    input:
+      required: ["image_url"]
+      batch: null
+      params:
+        image_url: "string — source image URL or local path"
+        resolution: "enum integer: 512 | 1024 | 1536 (default: 1024)"
+        texture_size: "enum integer: 1024 | 2048 | 4096 (default: 2048)"
+        decimation_target: "integer — target vertex count (range: 5000-2000000; default: 500000)"
+        remesh: "boolean — rebuild mesh topology for cleaner topology at greater latency (default: true)"
+        seed: "integer — random seed for reproducibility (default: random)"
+
+  - id: "fal-ai/reconviagen-0.5"
+    aliases: ["reconviagen", "reconviagen 0.5", "reconvia", "recon"]
+    category: "image-to-3d"
+    description: "Reconstruct textured 3D GLB models from one or more object images."
+    notes: "$0.25-0.35/gen based on resolution. Queue-based. Best with one or more clean object views. Pricing is $0.25 at 512, $0.30 at 1024, and $0.35 at 1536; multi-image strategy applies only when multiple views are supplied."
+    input:
+      required: ["image_urls"]
+      batch: null
+      params:
+        image_urls: "string[] — one or more source image URLs or local paths showing the same object"
+        resolution: "enum integer: 512 | 1024 | 1536 (default: 1024)"
+        texture_size: "enum integer: 1024 | 2048 | 4096 (default: 2048)"
+        decimation_target: "integer — target vertex count (range: 5000-2000000; default: 500000)"
+        ss_source: "enum: direct | mesh | mvtrellis2 (default: mesh)"
+        multi_image_strategy: "enum: average_right | weighted_average | sequential | average | adaptive_guidance_weight | fixed_guidance_rescale (default: adaptive_guidance_weight; used only with multiple images)"
+        seed: "integer — random seed (range: 0-2147483647; default: random)"
+
+  - id: "fal-ai/birefnet/v2"
+    aliases: ["birefnet", "birefnet v2", "background removal", "remove background"]
+    category: "image-to-image"
+    description: "Remove backgrounds from images using BiRefNet V2. Multiple model variants for different use cases."
+    notes: "Models: Light (fast), Heavy (accurate), Portrait, Matting, Dynamic (variable resolution). General Use (Light 2K) is trained at 2K; 2304x2304 operating resolution is only for General Use (Dynamic)."
+    input:
+      required: ["image_url"]
+      batch: null
+      params:
+        image_url: "string — source image URL or local path"
+        model: "enum: General Use (Light) | General Use (Light 2K) | General Use (Heavy) | Matting | Portrait | General Use (Dynamic) (default: General Use (Light))"
+        operating_resolution: "enum: 1024x1024 | 2048x2048 | 2304x2304 (default: 1024x1024; 2304x2304 requires General Use (Dynamic))"
+        output_mask: "boolean — also return the mask used for background removal (default: false)"
+        refine_foreground: "boolean — refine the foreground with the estimated mask (default: true)"
+        output_format: "enum: png | webp | gif (default: png)"
+
+  - id: "fal-ai/seedvr/upscale/image"
+    aliases: ["seedvr", "seedvr upscale", "upscale", "image upscale"]
+    category: "image-to-image"
+    description: "AI-powered image upscaling using SeedVR2. Supports factor-based or target resolution upscaling."
+    notes: "Up to 10x upscale. Target resolutions: 720p, 1080p, 1440p, 2160p. Factor mode accepts 1-10x; target mode maps to 1280x720, 1920x1080, 2560x1440, or 3840x2160."
+    input:
+      required: ["image_url"]
+      batch: null
+      params:
+        image_url: "string — source image URL or local path"
+        upscale_mode: "enum: factor | target (default: factor)"
+        upscale_factor: "number — scale factor used in factor mode (range: 1-10; default: 2)"
+        target_resolution: "enum: 720p | 1080p | 1440p | 2160p — used in target mode (default: 1080p)"
+        seed: "integer — random seed for reproducibility (default: random)"
+        noise_scale: "number — generation noise scale (range: 0-1; default: 0.1)"
+        output_format: "enum: png | jpg | webp (default: jpg)"
+
+  - id: "meta/muse-image/text-to-image"
+    aliases: ["muse", "muse image", "meta muse"]
+    category: "text-to-image"
+    description: "Meta's Muse Image model with faithful instruction-following and exceptional visual fidelity, including text, plots, and QR codes."
+    notes: "$0.01 per image. Muse picks output dimensions automatically when aspect_ratio is omitted. Supports web search."
+    input:
+      required: ["prompt"]
+      batch: "num_images"
+      params:
+        prompt: "string — text prompt to generate from"
+        aspect_ratio: "enum: 21:9 | 16:9 | 4:3 | 3:2 | 1:1 | 2:3 | 3:4 | 9:16 | 9:21 (default: auto-chosen by Muse)"
+        num_images: "integer — number of images to generate (range: 1-10; default: 1)"
+        output_format: "enum: jpeg | png | webp (default: webp)"
+        sync_mode: "boolean — return the image as a data URI not persisted in request history (default: false)"
+
+  - id: "meta/muse-image/edit"
+    aliases: ["muse edit", "muse image edit", "meta muse edit"]
+    category: "image-to-image"
+    description: "Meta's Muse Image model for targeted, localized image editing and composition."
+    notes: "$0.01 per image. Supports 1-10 reference images. Preserves composition while applying natural-language edits."
+    input:
+      required: ["prompt", "image_urls"]
+      batch: "num_images"
+      params:
+        prompt: "string — text prompt used to edit the image"
+        image_urls: "string[] — 1-10 reference image URLs or local paths"
+        aspect_ratio: "enum: 21:9 | 16:9 | 4:3 | 3:2 | 1:1 | 2:3 | 3:4 | 9:16 | 9:21 (default: auto-chosen by Muse)"
+        num_images: "integer — number of images to generate (range: 1-10; default: 1)"
+        output_format: "enum: jpeg | png | webp (default: webp)"
+        sync_mode: "boolean — return the image as a data URI not persisted in request history (default: false)"
