@@ -11,7 +11,22 @@ Renders any OMP session's active branch, including your own: a metadata header, 
 
 Anywhere a path is expected, a session id — full or a 4+ character prefix — works: `omp-transcript 019fd76e -m -1`. An ambiguous prefix lists its candidates and fails.
 
+Sessions are stored per OMP profile. Every mode takes `--profile <name|default|all>`; without it the root is `$OMP_SESSIONS_DIR`, else `~/.omp/agent/sessions`.
+
 ## Find the session
+
+Only remember what was said? Search content:
+
+```bash
+omp-transcript search <pattern> [--cwd <dir>] [-n <count>]
+# e.g. omp-transcript search --profile nilo 'puppet terminology'
+```
+
+TSV, newest first: `mtime  id  hits  title  cwd  path  snippet`. Default n=20, `-n 0` prints every match. The pattern is a case-insensitive literal; `--regex` reads it as a regex instead.
+
+Searched by default: user and assistant messages, titles, shell commands the user ran, @-mentioned paths, and conversation summaries. `--reasoning` adds thinking and `--with-tools` adds tool calls and results — both widen the haystack, and the snippet names which one matched.
+
+Know the directory instead? List:
 
 ```bash
 omp-transcript list [--cwd <dir>] [-n <count>]
@@ -22,8 +37,8 @@ TSV, newest first: `mtime  id  title  cwd  path`. Default n=10.
 
 - **Skip-self:** drop the row whose id (column 2) equals your own session ID.
 - `--cwd` is an exact realpath match — a parent dir never matches its subdirectories' sessions.
-- Already holding an id? Skip `list` and pass the id straight to the tool.
-- Need the last message? Use `-n -1`.
+- Already holding an id? Skip both and pass the id straight to the tool.
+- Need the last message? Use `-m -1`.
 
 Done when: you hold the `.jsonl` path of every target session.
 

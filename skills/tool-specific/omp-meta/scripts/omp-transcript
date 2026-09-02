@@ -7,6 +7,13 @@ Usage:
   omp-transcript <session.jsonl|id> [--with-tools|--hydrate] [--reasoning] [-m <n>]
   omp-transcript result --session <session.jsonl|id> --message-id <id>
   omp-transcript list [--cwd <dir>] [-n <count>]
+  omp-transcript search [--] <pattern> [--regex] [--cwd <dir>] [-n <count>]
+                                       [--reasoning] [--with-tools]
+                                       [--no-snippet] [--width <chars>]
+
+Every mode also accepts --profile <name|default|all>, choosing which OMP
+profile's sessions are scanned. Default: $OMP_SESSIONS_DIR when set,
+otherwise ~/.omp/agent/sessions.
 EOF
   exit "${1:-2}"
 }
@@ -25,9 +32,53 @@ with_tools=false
 hydrate=false
 reasoning=false
 message_count=
-list_cwd=
+filter_cwd=
 list_count=10
-sessions_root=${OMP_SESSIONS_DIR-"${HOME:-}/.omp/agent/sessions"}
+search_pattern=
+search_regex=false
+search_snippet=true
+search_count=20
+search_width=140
+profile=
+
+profile_args=()
+while (($#)); do
+  case $1 in
+    --profile)
+      (($# >= 2)) || usage
+      profile=$2
+      shift 2
+      ;;
+    *)
+      profile_args+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- ${profile_args[@]+"${profile_args[@]}"}
+
+omp_home=${HOME:-}/.omp
+sessions_roots=()
+case $profile in
+  '')
+    sessions_roots=("${OMP_SESSIONS_DIR-$omp_home/agent/sessions}")
+    ;;
+  default)
+    sessions_roots=("$omp_home/agent/sessions")
+    ;;
+  all)
+    sessions_roots=("$omp_home/agent/sessions")
+    for profile_root in "$omp_home"/profiles/*/agent/sessions; do
+      [[ -d $profile_root ]] || continue
+      sessions_roots+=("$profile_root")
+    done
+    ;;
+  *)
+    [[ -d $omp_home/profiles/$profile/agent/sessions ]] \
+      || fatal "profile not found: $profile"
+    sessions_roots=("$omp_home/profiles/$profile/agent/sessions")
+    ;;
+esac
 
 case ${1:-} in
   result)
@@ -57,7 +108,7 @@ case ${1:-} in
       case $1 in
         --cwd)
           (($# >= 2)) || usage
-          list_cwd=$2
+          filter_cwd=$2
           shift 2
           ;;
         -n)
@@ -69,6 +120,60 @@ case ${1:-} in
       esac
     done
     [[ $list_count =~ ^[1-9][0-9]{0,17}$ ]] || usage
+    ;;
+  search)
+    mode=search
+    shift
+    while (($#)); do
+      case $1 in
+        --regex)
+          search_regex=true
+          shift
+          ;;
+        --reasoning)
+          reasoning=true
+          shift
+          ;;
+        --with-tools)
+          with_tools=true
+          shift
+          ;;
+        --no-snippet)
+          search_snippet=false
+          shift
+          ;;
+        --cwd)
+          (($# >= 2)) || usage
+          filter_cwd=$2
+          shift 2
+          ;;
+        -n)
+          (($# >= 2)) || usage
+          search_count=$2
+          shift 2
+          ;;
+        --width)
+          (($# >= 2)) || usage
+          search_width=$2
+          shift 2
+          ;;
+        --)
+          (($# >= 2)) || usage
+          [[ -z $search_pattern ]] || usage
+          search_pattern=$2
+          shift 2
+          ;;
+        -*) usage ;;
+        *)
+          [[ -z $search_pattern ]] || usage
+          search_pattern=$1
+          shift
+          ;;
+      esac
+    done
+    [[ -n $search_pattern ]] || usage
+    [[ $search_count =~ ^(0|[1-9][0-9]{0,17})$ ]] || usage
+    [[ $search_width =~ ^[1-9][0-9]{0,3}$ ]] || usage
     ;;
   '') usage ;;
   *)
@@ -123,15 +228,26 @@ make_tmpdir() {
   fi
 }
 
+# Fills the caller's `roots` array with every sessions root that exists.
+collect_roots() {
+  local root
+  roots=()
+  for root in "${sessions_roots[@]}"; do
+    [[ -d $root ]] || continue
+    roots+=("$root")
+  done
+  ((${#roots[@]})) || fatal "sessions root not found: ${sessions_roots[0]}"
+}
+
 list_sessions() {
-  local root=$sessions_root
+  local roots=()
   local wanted_cwd=
   local candidates sorted path metadata mtime mtime_detail entry rest header timestamp
   local matched=0
 
-  [[ -d $root ]] || fatal "sessions root not found: $root"
-  if [[ -n $list_cwd ]]; then
-    wanted_cwd=$(realpath -- "$list_cwd" 2>/dev/null) || fatal "cwd not found: $list_cwd"
+  collect_roots
+  if [[ -n $filter_cwd ]]; then
+    wanted_cwd=$(realpath -- "$filter_cwd" 2>/dev/null) || fatal "cwd not found: $filter_cwd"
   fi
 
   make_tmpdir
@@ -144,7 +260,7 @@ list_sessions() {
     mtime=${metadata%%$'\t'*}
     mtime_detail=${metadata#*$'\t'}
     printf '%020d\t%s\t%s\0' "$mtime" "$mtime_detail" "$path" >> "$candidates"
-  done < <(find "$root" -mindepth 2 -maxdepth 2 -type f -name '*.jsonl' -print0)
+  done < <(find "${roots[@]}" -mindepth 2 -maxdepth 2 -type f -name '*.jsonl' -print0)
 
   LC_ALL=C sort -z -r -- "$candidates" > "$sorted"
 
@@ -186,17 +302,19 @@ list_sessions() {
   done < "$sorted"
 }
 
-# Accepts a path, or a session id / id prefix resolved under $sessions_root.
+# Accepts a path, or a session id / id prefix resolved under the sessions roots.
 resolve_session() {
-  local arg=$1 matches=() m
+  local arg=$1 matches=() m root
 
   if [[ -f $arg ]]; then
     return 0
   fi
   if [[ $arg =~ ^[0-9a-fA-F][0-9a-fA-F-]{3,}$ ]]; then
-    for m in "$sessions_root"/*/*_"$arg"*.jsonl; do
-      [[ -f $m ]] || continue
-      matches+=("$m")
+    for root in "${sessions_roots[@]}"; do
+      for m in "$root"/*/*_"$arg"*.jsonl; do
+        [[ -f $m ]] || continue
+        matches+=("$m")
+      done
     done
     if ((${#matches[@]} == 1)); then
       session=${matches[0]}
@@ -212,8 +330,270 @@ resolve_session() {
   fatal "session not found: $arg"
 }
 
+# Longest run of the pattern that survives JSON encoding verbatim, so the
+# raw-bytes prefilter can never be narrower than the parsed match. Quotes and
+# backslashes get escaped, and non-ASCII may arrive as \uXXXX, so the run is
+# printable ASCII minus " and \.
+longest_plain_run() {
+  local line best=
+
+  while IFS= read -r line; do
+    if ((${#line} > ${#best})); then best=$line; fi
+  done < <(printf '%s\n' "$1" | LC_ALL=C tr -c '\40-\41\43-\133\135-\176' '\n')
+  printf '%s' "$best"
+}
+
+resolve_grep() {
+  local candidate version
+
+  for candidate in "${OMP_GREP:-}" /usr/bin/grep /bin/grep "$(type -P grep || true)"; do
+    [[ -n $candidate && -x $candidate ]] || continue
+    version=$("$candidate" --version 2>/dev/null | head -n 1) || continue
+    [[ $version == *"GNU grep"* ]] || continue
+    printf '%s' "$candidate"
+    return 0
+  done
+  return 1
+}
+
+write_search_helpers() {
+  cat > "$tmpdir/search.jq" <<'JQ'
+def re_escape:
+  [46, 94, 36, 124, 63, 42, 43, 40, 41, 91, 93, 123, 125, 92] as $meta
+  | explode
+  | map(. as $codepoint
+        | if ($meta | index($codepoint)) != null then [92, $codepoint] else [$codepoint] end)
+  | (add // [])
+  | implode;
+
+def text_content:
+  .message.content as $content
+  | if ($content | type) == "string" then $content
+    elif ($content | type) == "array" then
+      [$content[] | select(.type == "text") | (.text // "")] | join("\n")
+    else ""
+    end;
+
+# Everything a human said, or that summarises what was said. Reasoning and
+# tool traffic join only when explicitly asked for.
+def visible:
+  . as $record
+  | if $record.type == "message" then
+      ($record.message.role // "") as $role
+      | if $role == "user" or $role == "developer" then
+          [{ role: $role, text: ($record | text_content) }]
+        elif $role == "assistant" then
+          [ $record.message.content[]?
+            | if .type == "text" and (.text | type) == "string" then
+                { role: "assistant", text: .text }
+              elif $reasoning and .type == "thinking" and (.thinking | type) == "string" then
+                { role: "reasoning", text: .thinking }
+              elif $with_tools and .type == "toolCall" then
+                { role: "tool-call", text: "\(.name // "") \((.arguments // .input // {}) | tojson)" }
+              else empty
+              end ]
+        elif $role == "bashExecution" then
+          [{ role: "bash", text: ($record.message.command // "") }]
+        elif $role == "fileMention" then
+          [ $record.message.files[]?
+            | { role: "file-mention",
+                text: ((.path // "")
+                       + (if $with_tools and (.content | type) == "string"
+                          then "\n" + .content
+                          else ""
+                          end)) } ]
+        elif $role == "toolResult" and $with_tools then
+          [{ role: "tool-result", text: ($record | text_content) }]
+        else []
+        end
+    elif $record.type == "custom_message" then
+      if (["branch-summary", "rewind-report", "compaction-summary", "prose-note", "irc:incoming"]
+          | index($record.customType // "")) != null
+         and ($record.content | type) == "string" then
+        [{ role: "custom:\($record.customType)", text: $record.content }]
+      else []
+      end
+    elif $record.type == "compaction" and ($record.summary | type) == "string" then
+      [{ role: "compaction", text: $record.summary }]
+    elif $record.type == "branch_summary" and ($record.summary | type) == "string" then
+      [{ role: "branch-summary", text: $record.summary }]
+    elif ($record.type == "title" or $record.type == "title_change")
+         and ($record.title | type) == "string" then
+      [{ role: "title", text: $record.title }]
+    else []
+    end;
+
+def rank($role):
+  if $role == "user" then 0
+  elif $role == "developer" then 1
+  elif $role == "title" then 2
+  elif $role == "assistant" then 3
+  else 4
+  end;
+
+# Control characters become single spaces, so match offsets stay valid.
+def snippet($re):
+  . as $item
+  | ($item.text | match($re; "i") | .offset) as $offset
+  | ($item.text | gsub("[[:cntrl:]]"; " ")) as $clean
+  | ([$offset - ($width / 3 | floor), 0] | max) as $start
+  | ($start + $width) as $end
+  | "\($item.role): "
+    + (if $start > 0 then "…" else "" end)
+    + ($clean[$start:$end] | gsub(" {2,}"; " ") | sub("^ +"; "") | sub(" +$"; ""))
+    + (if $end < ($clean | length) then "…" else "" end);
+
+(if $is_regex then $pattern else ($pattern | re_escape) end) as $re
+| reduce (inputs | select(type == "object")) as $record
+    ({ id: null, cwd: null, title: null, hits: 0, best: null, best_rank: 99 };
+      (if $record.type == "session" then
+         (if ($record.id | type) == "string" then .id = $record.id else . end)
+         | (if ($record.cwd | type) == "string" then .cwd = $record.cwd else . end)
+       else .
+       end)
+      | (if (["session", "title", "title_change"] | index($record.type // "")) != null
+            and ($record.title | type) == "string" and $record.title != "" then
+           .title = $record.title
+         else .
+         end)
+      | reduce ($record
+                | visible
+                | .[]
+                | select((.text | type) == "string"
+                         and .text != ""
+                         and (.text | test($re; "i")))) as $item
+          (.;
+            .hits += 1
+            | rank($item.role) as $item_rank
+            | if $item_rank < .best_rank then
+                .best_rank = $item_rank
+                | .best = ($item | snippet($re))
+              else .
+              end))
+| select(.hits > 0 and ($wanted_cwd == "" or (.cwd // "") == $wanted_cwd))
+| ([ ($mtime | strftime("%Y-%m-%dT%H:%M:%SZ")),
+     (.id // ($path | sub("^.*_"; "") | sub("\\.jsonl$"; ""))),
+     (.hits | tostring),
+     (.title // "-"),
+     (.cwd // ""),
+     $path ]
+   + (if $with_snippet then [(.best // "")] else [] end))
+| @tsv
+JQ
+
+  cat > "$tmpdir/search-one" <<'WORKER'
+#!/usr/bin/env bash
+set -uo pipefail
+
+path=${1:-}
+[[ -n $path ]] || exit 0
+mtime=$(stat -c '%Y' -- "$path" 2>/dev/null) || exit 0
+
+scan() {
+  jq -nr \
+    --arg pattern "$OMPT_PATTERN" \
+    --argjson is_regex "$OMPT_IS_REGEX" \
+    --argjson reasoning "$OMPT_REASONING" \
+    --argjson with_tools "$OMPT_WITH_TOOLS" \
+    --argjson with_snippet "$OMPT_SNIPPET" \
+    --argjson width "$OMPT_WIDTH" \
+    --argjson mtime "$mtime" \
+    --arg wanted_cwd "$OMPT_CWD" \
+    --arg path "$path" \
+    -f "$OMPT_PROGRAM" \
+    "$1"
+}
+
+# A session being written right now can end mid-line; retry without it.
+if ! row=$(scan "$path" 2>/dev/null); then
+  row=$(sed -e '$d' -- "$path" | scan /dev/stdin 2>/dev/null) || exit 0
+fi
+[[ -n $row ]] || exit 0
+printf '%020d\t%s\0' "$mtime" "$row" >> "$OMPT_ROWS/$$"
+WORKER
+  chmod +x -- "$tmpdir/search-one"
+}
+
+search_sessions() {
+  local roots=() wanted_cwd= grep_bin prefilter_mode prefilter_pattern jobs
+  local all_files candidates rows_dir rows sorted entry
+  local total=0 shown=0
+
+  collect_roots
+  if [[ -n $filter_cwd ]]; then
+    wanted_cwd=$(realpath -- "$filter_cwd" 2>/dev/null) || fatal "cwd not found: $filter_cwd"
+  fi
+  grep_bin=$(resolve_grep) || fatal 'GNU grep is required by search'
+
+  if $search_regex; then
+    prefilter_pattern=$search_pattern
+    if "$grep_bin" -qP -e x <<<x 2>/dev/null; then
+      prefilter_mode=-P
+    else
+      prefilter_mode=-E
+    fi
+  else
+    prefilter_mode=-F
+    prefilter_pattern=$(longest_plain_run "$search_pattern")
+  fi
+
+  make_tmpdir
+  all_files=$tmpdir/search-files
+  candidates=$tmpdir/search-candidates
+  rows_dir=$tmpdir/search-rows
+  rows=$tmpdir/search-rows.nul
+  sorted=$tmpdir/search-rows-sorted
+  mkdir -p -- "$rows_dir"
+  write_search_helpers
+
+  find "${roots[@]}" -mindepth 2 -maxdepth 2 -type f -name '*.jsonl' -print0 > "$all_files"
+
+  # Cheap raw-bytes pass first: parsing every session costs minutes, and the
+  # text worth searching is a low single-digit percentage of the bytes.
+  if [[ -n $prefilter_pattern ]]; then
+    xargs -0 -r -- "$grep_bin" -laZ -i "$prefilter_mode" -e "$prefilter_pattern" \
+      < "$all_files" > "$candidates" || true
+  else
+    cp -- "$all_files" "$candidates"
+  fi
+
+  jobs=$(nproc 2>/dev/null) || jobs=4
+  export OMPT_PROGRAM=$tmpdir/search.jq
+  export OMPT_PATTERN=$search_pattern
+  export OMPT_IS_REGEX=$search_regex
+  export OMPT_REASONING=$reasoning
+  export OMPT_WITH_TOOLS=$with_tools
+  export OMPT_SNIPPET=$search_snippet
+  export OMPT_WIDTH=$search_width
+  export OMPT_CWD=$wanted_cwd
+  export OMPT_ROWS=$rows_dir
+  xargs -0 -r -P "$jobs" -n 1 -- "$tmpdir/search-one" < "$candidates" || true
+
+  : > "$rows"
+  find "$rows_dir" -type f -exec cat -- {} + >> "$rows"
+  LC_ALL=C sort -z -r -- "$rows" > "$sorted"
+
+  while IFS= read -r -d '' entry; do
+    ((total += 1))
+    if ((search_count == 0 || shown < search_count)); then
+      printf '%s\n' "${entry#*$'\t'}"
+      ((shown += 1))
+    fi
+  done < "$sorted"
+
+  if ((total > shown)); then
+    printf 'omp-transcript: %d sessions matched, showing %d (raise with -n, 0 for all)\n' \
+      "$total" "$shown" >&2
+  fi
+}
+
 if [[ $mode == list ]]; then
   list_sessions
+  exit 0
+fi
+
+if [[ $mode == search ]]; then
+  search_sessions
   exit 0
 fi
 
