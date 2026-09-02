@@ -329,7 +329,7 @@ set -e
 [[ $list_messages_status -eq 2 ]]
 
 # 11. Unknown flags and tool flags in non-render modes are usage errors.
-expected_usage=$'Usage:\n  omp-transcript <session.jsonl|id> [--with-tools|--hydrate] [--reasoning] [-m <n>]\n  omp-transcript result --session <session.jsonl|id> --message-id <id>\n  omp-transcript list [--cwd <dir>] [-n <count>]'
+expected_usage=$(omp-transcript --help 2>&1)
 set +e
 omp-transcript --bogus >"$tmp/bogus.stdout" 2>"$tmp/bogus.stderr"
 bogus_status=$?
@@ -350,6 +350,10 @@ result_reasoning_status=$?
 OMP_SESSIONS_DIR="$sessions_root" omp-transcript list --reasoning \
   >"$tmp/list-reasoning.stdout" 2>"$tmp/list-reasoning.stderr"
 list_reasoning_status=$?
+omp-transcript search --hydrate needle >"$tmp/search-hydrate.stdout" 2>"$tmp/search-hydrate.stderr"
+search_hydrate_status=$?
+omp-transcript search >"$tmp/search-missing.stdout" 2>"$tmp/search-missing.stderr"
+search_missing_status=$?
 set -e
 [[ $bogus_status -eq 2 ]]
 [[ $(<"$tmp/bogus.stderr") == "$expected_usage" ]]
@@ -365,6 +369,10 @@ set -e
 [[ $(<"$tmp/result-reasoning.stderr") == "$expected_usage" ]]
 [[ $list_reasoning_status -eq 2 ]]
 [[ $(<"$tmp/list-reasoning.stderr") == "$expected_usage" ]]
+[[ $search_hydrate_status -eq 2 ]]
+[[ $(<"$tmp/search-hydrate.stderr") == "$expected_usage" ]]
+[[ $search_missing_status -eq 2 ]]
+[[ $(<"$tmp/search-missing.stderr") == "$expected_usage" ]]
 
 # 12. A valid large list limit returns every row of the small fixture.
 large_limit_output=$(OMP_SESSIONS_DIR="$sessions_root" omp-transcript list -n 999999999)
@@ -414,4 +422,185 @@ set -e
 [[ $nopath_status -eq 1 ]]
 [[ $(<"$tmp/nopath.stderr") == *"session not found: nope"* ]]
 
-printf 'PASS: render, hydration, slicing, dynamic fences, list mode, and id resolution\n'
+# 14. search scans visible text, never falls through to resolve_session, and
+# honours the same cwd / profile / visibility flags as the rest of the tool.
+search_root="$tmp/search-root"
+search_proj="$search_root/proj"
+search_cwd="$tmp/search-cwd"
+search_other="$tmp/search-other"
+mkdir -p "$search_proj" "$search_cwd" "$search_other"
+search_cwd=$(realpath "$search_cwd")
+search_other=$(realpath "$search_other")
+
+user_path="$search_proj/2026-01-10T00-00-00-000Z_search-user.jsonl"
+think_path="$search_proj/2026-01-09T00-00-00-000Z_search-think.jsonl"
+tool_path="$search_proj/2026-01-08T00-00-00-000Z_search-tool.jsonl"
+abandon_path="$search_proj/2026-01-07T00-00-00-000Z_search-abandon.jsonl"
+other_cwd_path="$search_proj/2026-01-06T00-00-00-000Z_search-othercwd.jsonl"
+title_path="$search_proj/2026-01-05T00-00-00-000Z_search-title.jsonl"
+dash_path="$search_proj/2026-01-04T00-00-00-000Z_search-dash.jsonl"
+trunc_path="$search_proj/2026-01-03T00-00-00-000Z_search-trunc.jsonl"
+noid_path="$search_proj/2026-01-02T00-00-00-000Z_fallback-id.jsonl"
+dot_path="$search_proj/2026-01-01T00-00-00-000Z_search-dot.jsonl"
+
+jq -cn --arg id search-user --arg cwd "$search_cwd" --arg title "User session" \
+  '{type:"session",id:$id,cwd:$cwd,title:$title}' >"$user_path"
+jq -cn '{type:"message",id:"u1",parentId:null,message:{role:"user",content:[{type:"text",text:"UNIQUE_USER_NEEDLE one"}]}}' >>"$user_path"
+jq -cn '{type:"message",id:"u2",parentId:"u1",message:{role:"user",content:[{type:"text",text:"UNIQUE_USER_NEEDLE two"}]}}' >>"$user_path"
+
+jq -cn --arg id search-think --arg cwd "$search_cwd" --arg title "Think session" \
+  '{type:"session",id:$id,cwd:$cwd,title:$title}' >"$think_path"
+jq -cn '{type:"message",id:"u1",parentId:null,message:{role:"user",content:[{type:"text",text:"unrelated user"}]}}' >>"$think_path"
+jq -cn '{type:"message",id:"a1",parentId:"u1",message:{role:"assistant",content:[{type:"thinking",thinking:"THINKING_NEEDLE hidden"},{type:"text",text:"visible reply"}]}}' >>"$think_path"
+
+jq -cn --arg id search-tool --arg cwd "$search_cwd" --arg title "Tool session" \
+  '{type:"session",id:$id,cwd:$cwd,title:$title}' >"$tool_path"
+jq -cn '{type:"message",id:"u1",parentId:null,message:{role:"user",content:[{type:"text",text:"unrelated user"}]}}' >>"$tool_path"
+jq -cn '{type:"message",id:"a1",parentId:"u1",message:{role:"assistant",content:[{type:"toolCall",name:"bash",arguments:{cmd:"TOOLCALL_NEEDLE"}}]}}' >>"$tool_path"
+jq -cn '{type:"message",id:"r1",parentId:"a1",message:{role:"toolResult",toolName:"bash",isError:false,content:[{type:"text",text:"TOOLRESULT_NEEDLE"}]}}' >>"$tool_path"
+
+jq -cn --arg id search-abandon --arg cwd "$search_cwd" --arg title "Abandon session" \
+  '{type:"session",id:$id,cwd:$cwd,title:$title}' >"$abandon_path"
+jq -cn '{type:"message",id:"u1",parentId:null,message:{role:"user",content:[{type:"text",text:"root"}]}}' >>"$abandon_path"
+jq -cn '{type:"message",id:"old-a",parentId:"u1",message:{role:"assistant",content:[{type:"text",text:"ABANDONED_NEEDLE"}]}}' >>"$abandon_path"
+jq -cn '{type:"message",id:"active-a",parentId:"u1",message:{role:"assistant",content:[{type:"text",text:"active path"}]}}' >>"$abandon_path"
+
+jq -cn --arg id search-othercwd --arg cwd "$search_other" --arg title "Other cwd" \
+  '{type:"session",id:$id,cwd:$cwd,title:$title}' >"$other_cwd_path"
+jq -cn '{type:"message",id:"u1",parentId:null,message:{role:"user",content:[{type:"text",text:"UNIQUE_USER_NEEDLE other cwd"}]}}' >>"$other_cwd_path"
+
+jq -cn --arg id search-title --arg cwd "$search_cwd" --arg title "TITLE_NEEDLE session" \
+  '{type:"session",id:$id,cwd:$cwd,title:$title}' >"$title_path"
+
+jq -cn --arg id search-dash --arg cwd "$search_cwd" --arg title "Dash session" \
+  '{type:"session",id:$id,cwd:$cwd,title:$title}' >"$dash_path"
+jq -cn '{type:"message",id:"u1",parentId:null,message:{role:"user",content:[{type:"text",text:"flag -n value"}]}}' >>"$dash_path"
+
+jq -cn --arg id search-trunc --arg cwd "$search_cwd" --arg title "Trunc session" \
+  '{type:"session",id:$id,cwd:$cwd,title:$title}' >"$trunc_path"
+jq -cn '{type:"message",id:"u1",parentId:null,message:{role:"user",content:[{type:"text",text:"TRUNCATED_NEEDLE"}]}}' >>"$trunc_path"
+printf '%s' '{"type":"message","id":"broken"' >>"$trunc_path"
+
+jq -cn '{type:"message",id:"u1",parentId:null,message:{role:"user",content:[{type:"text",text:"FALLBACK_NEEDLE"}]}}' >"$noid_path"
+
+jq -cn --arg id search-dot --arg cwd "$search_cwd" --arg title "Dot session" \
+  '{type:"session",id:$id,cwd:$cwd,title:$title}' >"$dot_path"
+jq -cn '{type:"message",id:"u1",parentId:null,message:{role:"user",content:[{type:"text",text:"fooXbar"}]}}' >>"$dot_path"
+
+touch -d 2026-01-10T00:00:00Z "$user_path"
+touch -d 2026-01-09T00:00:00Z "$think_path"
+touch -d 2026-01-08T00:00:00Z "$tool_path"
+touch -d 2026-01-07T00:00:00Z "$abandon_path"
+touch -d 2026-01-06T00:00:00Z "$other_cwd_path"
+touch -d 2026-01-05T00:00:00Z "$title_path"
+touch -d 2026-01-04T00:00:00Z "$dash_path"
+touch -d 2026-01-03T00:00:00Z "$trunc_path"
+touch -d 2026-01-02T00:00:00Z "$noid_path"
+touch -d 2026-01-01T00:00:00Z "$dot_path"
+
+# The original regression: `search` must not be treated as a session id.
+set +e
+OMP_SESSIONS_DIR="$search_root" omp-transcript search UNIQUE_USER_NEEDLE --no-snippet \
+  >"$tmp/search-user.stdout" 2>"$tmp/search-user.stderr"
+search_user_status=$?
+set -e
+[[ $search_user_status -eq 0 ]]
+[[ $(<"$tmp/search-user.stderr") != *"session not found"* ]]
+[[ $(<"$tmp/search-user.stdout") == *$'\tsearch-user\t2\tUser session\t'"$search_cwd"$'\t'"$user_path"* ]]
+[[ $(<"$tmp/search-user.stdout") == *$'\tsearch-othercwd\t1\tOther cwd\t'"$search_other"$'\t'"$other_cwd_path"* ]]
+[[ $(<"$tmp/search-user.stdout") != *search-think* ]]
+
+# Newest first, hit counts, default snippet prefers a user match.
+search_user_snip=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search unique_user_needle -n 1)
+[[ $search_user_snip == 2026-01-10T00:00:00Z$'\tsearch-user\t2\tUser session\t'"$search_cwd"$'\t'"$user_path"$'\tuser: UNIQUE_USER_NEEDLE one' ]]
+OMP_SESSIONS_DIR="$search_root" omp-transcript search UNIQUE_USER_NEEDLE -n 1 --no-snippet \
+  >"$tmp/search-n1.stdout" 2>"$tmp/search-n1.stderr"
+[[ $(<"$tmp/search-n1.stderr") == "omp-transcript: 2 sessions matched, showing 1 (raise with -n, 0 for all)" ]]
+search_all=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search UNIQUE_USER_NEEDLE -n 0 --no-snippet)
+[[ $(printf '%s\n' "$search_all" | wc -l) -eq 2 ]]
+
+# --cwd is an exact realpath match.
+search_cwd_out=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search UNIQUE_USER_NEEDLE --cwd "$search_cwd" --no-snippet)
+[[ $search_cwd_out == *$'\tsearch-user\t'* ]]
+[[ $search_cwd_out != *search-othercwd* ]]
+
+# Titles match; reasoning and tool traffic do not unless asked.
+search_title=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search TITLE_NEEDLE --no-snippet)
+[[ $search_title == *$'\tsearch-title\t1\tTITLE_NEEDLE session\t'* ]]
+search_think_default=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search THINKING_NEEDLE --no-snippet)
+[[ -z $search_think_default ]]
+search_think=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search THINKING_NEEDLE --reasoning --no-snippet)
+[[ $search_think == *$'\tsearch-think\t1\tThink session\t'* ]]
+search_tool_default=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search TOOLRESULT_NEEDLE --no-snippet)
+[[ -z $search_tool_default ]]
+search_tool=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search TOOLRESULT_NEEDLE --with-tools --no-snippet)
+[[ $search_tool == *$'\tsearch-tool\t1\tTool session\t'* ]]
+search_call=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search TOOLCALL_NEEDLE --with-tools --no-snippet)
+[[ $search_call == *$'\tsearch-tool\t1\tTool session\t'* ]]
+
+# Abandoned branches are still searched.
+search_abandon=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search ABANDONED_NEEDLE --no-snippet)
+[[ $search_abandon == *$'\tsearch-abandon\t1\tAbandon session\t'* ]]
+
+# Live truncated last line is retried; missing session header falls back to the filename.
+search_trunc=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search TRUNCATED_NEEDLE --no-snippet)
+[[ $search_trunc == *$'\tsearch-trunc\t1\tTrunc session\t'* ]]
+search_fallback=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search FALLBACK_NEEDLE --no-snippet)
+[[ $search_fallback == *$'\tfallback-id\t1\t-\t\t'"$noid_path" ]]
+
+# Literal vs regex, dash patterns, invalid regex, empty haystack.
+search_dot_lit=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search 'foo.bar' --no-snippet)
+[[ -z $search_dot_lit ]]
+search_dot_re=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search --regex 'foo.bar' --no-snippet)
+[[ $search_dot_re == *$'\tsearch-dot\t1\tDot session\t'* ]]
+search_dash=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search -- -n --no-snippet)
+[[ $search_dash == *$'\tsearch-dash\t1\tDash session\t'* ]]
+search_none=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search NO_SUCH_TOKEN --no-snippet)
+[[ -z $search_none ]]
+set +e
+OMP_SESSIONS_DIR="$search_root" omp-transcript search --regex '(' \
+  >"$tmp/search-badre.stdout" 2>"$tmp/search-badre.stderr"
+search_badre_status=$?
+set -e
+[[ $search_badre_status -eq 1 ]]
+[[ $(<"$tmp/search-badre.stderr") == "omp-transcript: invalid regex: (" ]]
+[[ -z $(<"$tmp/search-badre.stdout") ]]
+
+# --profile selects sessions roots independently of OMP_SESSIONS_DIR.
+profile_home="$tmp/profile-home"
+mkdir -p "$profile_home/.omp/agent/sessions/proj" \
+  "$profile_home/.omp/profiles/nilo/agent/sessions/proj"
+default_path="$profile_home/.omp/agent/sessions/proj/2026-02-01T00-00-00-000Z_profile-default.jsonl"
+nilo_path="$profile_home/.omp/profiles/nilo/agent/sessions/proj/2026-02-02T00-00-00-000Z_profile-nilo.jsonl"
+jq -cn --arg id profile-default --arg cwd "$search_cwd" --arg title "Default profile" \
+  '{type:"session",id:$id,cwd:$cwd,title:$title}' >"$default_path"
+jq -cn '{type:"message",id:"u1",parentId:null,message:{role:"user",content:[{type:"text",text:"DEFAULT_ONLY SHARED_TOKEN"}]}}' >>"$default_path"
+jq -cn --arg id profile-nilo --arg cwd "$search_cwd" --arg title "Nilo profile" \
+  '{type:"session",id:$id,cwd:$cwd,title:$title}' >"$nilo_path"
+jq -cn '{type:"message",id:"u1",parentId:null,message:{role:"user",content:[{type:"text",text:"NILO_ONLY SHARED_TOKEN"}]}}' >>"$nilo_path"
+touch -d 2026-02-01T00:00:00Z "$default_path"
+touch -d 2026-02-02T00:00:00Z "$nilo_path"
+
+profile_default=$(HOME="$profile_home" OMP_SESSIONS_DIR="$search_root" omp-transcript search DEFAULT_ONLY --profile default --no-snippet)
+[[ $profile_default == *$'\tprofile-default\t'* ]]
+[[ $profile_default != *profile-nilo* ]]
+profile_nilo=$(HOME="$profile_home" omp-transcript search NILO_ONLY --profile nilo --no-snippet)
+[[ $profile_nilo == *$'\tprofile-nilo\t'* ]]
+[[ $profile_nilo != *profile-default* ]]
+profile_all=$(HOME="$profile_home" omp-transcript search SHARED_TOKEN --profile all --no-snippet)
+[[ $profile_all == *$'\tprofile-nilo\t'* ]]
+[[ $profile_all == *$'\tprofile-default\t'* ]]
+set +e
+HOME="$profile_home" omp-transcript search SHARED_TOKEN --profile missing \
+  >"$tmp/search-prof.stdout" 2>"$tmp/search-prof.stderr"
+search_prof_status=$?
+set -e
+[[ $search_prof_status -eq 1 ]]
+[[ $(<"$tmp/search-prof.stderr") == "omp-transcript: profile not found: missing" ]]
+
+# Snippets stay on one line and honour --width.
+search_width=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search UNIQUE_USER_NEEDLE -n 1 --width 10)
+[[ $search_width == *$'\tuser: UNIQUE_USE…' ]]
+[[ $(printf '%s\n' "$search_width" | wc -l) -eq 1 ]]
+
+printf 'PASS: render, hydration, slicing, dynamic fences, list mode, id resolution, and search\n'

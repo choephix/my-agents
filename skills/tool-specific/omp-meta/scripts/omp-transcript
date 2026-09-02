@@ -417,8 +417,8 @@ def visible:
       [{ role: "compaction", text: $record.summary }]
     elif $record.type == "branch_summary" and ($record.summary | type) == "string" then
       [{ role: "branch-summary", text: $record.summary }]
-    elif ($record.type == "title" or $record.type == "title_change")
-         and ($record.title | type) == "string" then
+    elif (["session", "title", "title_change"] | index($record.type // "")) != null
+         and ($record.title | type) == "string" and $record.title != "" then
       [{ role: "title", text: $record.title }]
     else []
     end;
@@ -526,6 +526,9 @@ search_sessions() {
   grep_bin=$(resolve_grep) || fatal 'GNU grep is required by search'
 
   if $search_regex; then
+    if ! jq -n --arg p "$search_pattern" '"" | test($p; "i")' >/dev/null 2>&1; then
+      fatal "invalid regex: $search_pattern"
+    fi
     prefilter_pattern=$search_pattern
     if "$grep_bin" -qP -e x <<<x 2>/dev/null; then
       prefilter_mode=-P

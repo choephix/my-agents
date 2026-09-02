@@ -50,7 +50,7 @@ Output is TSV with no header:
 
 `search` finds the sessions whose conversation contains a pattern, for when the only thing you remember about a session is what was discussed in it. Rows are newest first, and `--cwd` filters exactly as it does for `list`. `-n <count>` defaults to 20; `-n 0` prints every match, and a truncated run reports the full total on stderr.
 
-The pattern is a case-insensitive literal. `--regex` reads it as an Oniguruma regex instead. A pattern starting with `-` needs `--` in front of it.
+The pattern is a case-insensitive literal. `--regex` reads it as an Oniguruma regex instead; an invalid pattern is a fatal error. A pattern starting with `-` needs `--` in front of it.
 
 Matching is restricted to what a human said or to prose summarising it: user and developer messages, assistant text, titles, shell commands the user ran, `@`-mentioned paths, compaction summaries, branch summaries, rewind reports, prose notes, and inbound IRC. `--reasoning` adds assistant thinking; `--with-tools` adds tool-call names with arguments, tool results, and mentioned-file contents. Reasoning and tool traffic dominate a session's bytes, so leaving them out is what keeps the default fast and the hits meaningful.
 
