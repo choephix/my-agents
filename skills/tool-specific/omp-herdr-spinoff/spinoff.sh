@@ -20,6 +20,9 @@ esac; done
 [[ -n $branch && -f ${brief:-} ]] || { echo "need -b <branch> and -f <existing brief>" >&2; exit 2; }
 [[ -n $repo ]] || repo=$(git -C "$PWD" rev-parse --show-toplevel)
 ((${#models[@]})) || models=("")   # one tab, omp's default model
+omp_bin=$(command -v omp) || { echo "omp is not on PATH" >&2; exit 1; }
+[[ -x $omp_bin ]] || { echo "omp is not executable: $omp_bin" >&2; exit 1; }
+printf -v pane_path '%q' "$PATH"
 
 # 1. resolve base off fresh origin; an existing branch wins over base_ref
 git -C "$repo" fetch origin
@@ -46,11 +49,14 @@ for m in "${models[@]:1}"; do
   labels+=("${branch}-${m}${tab_desc:+-$tab_desc}")
 done
 
-# 4. launch every agent on the same brief (panes don't inherit mise shims -> explicit PATH)
+# 4. launch every agent with the exact OMP executable and PATH selected by the caller
 for i in "${!panes[@]}"; do
   m=${models[$i]:-}
-  herdr pane run "${panes[$i]}" \
-    "export PATH=\"\$HOME/.local/share/mise/shims:\$HOME/.bun/bin:\$PATH\"; omp ${m:+--model $m }@$brief"
+  args=("$omp_bin")
+  [[ -z $m ]] || args+=(--model "$m")
+  args+=("@$brief")
+  printf -v pane_command ' %q' "${args[@]}"
+  herdr pane run "${panes[$i]}" "export PATH=$pane_path;$pane_command"
 done
 
 # 5. verify each pane has a live omp with cwd inside the worktree
