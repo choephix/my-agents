@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   printf '%s\n' \
     'Usage: @omp-find [--] "needle"' \
-    'Print matching OMP session IDs, newest first, across all profiles.' \
+    'Print matching OMP session IDs and text snippets, newest first, across all profiles.' \
     'Search is literal and case-insensitive, including reasoning and tool messages.'
 }
 
@@ -18,5 +18,5 @@ if [[ $# != 1 || -z $1 ]]; then
   exit 2
 fi
 
-omp-transcript search --profile all --reasoning --with-tools --no-snippet -n 0 -- "$1" |
-  cut -f2
+omp-transcript search --profile all --reasoning --with-tools -n 0 -- "$1" |
+  cut -f2,7
