@@ -44,6 +44,10 @@ profile=
 profile_args=()
 while (($#)); do
   case $1 in
+    --)
+      profile_args+=("$@")
+      break
+      ;;
     --profile)
       (($# >= 2)) || usage
       profile=$2
