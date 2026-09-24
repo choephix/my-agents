@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir=$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd)
+jq_lib=$script_dir/../skills/tool-specific/omp-meta/scripts/omp-session.jq
+
 usage() {
   printf '%s\n' \
     'Usage: @omp-find [--] "needle"' \
-    'Print matching OMP session IDs and text snippets, newest first, across all profiles.' \
+    'Print matching OMP session IDs, newest first, across all profiles,' \
+    'each followed by the text around its match and a -- separator.' \
     'Search is literal and case-insensitive, including reasoning and tool messages.'
 }
 
@@ -17,6 +21,78 @@ if [[ $# != 1 || -z $1 ]]; then
   usage >&2
   exit 2
 fi
+needle=$1
 
-omp-transcript search --profile all --reasoning --with-tools -n 0 -- "$1" |
-  cut -f2,7
+[[ -f $jq_lib ]] || {
+  printf '@omp-find: jq library not found: %s\n' "$jq_lib" >&2
+  exit 1
+}
+
+tmpdir=$(mktemp -d)
+trap 'rm -rf -- "$tmpdir"' EXIT
+program=$tmpdir/find.jq
+
+cat -- "$jq_lib" > "$program"
+cat >> "$program" <<'JQ'
+
+# The match's own line, widened one line at a time until the block reaches
+# $min characters. Earlier lines come first, so context leads into the match.
+def widen($lines; $index; $min):
+  ($lines | length) as $count
+  | { first: $index, last: $index }
+  | until((($lines[.first:.last + 1] | join("\n") | length) >= $min)
+            or (.first == 0 and .last >= $count - 1);
+          if .first > 0 then .first -= 1 else .last += 1 end)
+  | $lines[.first:.last + 1]
+  | join("\n");
+
+($pattern | re_escape) as $re
+| reduce (inputs | select(type == "object")) as $record
+    ({ best: null, best_rank: 99 };
+      reduce ($record
+              | visible
+              | .[]
+              | select((.text | type) == "string"
+                       and .text != ""
+                       and (.text | test($re; "i")))) as $item
+        (.;
+          rank($item.role) as $item_rank
+          | if $item_rank < .best_rank
+            then .best_rank = $item_rank | .best = $item
+            else .
+            end))
+| .best
+| select(. != null)
+# Control characters other than newline become single spaces, one for one, so
+# match offsets stay valid.
+| (.text | gsub("[\u0000-\u0009\u000b-\u001f\u007f]"; " ")) as $clean
+| ($clean | match($re; "i") | .offset) as $offset
+| ($clean | split("\n")) as $lines
+| ((($clean[:$offset] + "x") | split("\n") | length) - 1) as $index
+| widen($lines; $index; $min)
+| sub("^(\\s*\n)+"; "")
+| sub("(\n\\s*)+$"; "")
+JQ
+
+extract() {
+  jq -nr \
+    --arg pattern "$needle" \
+    --argjson reasoning true \
+    --argjson with_tools true \
+    --argjson min 150 \
+    -f "$program" \
+    "$1"
+}
+
+first=true
+while IFS=$'\t' read -r _ id _ _ _ path; do
+  [[ -n $path ]] || continue
+  # A session being written right now can end mid-line; retry without it.
+  if ! block=$(extract "$path" 2>/dev/null); then
+    block=$(sed -e '$d' -- "$path" | extract /dev/stdin 2>/dev/null) || block=
+  fi
+  $first || printf -- '--\n'
+  first=false
+  printf '%s\n' "$id"
+  [[ -z $block ]] || printf '%s\n' "$block"
+done < <(omp-transcript search --profile all --reasoning --with-tools --no-snippet -n 0 -- "$needle")
