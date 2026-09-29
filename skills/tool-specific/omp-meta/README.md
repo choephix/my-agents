@@ -6,7 +6,7 @@ A small Bash + `jq` tool that turns OMP JSONL sessions into compact, self-hydrat
 
 ```
 Usage:
-  omp-transcript <session.jsonl|id> [--with-tools|--hydrate] [--reasoning] [-m <n>]
+  omp-transcript <session.jsonl|id> [--with-tools|--hydrate] [--reasoning] [--ids] [-m <n>]
   omp-transcript result --session <session.jsonl|id> --message-id <id>
   omp-transcript list [--cwd <dir>] [-n <count>]
   omp-transcript search [--] <pattern> [--regex] [--cwd <dir>] [-n <count>]
@@ -25,6 +25,8 @@ The default mode renders only the active `parentId` branch, and only what was ac
 Pass `--with-tools` for a cheap index of that tool traffic: `<tool-call>` blocks with their arguments, and `<tool-result>` blocks whose attributes carry status and UTF-8 byte count and whose body is a copy-pasteable `result` command that hydrates the exact output. The same flag inlines mentioned-file contents, which by default appear only as `<file-mention path="…" lines="…" bytes="…" />` stubs. Pass `--hydrate` to inline the hydrated result bodies too; it implies `--with-tools`. Unrecoverable results are marked `recovered="false"` and keep their placeholder.
 
 Pass `--reasoning` to include `<reasoning>` blocks. Expect roughly double the bytes, and a higher message count: an assistant turn that only thought before calling a tool renders nothing by default, so it occupies no slice slot until this flag brings it back.
+
+Pass `--ids` to put each record's entry id on its opening tag, e.g. `<user id="baa91f06">`. `/fork` copies entries with their ids unchanged, so a block id seen in two sessions marks content the fork inherited from its parent. Every block rendered from one record — an assistant turn's reasoning, text, and tool calls — carries that record's id.
 
 Use `-m <n>` or `--messages <n>` to slice renderable messages: `-5` keeps the last five and `5` keeps the first five, clamped like Python slices. A message is one branch record, so an assistant turn's reasoning, text, and tool calls count once — and a record that renders nothing under the current flags, such as a tool-call-only assistant turn by default, counts not at all.
 

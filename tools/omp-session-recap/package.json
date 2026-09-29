@@ -1,0 +1,11 @@
+{
+  "name": "omp-session-recap",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "@omp-session-recap": "./@omp-session-recap"
+  },
+  "dependencies": {
+    "@clack/prompts": "1.8.1"
+  }
+}

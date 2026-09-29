@@ -6,7 +6,7 @@ script_dir=$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pw
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  omp-transcript <session.jsonl|id> [--with-tools|--hydrate] [--reasoning] [-m <n>]
+  omp-transcript <session.jsonl|id> [--with-tools|--hydrate] [--reasoning] [--ids] [-m <n>]
   omp-transcript result --session <session.jsonl|id> --message-id <id>
   omp-transcript list [--cwd <dir>] [-n <count>]
   omp-transcript search [--] <pattern> [--regex] [--cwd <dir>] [-n <count>]
@@ -33,6 +33,7 @@ message_id=
 with_tools=false
 hydrate=false
 reasoning=false
+ids=false
 message_count=
 filter_cwd=
 list_count=10
@@ -196,6 +197,10 @@ case ${1:-} in
           ;;
         --reasoning)
           reasoning=true
+          shift
+          ;;
+        --ids)
+          ids=true
           shift
           ;;
         -m|--messages)
@@ -841,7 +846,8 @@ fi
 jq -rj \
   --arg session "$session" \
   --argjson count "$slice_count" \
-  --argjson hydrate "$hydrate" '
+  --argjson hydrate "$hydrate" \
+  --argjson ids "$ids" '
   def fence($body):
     ((([$body | scan("`+") | length] | max) // 0) + 1) as $length
     | "`" * (if $length < 3 then 3 else $length end);
@@ -876,5 +882,12 @@ jq -rj \
     + "- **Branch:** active branch only\n"
     + $messages_header
     + "\n"
-    + ([.messages[].sections[]] | join(""))
+    + ([.messages[]
+        | .record.id as $id
+        | .sections[]
+        | if $ids and ($id | type) == "string" and $id != "" then
+            sub("^<(?<tag>[a-z-]+)"; "<\(.tag) id=\"\($id)\"")
+          else .
+          end]
+       | join(""))
 ' "$render_plan"

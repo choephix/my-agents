@@ -1,0 +1,611 @@
+#!/usr/bin/env bun
+import { createHash } from "node:crypto";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
+import { parseArgs } from "node:util";
+import * as prompt from "@clack/prompts";
+
+const COMMAND = "@omp-session-recap";
+const PROMPTS = join(dirname(realpathSync(process.argv[1])), "prompts");
+const DEFAULT_ROLE = "my-astra";
+const DEFAULT_THINKING = "xhigh";
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+const RENDER_CONCURRENCY = 8;
+// A paragraph this long or longer is dropped when it repeats an earlier one
+// verbatim, whitespace aside.
+const REPEAT_MIN_CHARS = 500;
+// Share of the summarizer's context window one request fills with transcript.
+// Token counts are bytes/4 estimates, which undercount code-heavy text.
+const CHUNK_SHARE = 0.55;
+const BLOCK_START =
+  /^<(?:user|developer|assistant|reasoning|bash-execution|file-mention|custom-message|compaction-summary|branch-summary|tool-call|tool-result) id="([^"]+)"/gm;
+const USAGE = `${COMMAND} — summarize every OMP session recorded in a folder
+
+Usage:
+  ${COMMAND} [dir] [options]
+
+Renders the newest sessions whose cwd is exactly [dir] (default: the current
+directory), drops what forks inherited from their parents and long paragraphs
+that repeat verbatim, then has an OMP model summarize the result with OMP's own
+compaction prompts. Transcripts larger than one request are summarized in
+order, each request updating the previous summary.
+
+Without --model on a terminal, it asks for the model, thinking level, and
+optional guidance.
+
+Options:
+  --model <role|model>   Summarizer, e.g. @my-astra:xhigh (default)
+  --thinking <level>     ${THINKING_LEVELS.join(", ")}
+  --guidance <text>      Extra focus for the summary
+  --max-sessions <n>     Newest sessions to include (default 30)
+  --max-tokens <n>       Transcript budget, bytes/4 estimate (default 500000)
+  --summary-tokens <n>   Summary length allowance (default 16000)
+  --profile <name|all>   OMP profile whose sessions are read (default all)
+  -o, --output <file>    Where to write the recap (default under ~/.cache)
+  --dump                 Print the deduplicated transcript and exit
+  -h, --help`;
+
+type Listed = { mtime: string; id: string; title: string; path: string };
+type Block = { id: string; text: string; tokens: number };
+type Session = Listed & {
+  started: string;
+  blocks: Block[];
+  inherited: number;
+  omitted: number;
+};
+
+function fail(message: string): never {
+  console.error(`${COMMAND}: ${message}`);
+  process.exit(1);
+}
+
+function cancelled(): never {
+  prompt.cancel("Cancelled");
+  process.exit(130);
+}
+
+function guard<T>(value: T): Exclude<T, symbol> {
+  if (prompt.isCancel(value)) cancelled();
+  return value as Exclude<T, symbol>;
+}
+
+function positiveInt(name: string, value: string): number {
+  if (!/^[1-9]\d*$/.test(value)) fail(`--${name} expects a positive integer`);
+  return Number(value);
+}
+
+function estimate(text: string): number {
+  return Math.ceil(Buffer.byteLength(text, "utf8") / 4);
+}
+
+function formatTokens(tokens: number): string {
+  return tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens);
+}
+
+async function exec(
+  cmd: string[],
+  options: { cwd?: string; stdin?: string } = {},
+): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+  const child = Bun.spawn(cmd, {
+    cwd: options.cwd,
+    stdin: options.stdin ? Bun.file(options.stdin) : "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  return { ok: code === 0, stdout, stderr };
+}
+
+async function execJson<T>(cmd: string[]): Promise<T> {
+  const result = await exec(cmd);
+  if (!result.ok) throw new Error(`${cmd.join(" ")}: ${result.stderr.trim()}`);
+  return JSON.parse(result.stdout) as T;
+}
+
+function parseBlocks(rendered: string): Block[] {
+  const starts = [...rendered.matchAll(BLOCK_START)];
+  return starts.map((match, index) => {
+    const text = rendered
+      .slice(match.index, starts[index + 1]?.index ?? rendered.length)
+      .trimEnd();
+    return { id: match[1], text, tokens: estimate(text) };
+  });
+}
+
+async function render(path: string, scratch: string): Promise<Block[]> {
+  const first = await exec(["omp-transcript", path, "--ids"]);
+  if (first.ok) return parseBlocks(first.stdout);
+  // A session being appended to right now can end mid-line.
+  const lines = readFileSync(path, "utf8").replace(/\n$/, "").split("\n");
+  lines.pop();
+  const copy = join(scratch, basename(path));
+  writeFileSync(copy, `${lines.join("\n")}\n`);
+  const second = await exec(["omp-transcript", copy, "--ids"]);
+  return second.ok ? parseBlocks(second.stdout) : [];
+}
+
+function startedAt(path: string): string {
+  const match = basename(path).match(
+    /^(\d{4}-\d\d-\d\d)T(\d\d)-(\d\d)-(\d\d)(?:-\d+)?Z_/,
+  );
+  return match ? `${match[1]}T${match[2]}:${match[3]}:${match[4]}Z` : "";
+}
+
+// Newest sessions first until `max` have at least two rendered blocks; the
+// result is oldest first.
+async function collect(
+  dir: string,
+  profile: string,
+  max: number,
+  scratch: string,
+): Promise<Session[]> {
+  const listing = await exec([
+    "omp-transcript",
+    "list",
+    "--profile",
+    profile,
+    "--cwd",
+    dir,
+    "-n",
+    "1000000",
+  ]);
+  if (!listing.ok) fail(listing.stderr.trim() || "omp-transcript list failed");
+  const listed: Listed[] = listing.stdout
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [mtime, id, title, , path] = line.split("\t");
+      return { mtime, id, title: title === "-" ? "" : title, path };
+    });
+
+  const picked: Session[] = [];
+  for (let i = 0; i < listed.length && picked.length < max; i += RENDER_CONCURRENCY) {
+    const batch = listed.slice(i, i + RENDER_CONCURRENCY);
+    const rendered = await Promise.all(batch.map((s) => render(s.path, scratch)));
+    batch.forEach((session, index) => {
+      if (picked.length >= max || rendered[index].length < 2) return;
+      picked.push({
+        ...session,
+        started: startedAt(session.path),
+        blocks: rendered[index],
+        inherited: 0,
+        omitted: 0,
+      });
+    });
+  }
+  return picked.reverse();
+}
+
+function repeatMarker(chars: number): string {
+  return `[… ${chars} chars repeated from earlier in this transcript, omitted …]`;
+}
+
+// Drops long paragraphs already seen anywhere earlier. Tag lines stay intact.
+function trimRepeats(text: string, seen: Set<string>): string {
+  const open = text.indexOf("\n");
+  if (open < 0) return text;
+  const close = text.lastIndexOf("\n</");
+  const end = close > open ? close : text.length;
+  const kept: string[] = [];
+  let omitted = 0;
+  for (const paragraph of text.slice(open + 1, end).split(/\n{2,}/)) {
+    const normalized = paragraph.replace(/\s+/g, " ").trim();
+    if (normalized.length >= REPEAT_MIN_CHARS) {
+      const key = createHash("sha1").update(normalized).digest("base64");
+      if (seen.has(key)) {
+        omitted += paragraph.length;
+        continue;
+      }
+      seen.add(key);
+    }
+    if (omitted) kept.push(repeatMarker(omitted));
+    omitted = 0;
+    kept.push(paragraph);
+  }
+  if (omitted) kept.push(repeatMarker(omitted));
+  return `${text.slice(0, open + 1)}${kept.join("\n\n")}${text.slice(end)}`;
+}
+
+// Oldest first: a fork's copy of its parent's entries goes, the parent's stays.
+function dedupe(sessions: Session[]): { inherited: number; repeated: number } {
+  const seenIds = new Set<string>();
+  const seenParagraphs = new Set<string>();
+  let inherited = 0;
+  let repeated = 0;
+  for (const session of sessions) {
+    const own = new Set<string>();
+    const kept: Block[] = [];
+    for (const block of session.blocks) {
+      if (seenIds.has(block.id)) {
+        session.inherited++;
+        inherited += block.tokens;
+        continue;
+      }
+      own.add(block.id);
+      const text = trimRepeats(block.text, seenParagraphs);
+      const tokens = estimate(text);
+      repeated += block.tokens - tokens;
+      kept.push({ id: block.id, text, tokens });
+    }
+    for (const id of own) seenIds.add(id);
+    session.blocks = kept;
+  }
+  return { inherited, repeated };
+}
+
+// Keeps the newest blocks that fit; everything older than the first misfit goes.
+function applyCap(sessions: Session[], cap: number): Session[] {
+  let used = 0;
+  for (let i = sessions.length - 1; i >= 0; i--) {
+    const session = sessions[i];
+    let from = session.blocks.length;
+    while (from > 0 && used + session.blocks[from - 1].tokens <= cap) {
+      from--;
+      used += session.blocks[from].tokens;
+    }
+    if (from > 0) {
+      session.omitted = from;
+      session.blocks = session.blocks.slice(from);
+      return sessions.slice(i).filter((s) => s.blocks.length > 0);
+    }
+  }
+  return sessions.filter((s) => s.blocks.length > 0);
+}
+
+function attribute(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("\n", " ");
+}
+
+function sessionOpen(session: Session, part: number): string {
+  return `<session id="${session.id}" title="${attribute(session.title)}" started="${
+    session.started
+  }" last-active="${session.mtime}"${
+    session.inherited ? ` fork-inherited-blocks-omitted="${session.inherited}"` : ""
+  }${session.omitted ? ` earlier-blocks-omitted="${session.omitted}"` : ""}${
+    part > 1 ? ` part="${part}"` : ""
+  }>`;
+}
+
+// Packs blocks into requests of at most `budget` estimated tokens, splitting a
+// session only when it does not fit whole.
+function pack(sessions: Session[], budget: number): { text: string; tokens: number }[] {
+  const chunks: { text: string; tokens: number }[] = [];
+  let parts: string[] = [];
+  let used = 0;
+  const flush = () => {
+    chunks.push({ text: parts.join("\n\n"), tokens: used });
+    parts = [];
+    used = 0;
+  };
+  for (const session of sessions) {
+    let part = 0;
+    let open = false;
+    for (const block of session.blocks) {
+      if (used > 0 && used + block.tokens > budget) {
+        if (open) parts.push("</session>");
+        open = false;
+        flush();
+      }
+      if (!open) {
+        part++;
+        parts.push(sessionOpen(session, part));
+        open = true;
+      }
+      parts.push(block.text);
+      used += block.tokens;
+    }
+    if (open) parts.push("</session>");
+  }
+  if (parts.length) flush();
+  return chunks;
+}
+
+// Same guard OMP applies before wrapping text in its boundary tags.
+function escapeBoundaryTags(text: string): string {
+  return text.replace(/<\s*\/?\s*(?:conversation|previous-summary)\s*>/g, (tag) =>
+    tag.replace("<", "&lt;"),
+  );
+}
+
+function parseModel(spec: string): { name: string; thinking?: string } {
+  const name = spec.trim().replace(/^@/, "");
+  const colon = name.lastIndexOf(":");
+  if (colon > 0 && THINKING_LEVELS.includes(name.slice(colon + 1))) {
+    return { name: name.slice(0, colon), thinking: name.slice(colon + 1) };
+  }
+  return { name };
+}
+
+function contextWindow(
+  name: string,
+  roles: Record<string, string>,
+  models: { provider: string; id: string; contextWindow?: number }[],
+): number | undefined {
+  const target = (roles[name] ?? name).replace(
+    new RegExp(`:(${THINKING_LEVELS.join("|")})$`),
+    "",
+  );
+  return models.find((m) => `${m.provider}/${m.id}` === target || m.id === target)
+    ?.contextWindow;
+}
+
+async function summarize(
+  chunks: { text: string; tokens: number }[],
+  omp: string[],
+  focus: string,
+  scratch: string,
+  progress: (index: number) => void,
+): Promise<string> {
+  const firstPrompt = readFileSync(join(PROMPTS, "compaction-summary.md"), "utf8");
+  const updatePrompt = readFileSync(join(PROMPTS, "compaction-update-summary.md"), "utf8");
+  let summary: string | undefined;
+  for (const [index, chunk] of chunks.entries()) {
+    progress(index);
+    let input = `<conversation>\n${escapeBoundaryTags(chunk.text)}\n</conversation>\n\n`;
+    if (summary) {
+      input += `<previous-summary>\n${escapeBoundaryTags(summary)}\n</previous-summary>\n\n`;
+    }
+    input += `${summary ? updatePrompt : firstPrompt}\n\nAdditional focus: ${focus}`;
+    const inputPath = join(scratch, `request-${index + 1}.md`);
+    writeFileSync(inputPath, input);
+    const result = await exec(omp, { cwd: scratch, stdin: inputPath });
+    const text = result.stdout.trim();
+    if (!result.ok || !text) {
+      throw new Error(
+        `summary request ${index + 1}/${chunks.length} failed: ${
+          result.stderr.trim() || "no output"
+        }`,
+      );
+    }
+    summary = text;
+  }
+  if (!summary) throw new Error("nothing to summarize");
+  return summary;
+}
+
+async function main(): Promise<void> {
+  const { values, positionals } = parseArgs({
+    allowPositionals: true,
+    options: {
+      model: { type: "string" },
+      thinking: { type: "string" },
+      guidance: { type: "string" },
+      "max-sessions": { type: "string", default: "30" },
+      "max-tokens": { type: "string", default: "500000" },
+      "summary-tokens": { type: "string", default: "16000" },
+      profile: { type: "string", default: "all" },
+      output: { type: "string", short: "o" },
+      dump: { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
+    },
+  });
+  if (values.help) {
+    console.log(USAGE);
+    return;
+  }
+  if (positionals.length > 1) fail(USAGE);
+  if (values.thinking && !THINKING_LEVELS.includes(values.thinking)) {
+    fail(`--thinking expects one of ${THINKING_LEVELS.join(", ")}`);
+  }
+  const maxSessions = positiveInt("max-sessions", values["max-sessions"]);
+  const maxTokens = positiveInt("max-tokens", values["max-tokens"]);
+  const summaryTokens = positiveInt("summary-tokens", values["summary-tokens"]);
+  let dir: string;
+  try {
+    dir = realpathSync(resolve(positionals[0] ?? process.cwd()));
+  } catch {
+    fail(`no such directory: ${positionals[0]}`);
+  }
+
+  const interactive =
+    !values.dump &&
+    values.model === undefined &&
+    process.stdin.isTTY === true &&
+    process.stdout.isTTY === true;
+  const say = interactive
+    ? (message: string) => prompt.log.info(message)
+    : (message: string) => console.error(`${COMMAND}: ${message}`);
+  const spin = interactive
+    ? prompt.spinner()
+    : { start: say, message: say, stop: say, error: say };
+
+  const roles = values.dump
+    ? Promise.resolve({} as Record<string, string>)
+    : execJson<Record<string, string>>(["omp", "config", "get", "modelRoles"]);
+  const models = values.dump
+    ? Promise.resolve({ models: [] })
+    : execJson<{ models: { provider: string; id: string; contextWindow?: number }[] }>([
+        "omp",
+        "models",
+        "--json",
+      ]);
+  roles.catch(() => {});
+  models.catch(() => {});
+
+  const scratch = mkdtempSync(join(tmpdir(), "omp-session-recap-"));
+  process.on("exit", () => rmSync(scratch, { recursive: true, force: true }));
+
+  if (interactive) prompt.intro(COMMAND);
+  spin.start(`Reading sessions in ${dir}`);
+  const collected = await collect(dir, values.profile, maxSessions, scratch);
+  if (collected.length === 0) {
+    spin.error(`No sessions with a conversation in ${dir}`);
+    process.exit(1);
+  }
+  const rawTokens = collected.reduce(
+    (sum, s) => sum + s.blocks.reduce((n, b) => n + b.tokens, 0),
+    0,
+  );
+  const saved = dedupe(collected);
+  const withContent = collected.filter((s) => s.blocks.length > 0).length;
+  const sessions = applyCap(collected, maxTokens);
+  if (sessions.length === 0) {
+    spin.error(`--max-tokens ${maxTokens} is smaller than the newest message`);
+    process.exit(1);
+  }
+  const tokens = sessions.reduce(
+    (sum, s) => sum + s.blocks.reduce((n, b) => n + b.tokens, 0),
+    0,
+  );
+  spin.stop(
+    `${sessions.length} session(s) · ~${formatTokens(tokens)} tokens (from ~${formatTokens(
+      rawTokens,
+    )}; fork copies −${formatTokens(saved.inherited)}, repeats −${formatTokens(
+      saved.repeated,
+    )}${sessions.length < withContent || sessions[0].omitted ? ", older work cut by --max-tokens" : ""})`,
+  );
+
+  if (values.dump) {
+    process.stdout.write(`${pack(sessions, Number.POSITIVE_INFINITY)[0].text}\n`);
+    return;
+  }
+
+  let roleMap: Record<string, string>;
+  let modelList: { provider: string; id: string; contextWindow?: number }[];
+  try {
+    roleMap = await roles;
+    modelList = (await models).models;
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+
+  let model: { name: string; thinking?: string };
+  let guidance = values.guidance?.trim() ?? "";
+  if (interactive) {
+    const name = guard(
+      await prompt.select({
+        message: "Summarizer model",
+        options: Object.entries(roleMap).map(([role, target]) => ({
+          value: role,
+          label: `@${role}`,
+          hint: target,
+        })),
+        initialValue: DEFAULT_ROLE in roleMap ? DEFAULT_ROLE : "default",
+        maxItems: 12,
+      }),
+    );
+    const thinking = guard(
+      await prompt.select({
+        message: "Thinking level",
+        options: [
+          { value: "", label: "role default", hint: roleMap[name] },
+          ...THINKING_LEVELS.map((level) => ({ value: level, label: level })),
+        ],
+        initialValue: DEFAULT_THINKING,
+      }),
+    );
+    model = { name, thinking: thinking || undefined };
+    guidance = guard(
+      await prompt.text({
+        message: "Guidance for the summary (Enter to skip)",
+        placeholder: "e.g. focus on the open review threads",
+      }),
+    )?.trim() ?? "";
+  } else {
+    model = values.model
+      ? parseModel(values.model)
+      : { name: DEFAULT_ROLE, thinking: DEFAULT_THINKING };
+  }
+  if (values.thinking) model.thinking = values.thinking;
+
+  const window = contextWindow(model.name, roleMap, modelList);
+  if (!window) fail(`cannot find the context window of ${model.name}`);
+  const budget = Math.floor(window * CHUNK_SHARE) - summaryTokens;
+  if (budget <= 0) fail(`${model.name}'s ${window}-token window leaves no room`);
+  const chunks = pack(sessions, budget);
+  const label = `@${model.name}${model.thinking ? `:${model.thinking}` : ""}`;
+
+  if (interactive) {
+    prompt.note(
+      [
+        `Folder     ${dir}`,
+        `Sessions   ${sessions.length} · ~${formatTokens(tokens)} tokens`,
+        `Model      ${label} · ${formatTokens(window)} window`,
+        `Requests   ${chunks.length}${chunks.length > 1 ? " (each updates the previous summary)" : ""}`,
+        `Guidance   ${guidance || "none"}`,
+      ].join("\n"),
+      "Ready",
+    );
+    const go = guard(
+      await prompt.confirm({ message: "Summarize?", active: "Go", inactive: "Cancel" }),
+    );
+    if (!go) cancelled();
+  }
+
+  const omp = [
+    "omp",
+    "-p",
+    "--no-session",
+    "--no-title",
+    "--no-tools",
+    "--no-skills",
+    "--no-rules",
+    "--model",
+    roleMap[model.name] ? `@${model.name}` : model.name,
+    ...(model.thinking ? ["--thinking", model.thinking] : []),
+    "--system-prompt",
+    join(PROMPTS, "summarization-system.md"),
+  ];
+  const focus = [
+    `The conversation holds OMP sessions recorded in ${dir}, oldest first, one <session> element each; a session split across requests continues with part="N".`,
+    `Length: up to about ${summaryTokens} tokens.`,
+    guidance,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const spinner = interactive
+    ? prompt.spinner()
+    : { start: say, message: say, stop: say, error: say };
+  spinner.start(`Summarizing with ${label}`);
+  let summary: string;
+  try {
+    summary = await summarize(chunks, omp, focus, scratch, (index) =>
+      spinner.message(
+        `Summarizing with ${label} · request ${index + 1}/${chunks.length} (~${formatTokens(
+          chunks[index].tokens,
+        )} tokens)`,
+      ),
+    );
+  } catch (error) {
+    spinner.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+  spinner.stop(`Summarized with ${label}`);
+
+  const sources = sessions.map(
+    (s) =>
+      `- \`${s.id}\` ${s.started.slice(0, 10) || s.mtime.slice(0, 10)} · ${
+        s.title || "untitled"
+      }${s.omitted ? " (earlier part cut by the token cap)" : ""}`,
+  );
+  const recap = `# Session recap: ${dir}\n\n${summary}\n\n## Sources\n\n${sources.join("\n")}\n`;
+  const output =
+    values.output ??
+    join(
+      process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"),
+      "omp-session-recap",
+      dir.replaceAll("/", "-").replace(/^-/, ""),
+      `${new Date().toISOString().replaceAll(":", "-").replace(/\.\d+Z$/, "Z")}.md`,
+    );
+  mkdirSync(dirname(resolve(output)), { recursive: true });
+  writeFileSync(output, recap);
+
+  if (interactive) prompt.outro(`Saved to ${output}`);
+  else say(`saved to ${output}`);
+  process.stdout.write(recap);
+}
+
+await main();

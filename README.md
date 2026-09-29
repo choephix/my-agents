@@ -87,6 +87,7 @@ Link a folder with `herdr plugin link <path>` to enable it.
 Standalone applications and background daemons.
 
 - [shadow-agent](tools/shadow-agent) — Background observer generating structured journals, commits, or telemetry from active sessions.
+- [omp-session-recap](tools/omp-session-recap) — `@omp-session-recap [dir]`: summarizes every OMP session recorded in a folder with OMP's compaction prompts, after dropping fork-inherited and repeated text.
 
 ## Scripts
 
