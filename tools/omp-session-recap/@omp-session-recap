@@ -14,7 +14,9 @@ import { parseArgs } from "node:util";
 import * as prompt from "@clack/prompts";
 
 const COMMAND = "@omp-session-recap";
-const PROMPTS = join(dirname(realpathSync(process.argv[1])), "prompts");
+const TOOL_DIR = dirname(realpathSync(process.argv[1]));
+const PROMPTS = join(TOOL_DIR, "prompts");
+const INJECT_EXTENSION = join(TOOL_DIR, "inject-recap.ts");
 const DEFAULT_ROLE = "my-astra";
 const DEFAULT_THINKING = "xhigh";
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
@@ -39,7 +41,9 @@ compaction prompts. Transcripts larger than one request are summarized in
 order, each request updating the previous summary.
 
 Without --model on a terminal, it asks for the model, thinking level, and
-optional guidance.
+optional guidance, and afterwards offers to open OMP in [dir] with the recap
+already in the new session's context, so your first message follows it
+without an agent turn in between. Otherwise the recap is printed to stdout.
 
 Options:
   --model <role|model>   Summarizer, e.g. @my-astra:xhigh (default)
@@ -592,20 +596,50 @@ async function main(): Promise<void> {
       }${s.omitted ? " (earlier part cut by the token cap)" : ""}`,
   );
   const recap = `# Session recap: ${dir}\n\n${summary}\n\n## Sources\n\n${sources.join("\n")}\n`;
-  const output =
+  const output = resolve(
     values.output ??
-    join(
-      process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"),
-      "omp-session-recap",
-      dir.replaceAll("/", "-").replace(/^-/, ""),
-      `${new Date().toISOString().replaceAll(":", "-").replace(/\.\d+Z$/, "Z")}.md`,
-    );
-  mkdirSync(dirname(resolve(output)), { recursive: true });
+      join(
+        process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"),
+        "omp-session-recap",
+        dir.replaceAll("/", "-").replace(/^-/, ""),
+        `${new Date().toISOString().replaceAll(":", "-").replace(/\.\d+Z$/, "Z")}.md`,
+      ),
+  );
+  mkdirSync(dirname(output), { recursive: true });
   writeFileSync(output, recap);
 
-  if (interactive) prompt.outro(`Saved to ${output}`);
-  else say(`saved to ${output}`);
-  process.stdout.write(recap);
+  if (!interactive) {
+    say(`saved to ${output}`);
+    process.stdout.write(recap);
+    return;
+  }
+  prompt.log.success(`Saved to ${output}`);
+  const open = guard(
+    await prompt.confirm({
+      message: `Open OMP in ${dir} with this recap in context?`,
+      active: "Open",
+      inactive: "Just print it",
+    }),
+  );
+  if (!open) {
+    prompt.outro("Done");
+    process.stdout.write(recap);
+    return;
+  }
+  const ompPath = Bun.which("omp");
+  if (!ompPath) fail("omp is not on PATH");
+  if (!process.execve) {
+    fail(
+      `this runtime cannot exec omp; run: OMP_SESSION_RECAP_FILE=${output} omp -e ${INJECT_EXTENSION}`,
+    );
+  }
+  prompt.outro("Opening OMP");
+  rmSync(scratch, { recursive: true, force: true });
+  process.chdir(dir);
+  process.execve(ompPath, ["omp", "-e", INJECT_EXTENSION], {
+    ...process.env,
+    OMP_SESSION_RECAP_FILE: output,
+  });
 }
 
 await main();
