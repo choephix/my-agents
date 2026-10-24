@@ -238,8 +238,9 @@ Earlier, before the toolbar change:
   daemon-wide on 2026-10-19); Folder and Project scopes find them by cwd.
 - Importing from the section lets the daemon pick the workspace for that folder, which may be a
   sibling workspace in the same folder rather than the one being viewed.
-- Reopening needs the `paseo` CLI package on the daemon host (next to the daemon's Node, else on
-  `PATH`, which only allows the slower binary fallback).
+- Reopening needs the `paseo` CLI package on the daemon host (inside the desktop app's
+  `resources/app.asar`, next to the daemon's Node, else on `PATH`, which only allows the slower
+  binary fallback).
 - Titles come from the first 64 KB: a session whose first prompt starts later shows "Empty session".
   Short automated sessions (e.g. "Reply with just: ok" probes) are listed like any other.
 - Switch lists active Paseo workspaces only. Live agents are not listed (they are in the sidebar).

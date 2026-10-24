@@ -223,7 +223,9 @@ OpenRouter left out) only the first ~30 were reachable on a 900 px window.
 
 Both CLIs run with the `ANTHROPIC_*`/`CLAUDE_CODE_USE_*` variables stripped,
 so no inherited API key or 3P routing is used. If the daemon's service PATH
-omits `~/.local/bin`, Titles adds it so native installations still work. A
+omits `~/.local/bin`, Titles adds it so native installations still work. On
+Windows, an npm install's `claude.cmd` shim is skipped for the `claude.exe` it
+wraps, since Node can't run `.cmd` files without a shell. A
 20 s timeout, no retries. Errors name the provider: `Claude CLI failed: …`,
 `OMP failed: …` with the CLI's first error line.
 

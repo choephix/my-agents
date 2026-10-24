@@ -4,12 +4,15 @@ import { z } from "zod";
 export const ruleTypes = ["folderPrefix", "folderName", "remoteGlob", "pathGlob", "pathRegex"] as const;
 export type RuleType = (typeof ruleTypes)[number];
 
+// Windows daemons report roots like `D:\Sources\Nilo`; rules and matching compare with `/` separators.
+const slashes = (path: string) => path.replace(/\\/g, "/");
+
 // One check shared by the schema and the settings form, so both report the same problem.
 export function ruleValueError(type: RuleType, value: string): string | undefined {
   if (!value) return "Enter a value";
-  if (type === "folderName" && value.includes("/")) return "One folder name, without /";
+  if (type === "folderName" && /[\\/]/.test(value)) return "One folder name, without / or \\";
   // Project roots are absolute daemon paths; `~` and relative paths would silently never match.
-  if ((type === "folderPrefix" || type === "pathGlob") && !value.startsWith("/")) return "Use an absolute path (~ is not expanded)";
+  if ((type === "folderPrefix" || type === "pathGlob") && !/^(\/|[A-Za-z]:\/)/.test(slashes(value))) return "Use an absolute path (~ is not expanded)";
   if (type === "pathRegex") {
     try { new RegExp(value); } catch (cause) {
       return `Invalid regular expression: ${cause instanceof Error ? cause.message.replace(/^Invalid regular expression: /, "") : String(cause)}`;
@@ -69,7 +72,8 @@ export function projectName(project: Project): string {
  */
 export function projectOnlyRule(project: Project, projects: readonly Project[]): { type: "folderPrefix" | "pathGlob"; value: string } {
   const root = project.projectRootPath;
-  const nested = projects.some((other) => other.projectRootPath.startsWith(root.replace(/\/+$/, "") + "/"));
+  const inside = slashes(root).replace(/\/+$/, "") + "/";
+  const nested = projects.some((other) => slashes(other.projectRootPath).startsWith(inside));
   return nested && !/[*?]/.test(root) ? { type: "pathGlob", value: root } : { type: "folderPrefix", value: root };
 }
 
@@ -89,20 +93,23 @@ function glob(pattern: string): RegExp {
 export function compilePreset(preset: Pick<Preset, "rules">): (project: Project) => boolean {
   const rules = preset.rules.map((rule) => {
     if (rule.type === "folderPrefix") {
-      const prefix = rule.value.replace(/\/+$/, "");
-      return (project: Project) => project.projectRootPath === prefix || project.projectRootPath.startsWith(prefix + "/");
+      const prefix = slashes(rule.value).replace(/\/+$/, "");
+      return (project: Project) => {
+        const root = slashes(project.projectRootPath);
+        return root === prefix || root.startsWith(prefix + "/");
+      };
     }
     if (rule.type === "folderName") {
       const regex = glob(rule.value);
-      return (project: Project) => project.projectRootPath.split("/").some((segment) => regex.test(segment));
+      return (project: Project) => slashes(project.projectRootPath).split("/").some((segment) => regex.test(segment));
     }
     if (rule.type === "pathRegex") {
       const regex = new RegExp(rule.value);
       return (project: Project) => regex.test(project.projectRootPath);
     }
     if (rule.type === "pathGlob") {
-      const regex = glob(rule.value);
-      return (project: Project) => regex.test(project.projectRootPath);
+      const regex = glob(slashes(rule.value));
+      return (project: Project) => regex.test(slashes(project.projectRootPath));
     }
     const raw = rule.value.replace(/^remote:/, "");
     // org/repo patterns are GitHub shortcuts. Full host/org/repo patterns work on other forges.

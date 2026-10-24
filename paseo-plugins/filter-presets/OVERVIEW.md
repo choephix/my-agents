@@ -14,7 +14,7 @@ Each rule is a type and a value:
 - **Path pattern**: a case-sensitive pattern against the full project root path. `*` matches any characters except `/`, `**` includes `/`, and `?` matches one non-`/` character. Example: `/home/cx/workspace/nilo-*`.
 - **Path regex**: a JavaScript regular expression against the project root path, without surrounding slashes or flags. Add `^` and `$` when you want an anchored match.
 
-Use absolute paths as seen by the daemon. `~` and environment variables are not expanded, so "Inside folder" and "Path pattern" values must start with `/`; the form says so before saving.
+Use absolute paths as seen by the daemon. `~` and environment variables are not expanded, so "Inside folder" and "Path pattern" values must start with `/` (or a drive such as `D:\` on Windows); the form says so before saving. On Windows, `\` and `/` are interchangeable in rule values and project paths.
 
 The initial Nilo preset has two "Path has a folder named" rules, `nilo` and `nilo-*`: every project whose path contains a folder named `nilo` or starting with `nilo-` (for example `/home/cx/workspace/nilo-armory` or `/home/cx/.herdr/worktrees/nilo/wa-frustrations-alpha`).
 

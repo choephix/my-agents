@@ -57,3 +57,37 @@ describe("GitHub remote patterns ignore case", () => {
     expect(compilePreset({ rules: [{ type: "remoteGlob", value: "gitlab.com/team/*" }] })(gitlab)).toBe(false);
   });
 });
+
+describe("Windows project roots", () => {
+  const nilo = project("D:\\Sources\\Nilo");
+  const armory = project("D:\\Sources\\nilo-armory\\client");
+  const vault = project("D:\\Vault");
+  const infra = project("D:\\Vault\\Infra");
+  const projects = [nilo, armory, vault, infra];
+  const matching = (type: "folderPrefix" | "folderName" | "pathGlob", value: string) =>
+    projects.filter(compilePreset({ rules: [{ type, value }] }));
+
+  test("folder names match any segment of a backslash path", () => {
+    expect(matching("folderName", "Nilo")).toEqual([nilo]);
+    expect(matching("folderName", "nilo-*")).toEqual([armory]);
+  });
+
+  test("folders and patterns match with either separator", () => {
+    expect(matching("folderPrefix", "D:\\Sources")).toEqual([nilo, armory]);
+    expect(matching("folderPrefix", "D:/Sources/")).toEqual([nilo, armory]);
+    expect(matching("pathGlob", "D:\\Sources\\*")).toEqual([nilo]);
+    expect(matching("pathGlob", "D:/Sources/**")).toEqual([nilo, armory]);
+  });
+
+  test("drive paths are absolute; folder names reject backslashes", () => {
+    expect(ruleValueError("folderPrefix", "D:\\Sources")).toBeUndefined();
+    expect(ruleValueError("pathGlob", "c:/work/*")).toBeUndefined();
+    expect(ruleValueError("folderPrefix", "Sources\\Nilo")).toMatch(/absolute path/);
+    expect(ruleValueError("folderName", "Sources\\Nilo")).toMatch(/One folder name/);
+  });
+
+  test("Add to picks an exact pattern for a folder holding another project", () => {
+    expect(matching("pathGlob", projectOnlyRule(vault, projects).value)).toEqual([vault]);
+    expect(projectOnlyRule(nilo, projects)).toEqual({ type: "folderPrefix", value: nilo.projectRootPath });
+  });
+});

@@ -1,5 +1,6 @@
 import type { PluginSettings } from "@getpaseo/plugin/server";
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -43,7 +44,18 @@ function askClaude(systemPrompt: string, input: string) {
   // 1 s less per call (1.3 s before the answer, 0.7 s exit flush after it).
   const env = { ...subprocessEnv(), CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" };
   const args = ["-p", "--model", "haiku", "--safe-mode", "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--system-prompt", systemPrompt, "--output-format", "text"];
-  return run("Claude CLI", "claude", args, env, input).then(({ stdout }) => stdout);
+  return run("Claude CLI", claudeCommand(env.PATH), args, env, input).then(({ stdout }) => stdout);
+}
+
+// Windows: execFile can't run npm's `claude.cmd` shim, so run the `claude.exe` it wraps.
+// A native install (`claude.exe` on PATH) resolves as `claude` already.
+function claudeCommand(searchPath = "") {
+  if (process.platform !== "win32") return "claude";
+  for (const dir of searchPath.split(delimiter)) {
+    const exe = join(dir, "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe");
+    if (dir && existsSync(exe)) return exe;
+  }
+  return "claude";
 }
 
 // OMP with its own logins. Its CLI flags can't drop the generated project
