@@ -29,8 +29,7 @@ as three" → three entries).
 
 ## Style
 
-Dense and plain: fragments over sentences, facts over transitions. Every line
-a fact, a decision, or a pointer — anything else, cut. First person, the
+Telegraphic. Every line a fact, a decision, or a pointer. First person, the
 user's voice.
 
 ## Entry
