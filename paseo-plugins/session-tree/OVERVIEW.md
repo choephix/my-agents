@@ -88,6 +88,8 @@ apply without a reload. `/tree` works whatever is off.
   move them (then only the pill and `/tree` remain). Rows with identical text that are not all
   mounted (long chats) fall back to the branch list.
 - Summarize works only while the new branch is still empty (OMP puts the summary at the fork).
+  Hidden custom messages (`display: false`) don't count: OMP appends one (`eval-state-context`)
+  on every reload, i.e. right after each move; counting it hid the strip at once.
 - Branch summaries made in OMP's own TUI aren't tagged "summarized" (the tag comes from the marker).
 - Turn durations in Paseo can look long after a summary ("Worked for 17m") because Paseo groups the
   summary entry into the turn.

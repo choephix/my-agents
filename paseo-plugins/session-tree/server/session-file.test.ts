@@ -47,6 +47,21 @@ describe("SessionTree", () => {
     expect(branches[0].target).toBe("exit");
   });
 
+  test("the reload's hidden context message after a move keeps the offer and adds no branch", () => {
+    const entries: Entry[] = [
+      ...chat(),
+      custom("mk", "a1", MARKER_TYPE, { v: 1, op: "goto", kind: "continue", from: "exit", fork: "a1", requestId: "r1" }),
+      custom("exit2", "mk", "session_exit"),
+      { type: "custom_message", id: "ctx", parentId: "exit2", customType: "eval-state-context", content: "<system-reminder>…</system-reminder>", display: false },
+    ];
+    const tree = new SessionTree(entries);
+    expect(tree.currentMarker()?.id).toBe("mk");
+    expect(tree.branches().map(branch => [branch.title, branch.current, branch.pending])).toEqual([
+      ["Plan a rename CLI", false, false],
+      ["New branch after “Plan: EXIF date names”", true, true],
+    ]);
+  });
+
   test("a message sent after going back ends the offer and makes a second branch", () => {
     const entries = [
       ...chat(),

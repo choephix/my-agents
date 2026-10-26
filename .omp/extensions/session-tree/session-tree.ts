@@ -49,6 +49,12 @@ interface Entry {
 	type: string;
 	id: string;
 	parentId: string | null;
+	display?: boolean;
+}
+
+/** Hidden custom messages (`display: false`, e.g. `eval-state-context` after a reload) are bookkeeping too. */
+function isContent(entry: Entry): boolean {
+	return CONTENT_TYPES.has(entry.type) && !(entry.type === "custom_message" && entry.display === false);
 }
 
 interface SessionManager {
@@ -116,7 +122,7 @@ function stillAtFork(manager: SessionManager, fork: string): boolean {
 	while (id) {
 		if (id === fork) return true;
 		const entry = manager.getEntry(id);
-		if (!entry || CONTENT_TYPES.has(entry.type)) return false;
+		if (!entry || isContent(entry)) return false;
 		id = entry.parentId;
 	}
 	return false;

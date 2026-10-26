@@ -19,6 +19,7 @@ export interface Entry {
   summary?: unknown;
   activeLeafId?: unknown;
   content?: unknown;
+  display?: unknown;
 }
 
 export const MARKER_TYPE = "paseo-session-tree";
@@ -30,6 +31,15 @@ export type MarkerData =
 
 /** Entries that carry conversation; the rest (markers, model usage, pins, settings) is bookkeeping. */
 const CONTENT_TYPES = new Set(["message", "custom_message", "branch_summary", "compaction"]);
+
+/**
+ * Hidden custom messages (`display: false`) are bookkeeping too: OMP appends one such as
+ * `eval-state-context` whenever a session is reloaded, i.e. right after every move.
+ */
+function isContent(entry: Entry): boolean {
+  return CONTENT_TYPES.has(entry.type) && !(entry.type === "custom_message" && entry.display === false);
+}
+
 /** Entry types Paseo's OMP replay hides (`history.js` isControlEntryType). */
 const CONTROL_TYPES = new Set([
   "session", "session_init", "system", "title", "title_change", "custom", "system_prompt", "model_change",
@@ -123,7 +133,7 @@ export class SessionTree {
 
   /** Nodes of the condensed message tree: anything a user sees as a message. */
   isMessage(entry: Entry | undefined): boolean {
-    return entry?.type === "message" || entry?.type === "custom_message";
+    return entry?.type === "message" || (entry?.type === "custom_message" && entry.display !== false);
   }
 
   /** The entry itself if it is a message, else its nearest message ancestor. */
@@ -219,7 +229,7 @@ export class SessionTree {
   /** The newest move marker that still describes the current position (nothing sent since). */
   currentMarker(): (Entry & { data: MarkerData }) | undefined {
     let entry = this.leafId ? this.byId.get(this.leafId) : undefined;
-    while (entry && !CONTENT_TYPES.has(entry.type)) {
+    while (entry && !isContent(entry)) {
       if (isMarker(entry)) return entry;
       entry = entry.parentId ? this.byId.get(entry.parentId) : undefined;
     }
