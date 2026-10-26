@@ -14,7 +14,7 @@ Each rule is a type and a value:
 - **Path pattern**: a case-sensitive pattern against the full project root path. `*` matches any characters except `/`, `**` includes `/`, and `?` matches one non-`/` character. Example: `/home/user/workspace/acme-*`.
 - **Path regex**: a JavaScript regular expression against the project root path, without surrounding slashes or flags. Add `^` and `$` when you want an anchored match.
 
-Use absolute paths as seen by the daemon. `~` and environment variables are not expanded, so "Inside folder" and "Path pattern" values must start with `/`; the form says so before saving.
+Use absolute paths as seen by the daemon. `~` and environment variables are not expanded, so "Inside folder" and "Path pattern" values must start with `/` (or a drive such as `D:\` or a `\\server\share` path on Windows); the form says so before saving. Windows paths (rule values and project roots starting with a drive or `\\`) compare with `\` and `/` interchangeable and the drive letter in either case, except in Path regex, which sees the raw path. Other paths compare as written.
 
 The initial synthetic Acme preset has two "Path has a folder named" rules, `acme` and `acme-*`. Customize these in settings for your own folders. Existing saved definitions are preserved.
 

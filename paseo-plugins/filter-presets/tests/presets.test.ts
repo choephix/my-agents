@@ -57,3 +57,51 @@ describe("GitHub remote patterns ignore case", () => {
     expect(compilePreset({ rules: [{ type: "remoteGlob", value: "gitlab.com/team/*" }] })(gitlab)).toBe(false);
   });
 });
+
+describe("Windows project roots", () => {
+  const acme = project("D:\\Sources\\Acme");
+  const app = project("D:\\Sources\\acme-app\\client");
+  const notes = project("D:\\Notes");
+  const team = project("D:\\Notes\\Team");
+  const share = project("\\\\server\\share\\acme-tools");
+  const projects = [acme, app, notes, team, share];
+  const matching = (type: "folderPrefix" | "folderName" | "pathGlob", value: string) =>
+    projects.filter(compilePreset({ rules: [{ type, value }] }));
+
+  test("folder names match any segment of a backslash path", () => {
+    expect(matching("folderName", "Acme")).toEqual([acme]);
+    expect(matching("folderName", "acme-*")).toEqual([app, share]);
+  });
+
+  test("folders and patterns match with either separator and drive-letter case", () => {
+    expect(matching("folderPrefix", "D:\\Sources")).toEqual([acme, app]);
+    expect(matching("folderPrefix", "d:/Sources/")).toEqual([acme, app]);
+    expect(matching("folderPrefix", "\\\\server\\share")).toEqual([share]);
+    expect(matching("pathGlob", "D:\\Sources\\*")).toEqual([acme]);
+    expect(matching("pathGlob", "D:/Sources/**")).toEqual([acme, app]);
+  });
+
+  test("drive and UNC paths are absolute; a lone leading backslash is not", () => {
+    expect(ruleValueError("folderPrefix", "D:\\Sources")).toBeUndefined();
+    expect(ruleValueError("pathGlob", "c:/work/*")).toBeUndefined();
+    expect(ruleValueError("folderPrefix", "\\\\server\\share")).toBeUndefined();
+    expect(ruleValueError("folderPrefix", "Sources\\Acme")).toMatch(/absolute path/);
+    expect(ruleValueError("pathGlob", "\\Sources\\*")).toMatch(/absolute path/);
+  });
+
+  test("Add to picks an exact pattern for a folder holding another project", () => {
+    expect(projects.filter(compilePreset({ rules: [projectOnlyRule(notes, projects)] }))).toEqual([notes]);
+    expect(projectOnlyRule(acme, projects)).toEqual({ type: "folderPrefix", value: acme.projectRootPath });
+  });
+});
+
+describe("POSIX paths keep backslashes as part of folder names", () => {
+  const archive = project("/work/team\\archive");
+
+  test("a backslash is not a separator", () => {
+    expect(compilePreset({ rules: [{ type: "folderName", value: "archive" }] })(archive)).toBe(false);
+    expect(compilePreset({ rules: [{ type: "folderName", value: "team\\archive" }] })(archive)).toBe(true);
+    expect(compilePreset({ rules: [{ type: "folderPrefix", value: "/work/team" }] })(archive)).toBe(false);
+    expect(ruleValueError("folderName", "team\\archive")).toBeUndefined();
+  });
+});

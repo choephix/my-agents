@@ -44,11 +44,23 @@ interface CliModules {
 
 let modules: Promise<CliModules> | null = null;
 
-/** Loads `dist/utils/{client,daemon-target}.js` from the CLI package that owns `paseoBinary()`. */
+/**
+ * The CLI package root: on Windows, inside the desktop app bundle beside the daemon's executable (there is no
+ * `paseo` beside `Paseo.exe`, only `resources/bin/paseo.cmd`); elsewhere, or without a bundle, via the `paseo` binary.
+ */
+function cliRoot(): string {
+  if (process.platform === "win32") {
+    const bundled = path.join(path.dirname(process.execPath), "resources", "app.asar", "node_modules", "@getpaseo", "cli");
+    if (existsSync(bundled)) return bundled;
+  }
+  // bin/paseo is a symlink into <package>/bin/paseo.
+  return path.dirname(path.dirname(realpathSync(paseoBinary())));
+}
+
+/** Loads `dist/utils/{client,daemon-target}.js` from the CLI package. */
 function cliModules(): Promise<CliModules> {
   modules ??= (async () => {
-    // bin/paseo is a symlink into <package>/bin/paseo.
-    const root = path.dirname(path.dirname(realpathSync(paseoBinary())));
+    const root = cliRoot();
     const load = (file: string) => import(pathToFileURL(path.join(root, "dist", "utils", file)).href);
     const [client, target] = await Promise.all([load("client.js"), load("daemon-target.js")]);
     if (typeof client.connectToDaemon !== "function" || typeof target.selectDaemonTarget !== "function") {

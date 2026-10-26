@@ -1,5 +1,6 @@
 import type { PluginSettings } from "@getpaseo/plugin/server";
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -42,7 +43,21 @@ function askClaude(systemPrompt: string, input: string, timeoutMs: number) {
   // 1 s less per call (1.3 s before the answer, 0.7 s exit flush after it).
   const env = { ...subprocessEnv(), CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" };
   const args = ["-p", "--model", "haiku", "--safe-mode", "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--system-prompt", systemPrompt, "--output-format", "text"];
-  return run("Claude CLI", "claude", args, env, input, timeoutMs).then(({ stdout }) => stdout);
+  return run("Claude CLI", claudeCommand(env.PATH), args, env, input, timeoutMs).then(({ stdout }) => stdout);
+}
+
+// Windows: execFile can't run npm's `claude.cmd` shim, so run the `claude.exe` it wraps. Each PATH folder is
+// checked for a native `claude.exe` first, so the earlier install wins, as it would for `claude`.
+function claudeCommand(searchPath = "") {
+  if (process.platform !== "win32") return "claude";
+  for (const entry of searchPath.split(delimiter)) {
+    const dir = entry.replace(/^"(.*)"$/, "$1");
+    if (!dir) continue;
+    for (const exe of [join(dir, "claude.exe"), join(dir, "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe")]) {
+      if (existsSync(exe)) return exe;
+    }
+  }
+  return "claude";
 }
 
 // OMP with its own logins. Its CLI flags can't drop the generated project
@@ -98,6 +113,12 @@ async function askOmp(model: string, systemPrompt: string, input: string, timeou
 // the native install directory (Claude, OMP) from PATH.
 function subprocessEnv() {
   const env = { ...process.env };
+  // Windows usually spells it `Path`; keep one `PATH` key so the lookups below and the child see the full value.
+  if (process.platform === "win32") {
+    for (const key of Object.keys(env)) {
+      if (key !== "PATH" && key.toUpperCase() === "PATH") { env.PATH ??= env[key]; delete env[key]; }
+    }
+  }
   const nativeBin = join(homedir(), ".local", "bin");
   const path = (env.PATH ?? "").split(delimiter);
   if (!path.includes(nativeBin)) env.PATH = [...path, nativeBin].join(delimiter);
