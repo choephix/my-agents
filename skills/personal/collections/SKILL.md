@@ -30,16 +30,16 @@ Body.
 - The body is Markdown. Its first paragraph shows on the card; the rest folds under "more". Lead with the point.
 - Once filed, leave `status`, `snooze_until`, `done`, `checked` and `applied` to the app. Improving an item later
   means editing its body.
-- Finish by telling Stefan the title and the page: the configured app origin plus `/reminders`, `/proposals` or `/snippets`.
+- Finish by telling Stefan the title and the page: the configured app origin plus `/reminders`, `/life`, `/proposals` or `/snippets`.
 
 ## Reminders
 
-Page: `/reminders`. Something Stefan wants to be nudged about later.
+Page: `/reminders`, or `/life` for life errands. Something Stefan wants to be nudged about later.
 
 - Folder: work reminders → `<work-notes-dir>/reminders/`, and add its one-line row to
-  `<work-notes-dir>/ideas.md` in the same turn (that repo's rule). Everything else →
-  `<notes-dir>/reminders/`.
-- `project:` the configured work or personal project label; the page filters on it.
+  `<work-notes-dir>/ideas.md` in the same turn (that repo's rule). Life errands (calls, appointments, home, car,
+  health) → `<notes-dir>/life/`. Everything else → `<notes-dir>/reminders/`.
+- `project:` the configured work, life or personal project label; the page filters on it.
 - Title starts with a verb: "Fix …", "Ask …", "Check …".
 - Optional fields:
   - `due: YYYY-MM-DD` or `YYYY-MM-DD HH:MM`, only when Stefan gave a time.
