@@ -92,7 +92,7 @@ always, so those rows stand out without hovering, and the one-line tail keeps on
   (`-` reads stdin), `clear <key>` (memo and attention), `get <key>`, `list`. Keys: `paseo:<agentId>`
   (a short id prefix is resolved), `omp:<sessionId>`, or an OMP session file path, stored as
   `omp:<sessionId>`. `--conf` (stored as `conf`) is how sure the writer is that closing the session
-  loses nothing; the plugin ignores it, Mainframe's `/sessions` page sorts by it.
+  loses nothing; the plugin ignores it, Mainframe's `/sessions` page colours its % and bar by it.
 - A row shows the memo on its list key, else the one on `omp:<sessionId>` of its OMP transcript.
   So an `omp:` memo stays on a terminal session after it's imported as an agent (same file).
 - Stored in `~/.paseo/plugin-data/past-sessions/memos.json`. The plugin only reads it, again

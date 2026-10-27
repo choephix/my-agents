@@ -3,7 +3,7 @@
 // it under the row's title, muted, instead of the last reply. `--attention` adds what needs
 // Stefan (unanswered questions, unpushed work, plans never acted on), shown on its own line under it.
 // `--conf` stores how sure (0–100 %) the writer is that closing the session loses nothing; Mainframe's
-// /sessions page sorts by it.
+// /sessions page colours each row's % and bar by it.
 //
 //   memo.mjs set <key> <memo…> [--attention <text…>] [--conf <0-100>]    memo "-" reads stdin
 //   memo.mjs clear <key>                                 removes memo and attention
