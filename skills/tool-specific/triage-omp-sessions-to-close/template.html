@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>34 omp sessions: close or keep</title>
+<style>
+  :root {
+    --bg:#0d1117; --panel:#161b22; --line:#2a313c; --ink:#e6edf3; --mute:#9da7b3;
+    --g:#58F287; --y:#F2C94C; --r:#FF7B72; --nilo:#79C0FF; --keep:#D2A8FF;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, sans-serif; }
+  .wrap { max-width:68rem; margin:auto; padding:1.4rem 1rem 4rem; }
+  :focus-visible { outline:3px solid var(--nilo); outline-offset:2px; }
+  h1 { font:700 1.35rem/1.25 var(--mono); margin:.2rem 0 .5rem; letter-spacing:-.01em; }
+  h1 b.g { color:var(--g) } h1 b.y { color:var(--y) } h1 b.r { color:var(--r) }
+  .lede { color:var(--mute); margin:.2rem 0 1rem; max-width:52rem; }
+  .lede strong { color:var(--ink); }
+
+  /* waffle */
+  .waffle { display:flex; flex-wrap:wrap; gap:4px; margin:.6rem 0 .3rem; }
+  .cell { width:22px; height:22px; border-radius:4px; border:2px solid transparent; cursor:pointer; padding:0; min-height:0; }
+  .cell.g { background:var(--g) } .cell.y { background:var(--y) } .cell.r { background:var(--r) }
+  .cell.keep { background:transparent; }
+  .cell.keep.g { border-color:var(--g) } .cell.keep.y { border-color:var(--y) } .cell.keep.r { border-color:var(--r) }
+  .legend { font:12px var(--mono); color:var(--mute); display:flex; gap:1rem; flex-wrap:wrap; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:.35rem; vertical-align:-1px; }
+
+  .tally { display:grid; grid-template-columns:repeat(auto-fit,minmax(9rem,1fr)); gap:.5rem; margin:1rem 0 1.2rem; }
+  .tally > div { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:.5rem .7rem; }
+  .tally .n { font:700 1.6rem/1 var(--mono); }
+  .tally .l { font-size:12px; color:var(--mute); }
+
+  .toolbar { position:sticky; top:0; z-index:2; background:var(--bg); padding:.5rem 0; display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; border-bottom:1px solid var(--line); }
+  button { min-height:32px; padding:.3rem .8rem; font:13px var(--mono); color:var(--ink); background:var(--panel);
+           border:1px solid var(--line); border-radius:6px; cursor:pointer; }
+  button:hover { border-color:var(--mute); }
+  #status { font:13px var(--mono); color:var(--g); }
+  .filters { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-left:auto; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .seg button { border:0; border-radius:0; min-height:28px; padding:.15rem .6rem; font-size:12px; background:transparent; color:var(--mute); }
+  .seg button + button { border-left:1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background:var(--panel); color:var(--ink); }
+
+  section { margin-top:1.6rem; }
+  section > h2 { font:700 1rem/1.3 var(--mono); margin:0 0 .15rem; display:flex; flex-wrap:wrap; gap:.6rem; align-items:baseline; }
+  section > h2 .bulk { margin-left:auto; display:flex; gap:.4rem; font-weight:400; }
+  section > h2 .bulk button { min-height:28px; padding:.15rem .6rem; font-size:12px; }
+  .bulk .bc { color:var(--r); border-color:#5a2a28; } .bulk .bk { color:var(--keep); border-color:#4b3a6e; }
+  section > h2 .tag { font-size:12px; padding:.05rem .45rem; border-radius:4px; color:#0d1117; }
+  section.g h2 .tag { background:var(--g) } section.y h2 .tag { background:var(--y) } section.r h2 .tag { background:var(--r) }
+  section > p { margin:.1rem 0 .6rem; color:var(--mute); font-size:14px; }
+
+  ol { list-style:none; margin:0; padding:0; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  li.row { display:grid; grid-template-columns: 5.8rem 15rem 1fr 1fr 5.4rem; gap:.8rem; align-items:center;
+           padding:.5rem .7rem; border-top:1px solid var(--line); background:var(--panel); }
+  li.row:first-child { border-top:0; }
+  li.row.keep { background:#1d1830; }
+  .conf { font:600 12px var(--mono); white-space:nowrap; }
+  .conf .mb { font-weight:400; font-size:11px; color:var(--mute); }
+  .age { font:11px var(--mono); color:var(--mute); margin-top:3px; }
+  .bar { height:5px; background:#2a313c; border-radius:3px; margin-top:3px; overflow:hidden; }
+  .bar span { display:block; height:100%; }
+  .g .bar span { background:var(--g) } .y .bar span { background:var(--y) } .r .bar span { background:var(--r) }
+  .g .conf { color:var(--g) } .y .conf { color:var(--y) } .r .conf { color:var(--r) }
+  .where { min-width:0; }
+  .ws { font-size:12.5px; color:#c2cad3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ws b { font-weight:700; }
+  .tab { font-size:15px; font-weight:700; color:var(--ink); }
+  .tab::before { content:"› "; color:#6e7781; }
+  .chip.app { color:var(--keep); border-color:#4b3a6e; }
+  .chip { font:11px var(--mono); padding:0 .35rem; border-radius:3px; border:1px solid var(--line); color:var(--mute); margin-left:.3rem; vertical-align:1px; }
+  .chip.prof { color:#c2cad3; }
+  .chip.nilo { color:var(--nilo); border-color:#2f4a66; }
+  .about { color:var(--ink); font-size:14px; }
+  .lose { font-size:14px; color:var(--mute); }
+  .lose::before { content:"lose → "; font:11px var(--mono); color:#6e7781; }
+  .lose.zero { color:var(--g); }
+  .act { justify-self:end; width:100%; font-weight:700; }
+  li.row:not(.keep) .act { color:var(--r); border-color:#5a2a28; }
+  li.row.keep .act { color:var(--keep); border-color:#4b3a6e; }
+
+  details { margin-top:2rem; color:var(--mute); font-size:13px; }
+  summary { cursor:pointer; font:600 13px var(--mono); color:var(--ink); }
+  pre { white-space:pre-wrap; background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:.7rem; font:12px/1.5 var(--mono); color:var(--ink); }
+  footer { margin-top:2rem; font:12px var(--mono); color:#6e7781; }
+
+  @media (max-width: 860px) {
+    li.row { grid-template-columns: 5rem minmax(0,1fr) 4.2rem; grid-template-areas: "c w a" "x x x" "l l l"; row-gap:.3rem; gap:.5rem; }
+    li.row .act { padding:.3rem .3rem; font-size:12px; }
+    li.row .tab { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    li.row .confbox { grid-area:c } li.row .where { grid-area:w; overflow:hidden } li.row .act { grid-area:a }
+    li.row .about { grid-area:x } li.row .lose { grid-area:l }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+  #active ul { margin:.5rem 0 0; padding-left:1.1rem; } #active li { margin:.25rem 0; } #active li b { color:var(--ink); }
+  @media print { .toolbar { display:none } details > *:not(summary) { display:block !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1 id="h1"></h1>
+  <p class="lede">Closing never deletes a conversation; you can reopen any of these. What you lose is that <strong>nobody watches it any more</strong>.
+  Green: done, saved elsewhere, close. Yellow: one small thing to know. Red: unfinished work or an open question, <strong>kept by default</strong>.
+  Click any row (or square) to flip it between close and keep, then hit <strong>Copy decision</strong> and paste it to me.</p>
+  <div class="waffle" id="waffle" aria-label="One square per session, sorted by confidence. Filled means close, hollow means keep."></div>
+  <div class="legend"><span><i style="background:var(--g)"></i>safe (≥85%)</span><span><i style="background:var(--y)"></i>small catch</span><span><i style="background:var(--r)"></i>unsure (&lt;60%)</span><span><i style="border:2px solid var(--mute)"></i>hollow = keep</span></div>
+  <div class="tally" id="tally"></div>
+  <div class="toolbar" role="toolbar" aria-label="Controls">
+    <button type="button" id="copy">Copy decision</button>
+    <button type="button" id="reset">Reset</button>
+    <span id="status" role="status" aria-live="polite"></span>
+    <span class="filters">
+      <span class="seg" id="f-app" role="group" aria-label="Filter by app"></span>
+      <span class="seg" id="f-prof" role="group" aria-label="Filter by omp profile"></span>
+    </span>
+  </div>
+</header>
+<main id="main"></main>
+<details id="active"><summary id="active-sum"></summary><ul id="active-list"></ul></details>
+<details id="exp"><summary>Decision as text (what Copy puts on the clipboard)</summary><pre id="out"></pre></details>
+<footer id="foot"></footer>
+</div>
+<script>
+// Filled by render.py from the skill's data JSON. Shape: SKILL.md › "Page data".
+const PAGE = /*PAGE_JSON*/{"generated":"","candidates":[],"active":[]}/*END_PAGE_JSON*/;
+// Order: zone (green, yellow, red); inside a zone, rows of one workspace sit together —
+// workspaces ordered by their best confidence, rows inside a workspace by confidence.
+const ZRANK = {g:0, y:1, r:2};
+const D = PAGE.candidates.map(d => ({...d, nilo:!!d.nilo, wkey:d.src+"\u0000"+d.ws,
+   zone: d.conf>=85?"g":d.conf>=60?"y":"r"}));
+const BEST = {};
+for (const d of D) { const k = d.zone+d.wkey; BEST[k] = Math.max(BEST[k] ?? 0, d.conf); }
+D.sort((a,b) => ZRANK[a.zone]-ZRANK[b.zone] || BEST[b.zone+b.wkey]-BEST[a.zone+a.wkey]
+   || a.wkey.localeCompare(b.wkey) || b.conf-a.conf);
+const age = iso => { if (!iso) return "—"; const m = (Date.now()-new Date(iso))/60000;
+   return m<60 ? `${Math.max(1,Math.round(m))}m ago` : m<2880 ? `${Math.round(m/60)}h ago` : `${Math.round(m/1440)}d ago`; };
+const DEFAULT = () => Object.fromEntries(D.map(d => [d.id, d.zone==="r" ? "keep" : "close"]));
+let state = DEFAULT();
+
+const ZONES = [
+  ["g","Safe — close","Done and saved somewhere else. Nothing to lose."],
+  ["y","Small catch — probably close","One thing you should know. Read the 'lose' line."],
+  ["r","Unsure — kept by default","Unfinished work or an open question. Flip to close if you're done with it."],
+];
+const el = (t, cls, txt) => { const e=document.createElement(t); if(cls) e.className=cls; if(txt!=null) e.textContent=txt; return e; };
+const toggle = id => { state[id] = state[id]==="close" ? "keep" : "close"; render(); };
+// Filters only hide rows; the decision (tally, Copy) always covers every session.
+// Each button is an independent toggle, all on at first: a row shows when its app and its profile are on.
+const appOf = src => src.startsWith("Herdr") ? "Herdr" : "Paseo";
+const on = { Paseo: true, Herdr: true, default: true, nilo: true };
+const shows = d => on[appOf(d.src)] && (!d.profile || on[d.profile]);
+
+function render(){
+  const V = D.filter(shows);
+  for (const [id,opts] of [["f-app",[["Paseo","Paseo"],["Herdr","Herdr"]]],
+      ["f-prof",[["default","OMP default"],["nilo","OMP Nilo"]]]]) {
+    const g = document.getElementById(id); g.replaceChildren();
+    for (const [k,label] of opts) {
+      const b = el("button",null,label); b.type="button"; b.setAttribute("aria-pressed", on[k]);
+      b.onclick = () => { on[k] = !on[k]; render(); }; g.append(b);
+    }
+  }
+  const w = document.getElementById("waffle"); w.replaceChildren();
+  for (const d of V) {
+    const b = el("button","cell "+d.zone+(state[d.id]==="keep"?" keep":""));
+    b.type="button"; b.title=`${d.ws} › ${d.tab} — ${d.conf}% — ${state[d.id]}`;
+    b.setAttribute("aria-label", b.title); b.onclick=()=>toggle(d.id); w.append(b);
+  }
+  const close = D.filter(d=>state[d.id]==="close"), keep = D.filter(d=>state[d.id]==="keep");
+  const t = document.getElementById("tally"); t.replaceChildren();
+  const gb = rows => (rows.reduce((s,d)=>s+(d.ram_mb||0),0)/1024).toFixed(1)+" GB";
+  for (const [n,l,c] of [[close.length,"will close","var(--r)"],[keep.length,"will keep","var(--keep)"],
+      [gb(close),"RAM freed by closing","var(--g)"],
+      [`${D.filter(d=>d.nilo).length} · ${D.filter(d=>!d.nilo).length}`,"Nilo · other","var(--nilo)"]]) {
+    const b=el("div"); const nn=el("div","n",String(n)); nn.style.color=c; b.append(nn, el("div","l",l)); t.append(b);
+  }
+  const m = document.getElementById("main"); m.replaceChildren();
+  for (const [z,h,p] of ZONES) {
+    const rows = V.filter(d=>d.zone===z);
+    if (!rows.length) continue;
+    const s = el("section", z); const h2 = el("h2"); h2.append(el("span","tag",String(rows.length)), document.createTextNode(h));
+    const bulk = el("span","bulk");
+    for (const [cls,label,to] of [["bc","✕ close all","close"],["bk","● keep all","keep"]]) {
+      const b = el("button",cls,label); b.type="button"; b.setAttribute("aria-label",`${label} in "${h}"`);
+      b.onclick = () => { rows.forEach(d => state[d.id]=to); render();
+        document.getElementById("status").textContent = `${rows.length} set to ${to}`; };
+      bulk.append(b);
+    }
+    h2.append(bulk);
+    s.append(h2, el("p",null,p));
+    const ol = el("ol");
+    for (const d of rows) {
+      const li = el("li","row "+z+(state[d.id]==="keep"?" keep":""));
+      const cb = el("div","confbox"); const cf = el("div","conf",d.conf+"% ");
+      cf.append(el("span","mb", d.ram_mb==null ? "· no proc" : `· ${d.ram_mb} MB`)); cb.append(cf);
+      const bar=el("div","bar"); const sp=el("span"); sp.style.width=d.conf+"%"; bar.append(sp); cb.append(bar);
+      const ag = el("div","age", age(d.last)); ag.title = d.last ? "last message " + new Date(d.last).toLocaleString() : "no messages"; cb.append(ag);
+      const wh = el("div","where"); const ws = el("div","ws"); ws.title=d.ws+" ("+d.src+")";
+      ws.append(el("b",null,d.ws), el("span","chip app",d.src));
+      if (d.profile) ws.append(el("span","chip prof", d.profile==="nilo" ? "omp-nilo" : "omp"));
+      const tb = el("div","tab", d.tab); tb.append(el("span","chip"+(d.nilo?" nilo":""), d.nilo?"nilo":"other"));
+      wh.append(ws,tb);
+      const lose = el("div","lose"+(d.lose===""||/^Nothing\./.test(d.lose)?" zero":""), d.lose||"Nothing.");
+      const a = el("button","act", state[d.id]==="close"?"✕ close":"● keep"); a.type="button";
+      a.setAttribute("aria-pressed", state[d.id]==="keep"); a.setAttribute("aria-label", `${d.tab}: ${state[d.id]}. Toggle.`);
+      a.onclick=()=>toggle(d.id);
+      li.append(cb, wh, el("div","about",d.about), lose, a); ol.append(li);
+    }
+    s.append(ol); m.append(s);
+  }
+  document.getElementById("out").textContent = exportText();
+}
+function exportText(){
+  const line = d => `- ${d.id} — ${d.ws} › ${d.tab} (${d.src})`;
+  const close = D.filter(d=>state[d.id]==="close"), keep = D.filter(d=>state[d.id]==="keep");
+  const changed = D.filter(d=>state[d.id]!==DEFAULT()[d.id]).map(d=>`${d.tab} → ${state[d.id]}`);
+  const mb = close.reduce((s,d)=>s+(d.ram_mb||0),0);
+  return `Close (${close.length}, expected to free ~${mb} MB RSS):\n${close.map(line).join("\n")}\n\nKeep (${keep.length}):\n${keep.map(line).join("\n")}`
+       + (changed.length?`\n\nChanged from your proposal: ${changed.join(", ")}`:"");
+}
+document.getElementById("copy").onclick = () => {
+  const txt = exportText(); const st = document.getElementById("status");
+  (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject())
+    .then(()=> st.textContent="Copied — paste it to me")
+    .catch(()=>{ document.getElementById("exp").open=true; st.textContent="Clipboard blocked — copy from the box below"; });
+};
+document.getElementById("reset").onclick = () => { state = DEFAULT(); render(); document.getElementById("status").textContent="Reset"; };
+if (/[?&]open=all\b/.test(location.search)) document.querySelectorAll("details").forEach(x => x.open = true);
+(function staticParts(){
+  const n = z => D.filter(d=>d.zone===z).length;
+  const h = document.getElementById("h1");
+  h.append(`${D.length} sessions on the close list · `);
+  for (const [z,l,sep] of [["g","safe"," · "],["y","small catch"," · "],["r","you may want back",""]]) {
+    h.append(el("b",z,`${n(z)} ${l}`), sep);
+  }
+  document.title = `${D.length} omp sessions: close or keep`;
+  const act = PAGE.active || [];
+  document.getElementById("active-sum").textContent = `Not on the list — still working (${act.length})`;
+  const ul = document.getElementById("active-list");
+  for (const a of act) { const li = el("li"); li.append(el("b",null,a.ws), el("span","chip app",a.src)); if (a.profile) li.append(el("span","chip prof", a.profile==="nilo" ? "omp-nilo" : "omp")); li.append(` › ${a.tab} — ${a.why}`); ul.append(li); }
+  document.getElementById("foot").textContent =
+    `% = confidence you lose nothing by closing · generated ${PAGE.generated} from each session's last messages + live GitHub/git checks`;
+})();
+render();
+</script>
+</body>
+</html>
