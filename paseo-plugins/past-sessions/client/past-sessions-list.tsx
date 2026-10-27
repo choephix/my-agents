@@ -57,6 +57,19 @@ const BASE = { fontSize: 14, lineHeight: 20 } as const;
 const SMALL = { fontSize: 12, lineHeight: 17 } as const;
 const GLYPH = 14;
 
+/** `a` moved `t` of the way toward `b`; hex colours only, otherwise `a` unchanged. */
+function mixHex(a: string, b: string, t: number): string {
+  const parse = (hex: string) => {
+    const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
+    if (!m) return null;
+    const h = m[1].length === 3 ? [...m[1]].map((c) => c + c).join("") : m[1];
+    return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  };
+  const [ca, cb] = [parse(a), parse(b)];
+  if (!ca || !cb) return a;
+  return `#${ca.map((v, i) => Math.round(v + (cb[i] - v) * t).toString(16).padStart(2, "0")).join("")}`;
+}
+
 type Styles = ReturnType<typeof createStyles>;
 
 function createStyles(theme: PluginTheme, compact: boolean) {
@@ -149,6 +162,11 @@ function createStyles(theme: PluginTheme, compact: boolean) {
     action: { ...SMALL, color: colors.foreground, fontWeight: "500" },
     preview: { ...muted, marginTop: 1 },
     previewInline: { ...muted, flex: 1, minWidth: 0 },
+    // What needs Stefan on that session (open questions, loose ends): the warning colour moved
+    // toward the text colour, so it's lighter and less saturated than a warning.
+    attention: { color: mixHex(colors.statusWarning, colors.foreground, 0.45) },
+    // The last-reply fallback, fainter than a memo.
+    reply: { opacity: 0.55 },
     expansion: { paddingLeft: GLYPH + 10, paddingBottom: 2 },
     folderHeader: {
       flexDirection: "row",
@@ -233,13 +251,25 @@ function StateMessage(props: {
   );
 }
 
+/** A memo's attention, on its own line under the memo (soft amber). */
+function Attention({ text, styles }: { text: string; styles: Styles }) {
+  return (
+    <Text style={[styles.preview, styles.attention]} numberOfLines={2}>
+      {text}
+    </Text>
+  );
+}
+
 function Preview({ entry, styles, lines }: { entry: PastSession; styles: Styles; lines: number }) {
   const { preview } = entry;
   if (!preview) return null;
   return (
-    <Text style={styles.preview} numberOfLines={lines}>
-      {preview.text}
-    </Text>
+    <>
+      <Text style={[styles.preview, preview.kind === "reply" ? styles.reply : null]} numberOfLines={lines}>
+        {preview.text}
+      </Text>
+      {preview.attention ? <Attention text={preview.attention} styles={styles} /> : null}
+    </>
   );
 }
 
@@ -498,7 +528,7 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
               {!compact && entry.preview ? (
                 <View style={[styles.tail, opened ? styles.tailHidden : null]}>
                   <Text style={styles.dash}>—</Text>
-                  <Text style={styles.previewInline} numberOfLines={1}>
+                  <Text style={[styles.previewInline, entry.preview.kind === "reply" ? styles.reply : null]} numberOfLines={1}>
                     {entry.preview.text}
                   </Text>
                 </View>
@@ -510,6 +540,10 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
             {opened ? (
               <View style={styles.expansion}>
                 <Preview entry={entry} styles={styles} lines={2} />
+              </View>
+            ) : entry.preview?.attention ? (
+              <View style={styles.expansion}>
+                <Attention text={entry.preview.attention} styles={styles} />
               </View>
             ) : null}
           </>

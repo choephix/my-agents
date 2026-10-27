@@ -1,6 +1,5 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { homedir } from "node:os";
-import path from "node:path";
+import { dataDir } from "./server/memos";
 import { externalHandler } from "./server/external";
 import { listHandler } from "./server/list";
 import { markKeys, openMarks } from "./server/marks";
@@ -16,9 +15,7 @@ import {
 import { viewSettings } from "./shared/view";
 
 export default function contribute(server: PluginServerContext) {
-  const marks = openMarks(
-    path.join(process.env.PASEO_HOME ?? path.join(homedir(), ".paseo"), "plugin-data", "past-sessions"),
-  );
+  const marks = openMarks(dataDir());
   server.registerSettings(viewSettings);
   server.handle(listPastSessions, listHandler);
   server.handle(listExternalSessions, externalHandler);

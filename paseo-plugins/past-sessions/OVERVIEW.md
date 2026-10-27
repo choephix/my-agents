@@ -22,7 +22,8 @@ Hover or keyboard focus swaps the time for **Restore** / **Import** (the `termin
 the whole row is the button. The time's tooltip has the absolute date. Sizes are Paseo's
 defaults, 14 px titles and 12 px for the rest (plugins can't read the Interface size setting).
 
-Preview: the last assistant reply from the session's transcript; else nothing (the row is just its
+Preview: the session's memo (see "Memos"), in the muted text colour; else the last assistant
+reply from the session's transcript, fainter still (55% opacity); else nothing (the row is just its
 title line). (Until 2026-10-23 it preferred the `paseo-recap` plugin's summary; that plugin is
 uninstalled and its leftover file was stale, so that was removed.) Transcripts: the OMP session file (terminal rows, and OMP agents'
 native handle) or Claude Code's `~/.claude/projects/<cwd>/<id>.jsonl`. Codex keeps rollouts in
@@ -78,6 +79,27 @@ on disk. Called "Hide" because Paseo already uses Archive (closing an agent) and
   placeholder counts only listed sessions.
 - Phones: the click a browser sends when the long-pressing finger lifts is swallowed
   (`swallowNextClick`), or it would land on the menu sheet's backdrop and dismiss it.
+
+## Memos
+
+A memo is a short note an agent leaves on a session, telegraphic: what's left, why you'd reopen
+it. It replaces the last-reply preview on that row. An optional **attention** line says what
+needs you there (unanswered question, unpushed work, a plan living only in the chat); it gets its
+own line under the memo (up to two lines), in a soft amber (the theme's warning colour moved 45%
+toward the text colour). Comfortable shows it under the preview; Compact shows it under the row
+always, so those rows stand out without hovering, and the one-line tail keeps only the memo.
+- Written by `bin/memo.mjs` only: `set <key> <memo…> [--attention <text…>] [--conf <0-100>]`
+  (`-` reads stdin), `clear <key>` (memo and attention), `get <key>`, `list`. Keys: `paseo:<agentId>`
+  (a short id prefix is resolved), `omp:<sessionId>`, or an OMP session file path, stored as
+  `omp:<sessionId>`. `--conf` (stored as `conf`) is how sure the writer is that closing the session
+  loses nothing; the plugin ignores it, Mainframe's `/sessions` page sorts by it.
+- A row shows the memo on its list key, else the one on `omp:<sessionId>` of its OMP transcript.
+  So an `omp:` memo stays on a terminal session after it's imported as an agent (same file).
+- Stored in `~/.paseo/plugin-data/past-sessions/memos.json`. The plugin only reads it, again
+  whenever its mtime changes; a damaged file drops the memos, not the list.
+- There's no in-app editor. Mainframe's `/sessions` page fills
+  memos for live sessions through a one-off omp run; the triage skill
+  (`triage-omp-sessions-to-close`) writes one for every session it closes or moves into Paseo.
 
 ## Where
 

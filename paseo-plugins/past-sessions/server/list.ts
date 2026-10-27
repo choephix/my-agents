@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import type { listPastSessions, PastSession, Scope } from "../shared/rpc";
 import { byNewest, mergePastSessions, type AgentRecord } from "./merge";
 import { OmpSessionIndex, resolvedOrSelf, type OmpSessionRoot } from "./omp-sessions";
+import { memoKeys, memoReader, type Memo } from "./memos";
 import { TailCache } from "./preview";
 
 type Paseo = PluginHandlerContext["paseo"];
@@ -67,17 +68,27 @@ export function transcriptFile(
 }
 
 /**
- * Adds previews (the transcript's last reply) and dates rows by their transcript's newest
- * record, then re-sorts. 24 files are read at a time.
+ * Adds previews (a memo left on the session, else the transcript's last reply) and dates rows by
+ * their transcript's newest record, then re-sorts. 24 files are read at a time. A damaged
+ * `memos.json` only drops the memos; the list still loads.
  */
 export async function withPreviews(entries: PastSession[]): Promise<PastSession[]> {
+  const memos = await memoReader.load().catch((error: unknown) => {
+    console.warn(`past-sessions: ignoring memos.json: ${error instanceof Error ? error.message : String(error)}`);
+    return new Map<string, Memo>();
+  });
   const out: PastSession[] = [];
   for (let start = 0; start < entries.length; start += 24) {
     out.push(
       ...(await Promise.all(
         entries.slice(start, start + 24).map(async (entry): Promise<PastSession> => {
           const tail = entry.file ? await tails.summary(entry.file) : null;
-          const preview = tail?.reply ? { text: tail.reply } : null;
+          const memo = memoKeys(entry).map((key) => memos.get(key)).find((found) => found !== undefined);
+          const preview: PastSession["preview"] = memo
+            ? { text: memo.memo, kind: "memo", ...(memo.attention ? { attention: memo.attention } : {}) }
+            : tail?.reply
+              ? { text: tail.reply, kind: "reply" }
+              : null;
           return { ...entry, at: tail?.lastActiveAt ?? entry.at, preview };
         }),
       )),

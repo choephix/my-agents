@@ -23,8 +23,14 @@ export const PastSessionSchema = z.object({
   sessionId: z.string().optional(),
   /** OMP session file, or the transcript an archived agent or Claude Code session was read from. */
   file: z.string().optional(),
-  /** The last assistant reply as plain text; null when there is none. */
-  preview: z.object({ text: z.string() }).nullable(),
+  /**
+   * Plain text under the title: `memo`, a note an agent left on the session (`bin/memo.mjs`),
+   * with `attention` (what needs Stefan: loose ends, open questions) when there is any; else
+   * `reply`, the last assistant reply; null when there is neither.
+   */
+  preview: z
+    .object({ text: z.string(), kind: z.enum(["memo", "reply"]), attention: z.string().optional() })
+    .nullable(),
 });
 export type PastSession = z.infer<typeof PastSessionSchema>;
 
