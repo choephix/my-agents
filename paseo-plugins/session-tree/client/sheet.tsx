@@ -80,6 +80,20 @@ function OfferBlock({ agentId, state, store, theme, touch }: { agentId: string; 
   }
   if (!state.offer) return null;
   const what = `${state.offer.setAside} message${state.offer.setAside === 1 ? "" : "s"}`;
+  if (state.offer.summarized) {
+    return (
+      <View style={box}>
+        <View style={styles.row}>
+          <Icon name="Check" size={13} color={muted} />
+          <Text style={[BODY, styles.flex, { color: muted }]} numberOfLines={1}>{what} summarized{touch ? "" : " at the branch point"}</Text>
+          <TextButton label="Undo" onPress={() => void store.goto(agentId, "undo")} theme={theme} />
+          <Pressable accessibilityLabel="Dismiss" onPress={() => void store.dismiss(agentId)} hitSlop={6} style={styles.iconButton}>
+            <Icon name="X" size={13} color={muted} />
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
   if (snapshot.focusOpen.has(agentId)) {
     return (
       <View style={[box, styles.column]}>

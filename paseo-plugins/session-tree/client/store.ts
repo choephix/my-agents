@@ -6,8 +6,8 @@ export interface TreeTransport {
   /** The OMP chats and the plugin's display settings (read with them, so a saved change lands on the next poll). */
   chats(): Promise<{ chats: ChatSummary[]; display: TreeDisplay }>;
   state(agentId: string): Promise<TreeState>;
-  /** Both return the server's op id. */
-  goto(agentId: string, kind: "continue" | "reask" | "switch" | "undo", target?: string): Promise<string>;
+  /** Both return the server's op id. `summarize`: summarize what the move leaves, at the branch point. */
+  goto(agentId: string, kind: "continue" | "reask" | "switch" | "undo", target: string | undefined, summarize: boolean): Promise<string>;
   summarize(agentId: string, focus: string): Promise<string>;
   cancel(agentId: string): Promise<void>;
   dismiss(agentId: string): Promise<void>;
@@ -171,7 +171,7 @@ export class TreeStore {
     const age = Date.now() - mine.since;
     let giveUp: string | undefined;
     if (state.op?.id === mine.opId) {
-      if (age > (mine.kind === "summarize" ? SUMMARIZE_LIMIT_MS : MOVE_LIMIT_MS)) {
+      if (age > (mine.kind === "summarize" || state.op.phase === "summarizing" ? SUMMARIZE_LIMIT_MS : MOVE_LIMIT_MS)) {
         giveUp = "The branch switch is taking too long. Reload the chat if it looks wrong.";
       }
     } else if (!state.op && last?.id !== mine.opId && age > LOST_MS) {
@@ -224,9 +224,11 @@ export class TreeStore {
     }
   }
 
+  /** Settings → Summarize when going back decides whether a move (not Undo) also summarizes what it leaves. */
   goto(agentId: string, kind: "continue" | "reask" | "switch" | "undo", target?: string): Promise<void> {
     this.closeSheet();
-    return this.#run(agentId, kind, () => this.#transport.goto(agentId, kind, target));
+    const summarize = kind !== "undo" && (this.#display?.summarizeOnBack ?? true);
+    return this.#run(agentId, kind, () => this.#transport.goto(agentId, kind, target, summarize));
   }
 
   summarize(agentId: string, focus: string): Promise<void> {

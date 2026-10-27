@@ -10,10 +10,12 @@ import { copyToClipboard } from "./clipboard";
  *   Settings → Show branch buttons on messages is off;
  * - a right-click menu on messages (Shift+right-click, a text selection, links and inputs keep
  *   the browser's menu), unless Settings → Branch menu on right-click is off;
- * - the "N messages set aside · Summarize them · Undo · ×" strip above the composer, progress
+ * - the strip above the composer ("N messages summarized · Undo · ×", or with Settings →
+ *   Summarize when going back off, "N messages set aside · Summarize them · Undo · ×"), progress
  *   ("Switching branch…", "Summarizing…") and toasts.
- * Rows carry no message ids, so a row is matched to an OMP entry by its text (and repeat index)
- * against the chat's current path from the server. If that is ambiguous the branch sheet opens.
+ * Rows carry no message ids, so the user rows on screen are lined up in order with the user
+ * messages of the chat's current path from the server (see `alignment`). A row that lines up with
+ * none says so in a toast and moves nothing.
  * Colors come from Paseo's CSS variables (--colors-*), so every theme applies.
  */
 
@@ -102,30 +104,88 @@ function visible(node: Element): boolean {
 }
 
 const userText = (row: Element) => norm(row.querySelector("[data-message-text]")?.textContent ?? "");
+const words = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 
-/** The turn of a user-message row, or null when the text is unknown or repeats among rows that are not all mounted. */
-function turnOfUser(scroll: Element, row: Element, state: TreeState): Turn | null {
-  const text = userText(row);
-  const turns = state.turns.filter(turn => turn.userText && sameText(norm(turn.userText), text));
-  if (turns.length <= 1) return turns[0] ?? null;
-  const rows = [...scroll.querySelectorAll('[data-testid="user-message"]')].filter(other => sameText(userText(other), text));
-  return rows.length === turns.length ? (turns[rows.indexOf(row)] ?? null) : null;
+/** A user row, or a reply footer with the first words of the reply shown above it. */
+type Item = { node: Element; user: true; text: string } | { node: Element; user: false; head: string[] };
+/** A user message or a reply (its first words) of the path, in order. */
+type Step = { turn: Turn; user: true; text: string } | { turn: Turn; user: false; words: string[] };
+
+function matches(item: Item, step: Step): boolean {
+  if (item.user || step.user) return item.user && step.user && !!item.text && sameText(item.text, step.text);
+  if (!item.head.length) return false;
+  // The reply's opening words, in order. Markdown on screen drops some source words (link targets,
+  // code-fence languages), so the source may have extra words; one shown word may be missing.
+  let found = 0;
+  let at = 0;
+  for (const word of item.head) {
+    const next = step.words.indexOf(word, at);
+    if (next < 0) continue;
+    found++;
+    at = next + 1;
+  }
+  return found >= item.head.length - (item.head.length > 4 ? 1 : 0);
 }
 
-/** The turn of an assistant footer: the turn of the nearest user row above it. */
-function turnOfFooter(scroll: Element, trigger: Element, state: TreeState): Turn | null {
-  const items = [...scroll.querySelectorAll('[data-testid="user-message"],[data-testid="assistant-fork-menu-trigger"]')];
-  const index = items.indexOf(trigger);
-  for (let i = index - 1; i >= 0; i--) {
-    if (items[i].getAttribute("data-testid") === "user-message") return turnOfUser(scroll, items[i], state);
+/**
+ * Lines up what the screen shows (user rows and reply footers, in order) with the user messages
+ * and replies of the current path: longest common subsequence. Order matters because Paseo mounts
+ * only part of a long chat, with gaps, so "the user row above a footer" can belong to an older
+ * turn; and because /prose distills a chat by replaying its messages after a reset, so the path
+ * holds them twice while the screen shows one copy. Where the screen could stand for either copy,
+ * the newer one wins: that is the one OMP's context holds. Computed once per state and DOM list.
+ */
+const alignments = new WeakMap<TreeState, { nodes: Element[]; map: Map<Element, Turn> }>();
+function alignment(scroll: Element, state: TreeState): Map<Element, Turn> {
+  const nodes = [...scroll.querySelectorAll('[data-testid="user-message"],[data-testid="assistant-message"],[data-testid="assistant-fork-menu-trigger"]')];
+  const cached = alignments.get(state);
+  if (cached && cached.nodes.length === nodes.length && cached.nodes.every((node, index) => node === nodes[index])) return cached.map;
+  const items: Item[] = [];
+  let reply = "";
+  for (const node of nodes) {
+    const kind = node.getAttribute("data-testid");
+    if (kind === "assistant-message") reply = node.textContent ?? "";
+    else {
+      items.push(kind === "user-message" ? { node, user: true, text: userText(node) } : { node, user: false, head: words(reply).slice(0, 12) });
+      reply = "";
+    }
   }
-  // No user row above: only certain when the path really starts without one and this is the first footer.
-  return index === 0 && state.turns[0]?.userId === null && !scroll.querySelector('[data-testid="user-message"]') ? state.turns[0] : null;
+  const steps: Step[] = state.turns.flatMap(turn => [
+    ...(turn.userText ? [{ turn, user: true as const, text: norm(turn.userText) }] : []),
+    ...(turn.replyText ? [{ turn, user: false as const, words: words(turn.replyText).slice(0, 80) }] : []),
+  ]);
+  const n = items.length;
+  const w = steps.length + 1;
+  const hit = new Uint8Array((n + 1) * w);
+  // lcs[i * w + j]: longest match of items[0..i) with steps[0..j).
+  const lcs = new Uint16Array((n + 1) * w);
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j < w; j++) {
+      hit[i * w + j] = matches(items[i - 1], steps[j - 1]) ? 1 : 0;
+      lcs[i * w + j] = hit[i * w + j] ? lcs[(i - 1) * w + j - 1] + 1 : Math.max(lcs[(i - 1) * w + j], lcs[i * w + j - 1]);
+    }
+  }
+  const map = new Map<Element, Turn>();
+  for (let i = n, j = w - 1; i > 0 && j > 0; ) {
+    if (hit[i * w + j] && lcs[i * w + j] === lcs[(i - 1) * w + j - 1] + 1) {
+      map.set(items[i - 1].node, steps[j - 1].turn);
+      i--;
+      j--;
+    } else if (lcs[(i - 1) * w + j] >= lcs[i * w + j - 1]) i--;
+    else j--;
+  }
+  alignments.set(state, { nodes, map });
+  return map;
+}
+
+/** The turn of a user row or a reply footer, or null when it lines up with nothing on the path. */
+function turnOf(scroll: Element, node: Element, state: TreeState): Turn | null {
+  return alignment(scroll, state).get(node) ?? null;
 }
 
 /** Whether a footer belongs to the newest turn (continuing from it would change nothing). */
 function isNewest(scroll: Element, trigger: Element, state: TreeState): boolean {
-  const turn = turnOfFooter(scroll, trigger, state);
+  const turn = turnOf(scroll, trigger, state);
   if (turn) return turn === state.turns.at(-1);
   const items = [...scroll.querySelectorAll('[data-testid="user-message"],[data-testid="assistant-fork-menu-trigger"]')];
   return items.at(-1) === trigger;
@@ -223,7 +283,7 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
     const state = snapshot.states.get(agentId);
     const reason = busyReason(state, agentId);
     if (reason) return store.notify(agentId, reason, undefined, true);
-    if (!turn?.lastId) return store.openSheet(agentId);
+    if (!turn?.lastId) return store.notify(agentId, "Could not match this reply to the saved chat, so nothing moved.", undefined, true);
     void store.goto(agentId, "continue", turn.lastId);
   }
 
@@ -231,7 +291,7 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
     const state = snapshot.states.get(agentId);
     const reason = busyReason(state, agentId);
     if (reason) return store.notify(agentId, reason, undefined, true);
-    if (!turn?.userId || !turn.userText) return store.openSheet(agentId);
+    if (!turn?.userId || !turn.userText) return store.notify(agentId, "Could not match this message to the saved chat, so nothing moved.", undefined, true);
     // Copy inside the click: browsers allow clipboard writes only during a user gesture.
     void copyToClipboard(turn.userText);
     store.notify(agentId, "Copied — paste to re-ask", "the old path is kept");
@@ -259,10 +319,10 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
     if (!scroll || !agentId || !state) return;
     if (button.dataset.stpKind === "assistant") {
       const trigger = button.previousElementSibling?.querySelector('[data-testid="assistant-fork-menu-trigger"]');
-      continueFrom(agentId, trigger ? turnOfFooter(scroll, trigger, state) : null);
+      continueFrom(agentId, trigger ? turnOf(scroll, trigger, state) : null);
     } else {
       const row = button.closest('[data-testid="user-message"]');
-      reask(agentId, row ? turnOfUser(scroll, row, state) : null);
+      reask(agentId, row ? turnOf(scroll, row, state) : null);
     }
   }
 
@@ -287,7 +347,7 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
     const items: { icon: keyof typeof ICON; label: string; sub?: string; run: () => void }[] = [];
     const userRow = target.closest('[data-testid="user-message"]');
     if (userRow) {
-      const turn = turnOfUser(scroll, userRow, state);
+      const turn = turnOf(scroll, userRow, state);
       items.push({ icon: "pencil", label: "Re-ask from here", sub: "copies the text", run: () => reask(agentId, turn) });
       if (turn?.userId) items.push({ icon: "external", label: "Open in new tab", run: () => void openInTab(agentId, turn.userId!, true, turn.userText ?? undefined) });
     } else {
@@ -296,7 +356,7 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
       const next = footers.find(node => target.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING);
       if (!target.closest('[data-testid="assistant-message"], [data-testid="tool-call-badge"]') && next?.getAttribute("data-testid") !== "assistant-fork-menu-trigger") return;
       const trigger = next?.getAttribute("data-testid") === "assistant-fork-menu-trigger" ? next : null;
-      const turn = trigger ? turnOfFooter(scroll, trigger, state) : null;
+      const turn = trigger ? turnOf(scroll, trigger, state) : null;
       const newest = trigger ? isNewest(scroll, trigger, state) : true;
       if (!newest) items.push({ icon: "branch", label: "Continue from here", sub: "keeps the rest", run: () => continueFrom(agentId, turn) });
       if (turn?.lastId) items.push({ icon: "external", label: "Open in new tab", run: () => void openInTab(agentId, turn.lastId!, false) });
@@ -354,6 +414,12 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
     if (!offer) return null;
     const n = offer.setAside;
     const what = `${n} message${n === 1 ? "" : "s"}`;
+    if (offer.summarized) {
+      return {
+        key: `summarized-${n}`,
+        html: `${svg("check", 13)}<span class="stp-grow">${what} summarized at the branch point</span><button class="stp-tb" data-act="undo">Undo</button><button class="stp-ib" data-act="x" aria-label="Dismiss">${svg("x", 13)}</button>`,
+      };
+    }
     if (snapshot.focusOpen.has(agentId)) {
       return {
         key: `focus-${n}`,

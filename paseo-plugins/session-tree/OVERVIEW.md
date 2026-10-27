@@ -23,13 +23,16 @@ cannot load it fails at once with a toast naming the overlay (no reload, no wait
   cannot fill the composer).
 - Right-click on a message: Continue from here / Re-ask from here, **Open in new tab**, **Show
   branches**. Shift+right-click, a text selection, links and inputs keep the browser's menu.
-- A click goes back at once: the chat dims with "Switching branch…" (about 1–3 s: the chat is
-  reloaded from its session file). Then a slim strip above the composer:
-  `↩ N messages set aside · Summarize them · Undo · ×`. It stays until you send a message or press
-  × (no timer: a fade could cost the summary chance).
-  - **Summarize them** opens an optional focus field → "Summarizing what you left…" (with Cancel)
-    → OMP writes a real `branch_summary` at the branch point → "Summary added at the branch point".
-  - **Undo** returns to where you were.
+- A click goes back and, by default, summarizes what it leaves, as OMP's `/tree` → Summarize does:
+  "Summarizing what you left…" (with Cancel; one model call), then "Switching branch…" (about
+  1–3 s: the chat is reloaded from its session file). Then a slim strip above the composer:
+  `✓ N messages summarized at the branch point · Undo · ×`. It stays until you send a message or
+  press ×. Cancel leaves the chat where it was.
+  - With **Summarize when going back** off, the move is instant and the strip reads
+    `↩ N messages set aside · Summarize them · Undo · ×` (no timer). **Summarize them** opens an
+    optional focus field → OMP writes the `branch_summary` at the branch point.
+  - **Undo** returns to where you were (the summary stays behind on the branch you undid).
+- A message that can't be matched to the session file says so in a toast and moves nothing.
 - The summary shows in the chat as a muted folded row **Summary of the branch you left · focus: …**;
   unfolding shows the text. The agent sees it (proven: it answered from it).
 - A muted composer pill **Tree · N** when the chat has more than one branch (the empty branch you
@@ -58,11 +61,14 @@ apply without a reload. `/tree` works whatever is off.
   pill and the pill is the only per-chat plugin host for the sheet and phone toasts.
 - **Show branch buttons on messages**: the Continue / Re-ask icons (web and desktop).
 - **Branch menu on right-click**: off leaves the browser's menu (web and desktop).
+- **Summarize when going back**: Continue from here, Re-ask and branch switches put a summary of
+  what is left at the branch point during the move. Off: instant move, "Summarize them" offered after.
 
 ## How it works
 
 - `server/session-file.ts` reads the chat's OMP JSONL (`persistence.nativeHandle`) as a tree:
-  current path, turns (user entry id + last reply/tool entry id), branches, the "set aside" offer,
+  current path, turns (user entry id + text, last reply/tool entry id, start of the last reply
+  text; a `/prose` `reset_boundary` starts a new turn), branches, the "set aside" offer,
   and Paseo's numbering of replayed rows. Leaf = last line (a `model_usage` line points elsewhere).
 - Moves run inside the chat's OMP process via the extension (file requests under
   `~/.paseo/omp-session-tree/<agentId>/`, see `server/link.ts`), which calls the live
@@ -70,13 +76,19 @@ apply without a reload. `/tree` works whatever is off.
   `custom` marker `paseo-session-tree` ({op, kind, from, fork, …}) so the move survives restarts and
   the offer is derived from the file (it ends when a message follows the marker). × is stored in
   `dismissed.json` there.
-- Summarize = in one request: back to the left branch, then `navigateTree(fork, {summarize, focus})`
-  while the new branch is still empty → `branch_summary` at the fork. Cancel = `abortBranchSummary()`.
+- Summarize on going back = the goto request carries `summarize`: one `navigateTree(target,
+  {summarize: true})` → `branch_summary` at the branch point, marker op `summarize`.
+- "Summarize them" later = in one request: back to the left branch, then `navigateTree(fork,
+  {summarize, focus})` while the new branch is still empty. Cancel = `abortBranchSummary()`.
+- The extension writes its REVISION (2) into its `.process-<pid>` marker; the server reloads a chat
+  whose OMP runs an older one before the first move.
 - After each move the server reloads the chat (`DaemonClient.refreshAgent`, the same as
   `paseo agent reload`), because Paseo does not see in-place moves.
 - Web DOM (`client/web.ts`): icons after `assistant-fork-menu-trigger` / `rewind-menu-trigger`,
-  strip, menu, toasts, Paseo's `--colors-*` CSS variables. Rows are matched to entries by text and
-  repeat index against the server's path; if ambiguous the branch list opens instead.
+  strip, menu, toasts, Paseo's `--colors-*` CSS variables. Paseo mounts only part of a long chat,
+  with gaps, so the user rows and reply footers on screen are lined up in order with the path's user
+  messages and reply texts (longest common subsequence; the newer copy wins after `/prose`).
+  Nothing lines up → toast, no move.
 - Timeline transformer: Paseo's replayed `[branch_summary]` row becomes the summary row;
   `[credential_pin]`/`[model_usage]` "Unsupported history record" rows (which appear only after a
   reload, i.e. after every move) are hidden.
@@ -85,8 +97,7 @@ apply without a reload. `/tree` works whatever is off.
 
 - Each move reloads the chat (1–3 s; a summary adds one model call, ~5–15 s on Haiku).
 - Per-message icons are web/desktop only and rely on Paseo's private testIDs; a Paseo update can
-  move them (then only the pill and `/tree` remain). Rows with identical text that are not all
-  mounted (long chats) fall back to the branch list.
+  move them (then only the pill and `/tree` remain).
 - Summarize works only while the new branch is still empty (OMP puts the summary at the fork).
   Hidden custom messages (`display: false`) don't count: OMP appends one (`eval-state-context`)
   on every reload, i.e. right after each move; counting it hid the strip at once.

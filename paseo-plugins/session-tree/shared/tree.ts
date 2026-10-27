@@ -14,6 +14,8 @@ export const TurnSchema = z.object({
   userTime: z.number().nullable(),
   /** Last assistant or tool-result entry of the turn ("Continue from here" goes there); null while unanswered. */
   lastId: z.string().nullable(),
+  /** Start of the turn's last assistant text (the reply above Paseo's footer); null when it has none. */
+  replyText: z.string().nullable(),
 });
 export type Turn = z.infer<typeof TurnSchema>;
 
@@ -60,8 +62,11 @@ export const TreeStateSchema = z.object({
   busy: z.boolean(),
   turns: z.array(TurnSchema),
   branches: z.array(BranchSchema),
-  /** After going back: how many messages were set aside, until the next send or ×. */
-  offer: z.object({ markerId: z.string(), setAside: z.number() }).nullable(),
+  /**
+   * After going back: how many messages were left, until the next send or ×. `summarized`: a branch
+   * summary of them already sits at the branch point (no "Summarize them" any more).
+   */
+  offer: z.object({ markerId: z.string(), setAside: z.number(), summarized: z.boolean() }).nullable(),
   op: OpSchema.nullable(),
   last: OutcomeSchema.nullable(),
 });
@@ -89,10 +94,15 @@ export const treeState = defineRpc({
   output: TreeStateSchema,
 });
 
-/** Moves the chat: Continue from here (assistant), Re-ask (user), Switch (branch list), Undo. Returns at once; follow `op`. */
+/**
+ * Moves the chat: Continue from here (assistant), Re-ask (user), Switch (branch list), Undo. Returns at once; follow `op`.
+ * `summarize`: OMP summarizes the branch being left at the branch point during the move (not for Undo).
+ */
 export const treeGoto = defineRpc({
   name: "tree.goto",
-  input: z.object({ agentId: IdSchema, target: IdSchema.optional(), kind: z.enum(["continue", "reask", "switch", "undo"]) }),
+  input: z.object({
+    agentId: IdSchema, target: IdSchema.optional(), kind: z.enum(["continue", "reask", "switch", "undo"]), summarize: z.boolean().optional(),
+  }),
   output: z.object({ opId: z.string() }),
 });
 

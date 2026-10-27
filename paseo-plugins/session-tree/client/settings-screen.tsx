@@ -12,7 +12,7 @@ export function createSettingsScreen(onSaved: () => void): ComponentType<PluginS
     if (settings.status !== "ready") {
       return <Text style={{ color: theme.colors.foregroundMuted, padding: 16 }}>{settings.status === "loading" ? "Loading…" : settings.error}</Text>;
     }
-    const { showComposerPill, showMessageButtons, contextMenu } = settings.values;
+    const { showComposerPill, showMessageButtons, contextMenu, summarizeOnBack } = settings.values;
     /** Saves the whole object (a missing field would fall back to its default), then refreshes the chats. */
     const save = (values: Partial<typeof settings.values>) =>
       settings.save({ ...settings.values, ...values }, settings.revision).then(ok => {
@@ -42,6 +42,13 @@ export function createSettingsScreen(onSaved: () => void): ComponentType<PluginS
             value={contextMenu}
             disabled={settings.saving}
             onValueChange={value => void save({ contextMenu: value })}
+          />
+          <SettingsSwitch
+            label="Summarize when going back"
+            hint="Continue from here, Re-ask and switching branches put a summary of what you leave at the branch point, like OMP's /tree with Summarize. Takes one model call. Off, the chat moves at once and offers Summarize them afterwards."
+            value={summarizeOnBack}
+            disabled={settings.saving}
+            onValueChange={value => void save({ summarizeOnBack: value })}
           />
         </SettingsSection>
       </View>

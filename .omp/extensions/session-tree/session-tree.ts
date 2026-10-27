@@ -8,15 +8,17 @@
  * Only `omp --mode rpc|rpc-ui` processes started by Paseo (PASEO_AGENT_ID set)
  * take part. Layout, one directory per Paseo chat:
  *
- *   $PASEO_HOME/omp-session-tree/<agentId>/.process-<pid>          this process serves requests
+ *   $PASEO_HOME/omp-session-tree/<agentId>/.process-<pid>          this process serves requests (holds REVISION)
  *   $PASEO_HOME/omp-session-tree/<agentId>/<id>.request.json       written by the plugin
  *   $PASEO_HOME/omp-session-tree/<agentId>/<id>.claimed-<pid>.json the request, claimed by one process
  *   $PASEO_HOME/omp-session-tree/<agentId>/<id>.result.json        written here: running → done | cancelled | error
  *   $PASEO_HOME/omp-session-tree/<agentId>/<id>.cancel             written by the plugin: stop a running summary
  *
- * Requests (keep in sync with `paseo-plugins/session-tree/shared/link.ts`):
- * - `goto {target}`: `navigateTree(target)`. A user message moves to its
- *   parent (OMP's "edit and resend"); anything else becomes the leaf.
+ * Requests (keep in sync with `paseo-plugins/session-tree/server/link.ts`):
+ * - `goto {target, summarize?}`: `navigateTree(target, {summarize})`. A user
+ *   message moves to its parent (OMP's "edit and resend"); anything else
+ *   becomes the leaf. With `summarize`, OMP writes a `branch_summary` of the
+ *   branch being left at the new position (marker op `summarize`).
  * - `summarize {from, fork, focus}`: while the chat still sits at `fork` with
  *   nothing new sent, go back to `from` (the branch that was left) and then
  *   `navigateTree(fork, {summarize, customInstructions: focus})`. OMP writes
@@ -39,6 +41,8 @@ import { join } from "node:path";
 
 export const MARKER_TYPE = "paseo-session-tree";
 const FILE_VERSION = 1;
+/** Written into the process marker; the plugin reloads chats whose OMP runs an older one. 2: `summarize` on goto. */
+const REVISION = 2;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 /** Requests older than this are left alone: the plugin has given up on them. */
 const STALE_MS = 60_000;
@@ -69,7 +73,7 @@ interface NavigateResult {
 	cancelled: boolean;
 	aborted?: boolean;
 	editorText?: string;
-	summaryEntry?: { id: string };
+	summaryEntry?: { id: string; parentId: string | null };
 }
 
 interface LiveSession {
@@ -84,7 +88,7 @@ interface SessionTreeApi {
 }
 
 type Request =
-	| { version: 1; id: string; createdAt: number; sessionFile: string; op: "goto"; target: string; kind: string }
+	| { version: 1; id: string; createdAt: number; sessionFile: string; op: "goto"; target: string; kind: string; summarize?: boolean }
 	| { version: 1; id: string; createdAt: number; sessionFile: string; op: "summarize"; from: string; fork: string; focus: string };
 
 type Result =
@@ -137,7 +141,7 @@ export default function sessionTree(api: SessionTreeApi) {
 	if (Reflect.get(globalThis, loaded)) return;
 	Reflect.set(globalThis, loaded, true);
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(join(dir, `.process-${process.pid}`), "");
+	writeFileSync(join(dir, `.process-${process.pid}`), String(REVISION));
 
 	/** Request id → session whose branch summary that request is generating. */
 	const summarizing = new Map<string, LiveSession>();
@@ -156,12 +160,30 @@ export default function sessionTree(api: SessionTreeApi) {
 		if (request.op === "goto") {
 			const from = manager.getLeafId();
 			if (!manager.getEntry(request.target)) return { status: "error", error: "That message is not in this chat any more." };
-			const moved = await session.navigateTree(request.target);
+			// With `summarize`, OMP puts a summary of the branch being left at the branch point, as `/tree` → Summarize does.
+			if (request.summarize) {
+				writeAtomic(join(dir!, `${request.id}.result.json`), { version: FILE_VERSION, id: request.id, updatedAt: Date.now(), status: "running", phase: "summarizing" });
+				summarizing.set(request.id, session);
+			}
+			let moved: NavigateResult;
+			try {
+				moved = await session.navigateTree(request.target, request.summarize ? { summarize: true } : undefined);
+			} finally {
+				summarizing.delete(request.id);
+			}
 			if (moved.cancelled) return { status: "cancelled" };
-			const fork = manager.getLeafId();
-			if (fork !== from) manager.appendCustomEntry(MARKER_TYPE, { v: 1, op: "goto", kind: request.kind, from, fork, requestId: request.id });
+			const summary = moved.summaryEntry;
+			const fork = summary ? summary.parentId : manager.getLeafId();
+			if (summary && from && fork) {
+				manager.appendCustomEntry(MARKER_TYPE, { v: 1, op: "summarize", from, fork, focus: "", summaryId: summary.id, requestId: request.id });
+			} else if (fork !== from) {
+				manager.appendCustomEntry(MARKER_TYPE, { v: 1, op: "goto", kind: request.kind, from, fork, requestId: request.id });
+			}
 			await manager.flush();
-			return { status: "done", leafId: fork, ...(moved.editorText ? { editorText: moved.editorText } : {}) };
+			return {
+				status: "done", leafId: manager.getLeafId(),
+				...(moved.editorText ? { editorText: moved.editorText } : {}), ...(summary ? { summaryId: summary.id } : {}),
+			};
 		}
 		if (!stillAtFork(manager, request.fork)) {
 			return { status: "error", error: "A message was sent after going back, so the summary can no longer go at the branch point." };

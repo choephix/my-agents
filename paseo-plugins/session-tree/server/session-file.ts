@@ -185,16 +185,27 @@ export class SessionTree {
     return this.#messageChildren.get(id ?? "") ?? [];
   }
 
-  /** Turns on the current path, oldest first. */
+  /**
+   * Turns on the current path, oldest first. A reset boundary (/prose distills a chat by replaying
+   * it after one) ends the turn before it: replies after it belong to a new turn, even without a
+   * user message in between.
+   */
   turns(): Turn[] {
     const turns: Turn[] = [];
+    let reset = false;
     for (const entry of this.path(this.leafId)) {
       const role = entry.type === "message" ? entry.message?.role : undefined;
-      if (role === "user") {
-        turns.push({ userId: entry.id, userText: textOf(entry.message?.content), userTime: time(entry), lastId: null });
+      if (entry.type === "reset_boundary") reset = true;
+      else if (role === "user") {
+        turns.push({ userId: entry.id, userText: textOf(entry.message?.content), userTime: time(entry), lastId: null, replyText: null });
+        reset = false;
       } else if (role === "assistant" || role === "toolResult") {
-        if (!turns.length) turns.push({ userId: null, userText: null, userTime: null, lastId: null });
-        turns[turns.length - 1].lastId = entry.id;
+        if (!turns.length || reset) turns.push({ userId: null, userText: null, userTime: null, lastId: null, replyText: null });
+        reset = false;
+        const turn = turns[turns.length - 1];
+        turn.lastId = entry.id;
+        const text = role === "assistant" ? textOf(entry.message?.content).trim() : "";
+        if (text) turn.replyText = text.slice(0, 600);
       }
     }
     return turns;

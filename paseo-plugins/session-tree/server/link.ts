@@ -9,13 +9,13 @@ import { z } from "zod";
  * Talks to the OMP extension `session-tree` (`.omp/extensions/session-tree/session-tree.ts`;
  * keep the file shapes in sync). One directory per Paseo chat:
  *
- *   $PASEO_HOME/omp-session-tree/<agentId>/.process-<pid>       OMP process that serves requests
+ *   $PASEO_HOME/omp-session-tree/<agentId>/.process-<pid>       OMP process that serves requests (holds its REVISION)
  *   $PASEO_HOME/omp-session-tree/<agentId>/<id>.request.json    written here
  *   $PASEO_HOME/omp-session-tree/<agentId>/<id>.result.json     written by OMP
  *   $PASEO_HOME/omp-session-tree/<agentId>/<id>.cancel          written here
  */
 export type LinkRequest =
-  | { op: "goto"; target: string; kind: string }
+  | { op: "goto"; target: string; kind: string; summarize?: boolean }
   | { op: "summarize"; from: string; fork: string; focus: string };
 
 const ResultSchema = z.discriminatedUnion("status", [
@@ -76,10 +76,21 @@ export async function loadsExtension(env: Record<string, string>): Promise<boole
   return readdir(join(agentDir, "extensions")).then(names => names.includes("session-tree"), () => false);
 }
 
-/** Pids of this chat's OMP processes that loaded the extension. */
+/** What the extension writes into its process marker; bump on both sides when requests gain a field. 2: `summarize` on goto. */
+export const REVISION = 2;
+
+/** Pids of this chat's OMP processes that run the extension at REVISION or later (older ones get reloaded). */
 export async function servingPids(agentId: string): Promise<Set<number>> {
-  const names = await readdir(join(linkRoot(), agentId)).catch(() => [] as string[]);
-  return new Set(names.flatMap(name => (/^\.process-(\d+)$/.test(name) ? [Number(name.slice(9))] : [])));
+  const dir = join(linkRoot(), agentId);
+  const names = await readdir(dir).catch(() => [] as string[]);
+  const pids = await Promise.all(
+    names.map(async name => {
+      if (!/^\.process-\d+$/.test(name)) return [];
+      const revision = Number(await readFile(join(dir, name), "utf8").catch(() => "")) || 1;
+      return revision >= REVISION ? [Number(name.slice(9))] : [];
+    }),
+  );
+  return new Set(pids.flat());
 }
 
 export async function sendRequest(agentId: string, sessionFile: string, request: LinkRequest): Promise<string> {

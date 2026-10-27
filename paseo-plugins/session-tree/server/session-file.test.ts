@@ -34,6 +34,24 @@ describe("SessionTree", () => {
     expect(turns.map(turn => [turn.userId, turn.lastId])).toEqual([["u1", "a1"], ["u2", "a2"], ["u3", "a3"]]);
   });
 
+  test("a /prose reset starts a new turn: the replayed replies do not become the last turn's reply", () => {
+    const entries: Entry[] = [
+      ...chat().slice(0, -1),
+      { type: "reset_boundary", id: "rb", parentId: "a3" },
+      reply("d1", "rb", "Plan: EXIF date names"),
+      user("d2", "d1", "Add collision handling"),
+      reply("d3", "d2", "Done, -1 and -2"),
+    ];
+    const turns = new SessionTree(entries).turns();
+    expect(turns.map(turn => [turn.userId, turn.lastId, turn.replyText])).toEqual([
+      ["u1", "a1", "Plan: EXIF date names"],
+      ["u2", "a2", "Done, -1 and -2"],
+      ["u3", "a3", "HashSet per folder"],
+      [null, "d1", "Plan: EXIF date names"],
+      ["d2", "d3", "Done, -1 and -2"],
+    ]);
+  });
+
   test("going back: an offer with the set-aside count, and a pending branch", () => {
     const entries = [...chat(), custom("mk", "a1", MARKER_TYPE, { v: 1, op: "goto", kind: "continue", from: "exit", fork: "a1", requestId: "r1" })];
     const tree = new SessionTree(entries);

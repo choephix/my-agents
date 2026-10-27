@@ -77,12 +77,14 @@ export default function contribute(server: PluginServerContext) {
     }
   }
 
-  async function offerOf(agentId: string, tree: SessionTree): Promise<{ markerId: string; setAside: number; from: string; fork: string } | null> {
+  async function offerOf(agentId: string, tree: SessionTree): Promise<{ markerId: string; setAside: number; summarized: boolean; from: string; fork: string } | null> {
     const marker = tree.currentMarker();
-    if (!marker || marker.data.op !== "goto" || marker.data.kind === "undo" || !marker.data.from || !marker.data.fork) return null;
+    if (!marker || (marker.data.op === "goto" && marker.data.kind === "undo") || !marker.data.from || !marker.data.fork) return null;
     if ((await dismissed(agentId)).has(marker.id)) return null;
     const setAside = tree.setAside(marker.data.from, marker.data.fork);
-    return setAside > 0 ? { markerId: marker.id, setAside, from: marker.data.from, fork: marker.data.fork } : null;
+    return setAside > 0
+      ? { markerId: marker.id, setAside, summarized: marker.data.op === "summarize", from: marker.data.from, fork: marker.data.fork }
+      : null;
   }
 
   /** The latest finished move per chat, kept until the next one: a client that polled late still learns how its move ended. */
@@ -91,8 +93,8 @@ export default function contribute(server: PluginServerContext) {
   }
 
   /**
-   * Makes sure the chat's OMP process serves requests. One that started before the extension was
-   * installed (or no process at all) is reloaded once. One whose setup never loads the extension
+   * Makes sure the chat's OMP process serves requests. One that started before the extension (or its
+   * current REVISION) was installed, or no process at all, is reloaded once. One whose setup never loads the extension
    * fails at once, without reloading the chat for nothing.
    */
   async function ensureServing(agentId: string): Promise<void> {
@@ -113,8 +115,9 @@ export default function contribute(server: PluginServerContext) {
 
   /** Runs one request against the OMP extension, then reloads the chat so Paseo shows the new path. */
   function startOp(agentId: string, file: string, kind: OpKind, request: LinkRequest, focus?: string): string {
+    const summarizing = request.op === "summarize" || !!request.summarize;
     const op: Op & { requestId?: string } = {
-      id: `op${Date.now().toString(36)}`, kind, phase: kind === "summarize" ? "summarizing" : "switching", startedAt: Date.now(),
+      id: `op${Date.now().toString(36)}`, kind, phase: summarizing ? "summarizing" : "switching", startedAt: Date.now(),
       ...(focus ? { focus } : {}),
     };
     ops.set(agentId, op);
@@ -127,7 +130,7 @@ export default function contribute(server: PluginServerContext) {
         op.requestId = await sendRequest(agentId, file, request);
         const result = await awaitResult(agentId, op.requestId, {
           claimMs: 10_000,
-          totalMs: kind === "summarize" ? 15 * 60_000 : 60_000,
+          totalMs: summarizing ? 15 * 60_000 : 60_000,
         });
         if (result.status === "error") error = result.error;
         else if (result.status === "cancelled") outcome = "cancelled";
@@ -188,36 +191,37 @@ export default function contribute(server: PluginServerContext) {
       busy: found.agent.status === "running",
       turns: tree.turns(),
       branches: tree.branches(),
-      offer: offer && { markerId: offer.markerId, setAside: offer.setAside },
+      offer: offer && { markerId: offer.markerId, setAside: offer.setAside, summarized: offer.summarized },
       op: op ? { id: op.id, kind: op.kind, phase: op.phase, startedAt: op.startedAt, ...(op.focus ? { focus: op.focus } : {}) } : null,
       last: lastOutcome(agentId),
     };
   });
 
-  server.handle(treeGoto, async ({ agentId, target, kind }, { paseo }) => {
+  server.handle(treeGoto, async ({ agentId, target, kind, summarize }, { paseo }) => {
     const { file, tree } = await prepare(paseo, agentId);
     let to = target;
     if (kind === "undo") {
       const marker = tree.currentMarker();
-      if (!marker || marker.data.op !== "goto" || !marker.data.from) throw new Error("Nothing to undo.");
+      if (!marker?.data.from) throw new Error("Nothing to undo.");
       to = marker.data.from;
     }
     if (!to || !tree.byId.has(to)) throw new Error("That message is not in this chat any more.");
     if (to === tree.leafId) throw new Error("The chat is already there.");
-    return { opId: startOp(agentId, file, kind, { op: "goto", target: to, kind }) };
+    return { opId: startOp(agentId, file, kind, { op: "goto", target: to, kind, ...(summarize && kind !== "undo" ? { summarize: true } : {}) }) };
   });
 
   server.handle(treeSummarize, async ({ agentId, focus }, { paseo }) => {
     const { file, tree } = await prepare(paseo, agentId);
     const offer = await offerOf(agentId, tree);
     if (!offer) throw new Error("A message was sent after going back, so there is nothing to summarize at the branch point.");
+    if (offer.summarized) throw new Error("What you left is already summarized.");
     const trimmed = focus.trim();
     return { opId: startOp(agentId, file, "summarize", { op: "summarize", from: offer.from, fork: offer.fork, focus: trimmed }, trimmed) };
   });
 
   server.handle(treeCancel, async ({ agentId }) => {
     const op = ops.get(agentId);
-    if (!op || op.kind !== "summarize" || !op.requestId) throw new Error("Only a running summary can be cancelled.");
+    if (op?.phase !== "summarizing" || !op.requestId) throw new Error("Only a running summary can be cancelled.");
     await cancelRequest(agentId, op.requestId);
     return {};
   });

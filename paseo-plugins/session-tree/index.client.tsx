@@ -28,7 +28,8 @@ export default function contribute(client: PluginClientContext) {
   const store = new TreeStore({
     chats: () => client.rpc(treeChats, {}),
     state: agentId => client.rpc(treeState, { agentId }),
-    goto: async (agentId, kind, target) => (await client.rpc(treeGoto, { agentId, kind, ...(target ? { target } : {}) })).opId,
+    goto: async (agentId, kind, target, summarize) =>
+      (await client.rpc(treeGoto, { agentId, kind, summarize, ...(target ? { target } : {}) })).opId,
     summarize: async (agentId, focus) => (await client.rpc(treeSummarize, { agentId, focus })).opId,
     cancel: async agentId => void (await client.rpc(treeCancel, { agentId })),
     dismiss: async agentId => void (await client.rpc(treeDismiss, { agentId })),
