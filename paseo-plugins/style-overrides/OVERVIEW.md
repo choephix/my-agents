@@ -41,6 +41,31 @@ to the bottom reaches the last line. Find highlighted the right word inside a wr
 After `paseo plugin reload` with a file already open, CodeMirror notices the change on the
 next scroll.
 
+**Link colours by kind** (2026-10-28). Links in a chat get a colour by what they point to, each
+derived from the theme's link colour (`--colors-accent-bright`) in OKLCH, so every theme and
+accent keeps a matching set:
+
+| Kind | Matched by `href` | Look |
+| --- | --- | --- |
+| Agent tab | `https://app.paseo.sh/h/…/agent/…` | hue −70°, weight 500 |
+| Web | any other `http(s)://` | hue +70° |
+| File | anything else (Paseo file links are paths) | accent colour, monospace |
+
+Lightness stays the accent's. A grey accent (Zinc) gets chroma 0.06, so the kinds still
+differ. Every link underlines on hover. Settings chosen by Stefan in the link-colours
+playground (webshare `pages/link-colors-mocks/?agent.hue=-70&agent.weight=500&file.hue=0&url.hue=70`).
+
+| Dark | Light |
+| --- | --- |
+| ![](screenshots/link-colours-dark.webp) | ![](screenshots/link-colours-light.webp) |
+
+The screenshots are the playground mock. Live check (2026-10-28, app.paseo.sh, dark theme,
+accent `#7CCBA0`): agent links computed `#D1B469` at weight 500, web links `#6DC4EA`, file
+links `#7CCBA0` in monospace, the same colours the playground shows for that accent. The CSS
+matches the playground on the other themes too, except where a colour falls outside sRGB
+(light theme agent `#AA7700` vs `#A57900` in the playground): the browser clips it slightly
+differently.
+
 ## Adding, changing or removing a tweak (for agents)
 
 All CSS lives in the `overrides` string in `client/overrides.ts`: one block per tweak, each starting
@@ -78,9 +103,12 @@ style element is removed live). Enable again: `… plugin enable style-overrides
 
 ## Limits
 
-- The selectors depend on Paseo's `data-testid`s (sidebar rows, `file-source-editor`). A Paseo
-  upgrade that renames them makes a tweak silently stop applying. It does not break anything;
-  just remeasure and update the selectors. Sidebar test IDs re-checked on 0.12.0 (2026-10-19).
+- The selectors depend on Paseo's `data-testid`s (sidebar rows, `file-source-editor`,
+  `agent-chat-scroll`). A Paseo upgrade that renames them makes a tweak silently stop applying.
+  It does not break anything; just remeasure and update the selectors. Sidebar test IDs
+  re-checked on 0.12.0 (2026-10-19).
+- Link colours need CSS relative colour syntax (`oklch(from …)`). A browser without it ignores
+  those rules and shows Paseo's own link colour.
 - The phone app (native, not web) is unaffected by design.
 
 ## Live proof (2026-10-19, app.paseo.sh against the 0.11.4 daemon, dark theme)
