@@ -133,7 +133,7 @@ export function createAgentCard(open: (link: AgentLink) => void) {
           borderWidth: 1,
           borderColor: hovered ? colors.borderHover : colors.border,
           borderRadius: 8,
-          backgroundColor: colors.background,
+          backgroundColor: hovered ? colors.backgroundHover : colors.background,
           marginVertical: 6,
           overflow: "hidden",
         }}

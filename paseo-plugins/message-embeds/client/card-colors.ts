@@ -27,14 +27,16 @@ function mix(from: string, to: string, amount: number): string {
 }
 
 /**
- * Card colours from theme tokens, so light and dark themes both work: the background sits a
- * little toward `surface2`, and hovering moves the outline a little toward the muted text colour.
+ * Card colours from theme tokens, so light and dark themes both work. The background sits a
+ * little toward `surface2`; hovering lifts the whole card: the background goes a bit further
+ * toward `surface2` and the outline about halfway toward the muted text colour.
  */
 export function cardColors(theme: PluginTheme) {
   const c = theme.colors;
   return {
     background: mix(c.surface1, c.surface2, 0.4),
+    backgroundHover: mix(c.surface1, c.surface2, 0.85),
     border: c.border,
-    borderHover: mix(c.border, c.foregroundMuted, 0.3),
+    borderHover: mix(c.border, c.foregroundMuted, 0.55),
   };
 }
