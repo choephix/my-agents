@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { z } from "zod";
 import { readEmbedFile } from "../shared/preferences";
+import { cardColors } from "./card-colors";
 
 export const embedCardSchema = z.object({
   original: z.string(),
@@ -58,14 +59,16 @@ export function EmbedCard({ item, agentId, theme, layout }: PluginTimelineItemPr
   // Expanded body fills the window minus room for the chat header and composer.
   const { height: windowHeight } = useWindowDimensions();
   const bodyHeight = Math.max(12 * 17, windowHeight - (layout.compact ? 260 : 220));
+  // Same background as the agent card (theme tokens, a little toward surface2).
+  const background = cardColors(theme).background;
   const cardStyle = useMemo(() => ({
     borderWidth: 1,
     borderColor: theme.colors.border,
     borderRadius: 8,
-    backgroundColor: theme.colors.surface1,
+    backgroundColor: background,
     marginVertical: 5,
     overflow: "hidden" as const,
-  }), [theme.colors.border, theme.colors.surface1]);
+  }), [theme.colors.border, background]);
 
   return (
     <View style={cardStyle}>
@@ -141,7 +144,7 @@ export function EmbedCard({ item, agentId, theme, layout }: PluginTimelineItemPr
                       right: 0,
                       bottom: index * 4,
                       height: 5,
-                      backgroundColor: theme.colors.surface1,
+                      backgroundColor: background,
                       opacity: 1 - index / 8,
                     }}
                   />

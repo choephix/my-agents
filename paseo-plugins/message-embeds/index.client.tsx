@@ -9,6 +9,7 @@ import { AGENT_CARD_KIND, agentCardSchema, createAgentCard } from "./client/agen
 import { EmbedCard, embedCardSchema } from "./client/card";
 import { MarkdownChunk, markdownSchema } from "./client/markdown";
 import { parseMessage } from "./client/parse";
+import { installAgentTextStyles } from "./client/web";
 import { DEFAULTS, preferences } from "./shared/preferences";
 
 /** Timeline rows have no navigation; an agent card opens its chat through this screen. */
@@ -98,6 +99,7 @@ export default function contribute(client: PluginClientContext) {
   });
 
   const openAgent = client.addScreen({ id: "open-agent", title: "Opening chat", Component: OpenAgent });
+  const agentTextStyles = installAgentTextStyles();
   const markdown = client.addTimelineRenderer({ kind: "message-embeds-markdown", version: 1, schema: markdownSchema, Component: MarkdownChunk });
   const card = client.addTimelineRenderer({ kind: "message-embeds-card", version: 1, schema: embedCardSchema, Component: EmbedCard });
   const agentCard = client.addTimelineRenderer({
@@ -149,6 +151,7 @@ export default function contribute(client: PluginClientContext) {
     card();
     agentCard();
     openAgent();
+    agentTextStyles();
     transformer();
     void events.release().catch(() => {});
     revision = undefined;

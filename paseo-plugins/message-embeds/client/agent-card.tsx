@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { z } from "zod";
 import type { AgentLink } from "./agent-link";
-import { pressedLink } from "./web";
+import { cardColors } from "./card-colors";
+import { AGENT_TEXT, pressedLink } from "./web";
 
 export const AGENT_CARD_KIND = "message-embeds-agent";
 
@@ -113,6 +114,7 @@ export function createAgentCard(open: (link: AgentLink) => void) {
     if (preview === null) return <Markdown>{url}</Markdown>;
 
     const c = theme.colors;
+    const colors = cardColors(theme);
     const status = preview && {
       working: { label: "Working", color: c.accent },
       permission: { label: "Needs permission", color: c.statusWarning },
@@ -129,9 +131,9 @@ export function createAgentCard(open: (link: AgentLink) => void) {
         onHoverOut={() => setHovered(false)}
         style={{
           borderWidth: 1,
-          borderColor: hovered ? c.foregroundMuted : c.border,
+          borderColor: hovered ? colors.borderHover : colors.border,
           borderRadius: 8,
-          backgroundColor: c.surface1,
+          backgroundColor: colors.background,
           marginVertical: 6,
           overflow: "hidden",
         }}
@@ -150,19 +152,22 @@ export function createAgentCard(open: (link: AgentLink) => void) {
           <ScrollView
             ref={scroll}
             style={{ maxHeight: BODY_HEIGHT }}
-            contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, gap: 10 }}
+            contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 6, gap: 6 }}
             onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })}
           >
             {preview.messages.length ? preview.messages.map((message, index) =>
               message.role === "user" ? (
                 <View key={index} style={{ borderLeftWidth: 2, borderLeftColor: c.border, paddingLeft: 8 }}>
-                  <Text style={{ color: c.foregroundMuted, fontSize: 11, marginBottom: 2 }}>You</Text>
-                  <Text numberOfLines={6} style={{ color: c.foregroundMuted, fontSize: 13 }}>{message.text}</Text>
+                  <Text style={{ color: c.foregroundMuted, fontSize: 11, lineHeight: 14 }}>You</Text>
+                  <Text numberOfLines={6} style={{ color: c.foregroundMuted, fontSize: 12, lineHeight: 16 }}>{message.text}</Text>
                 </View>
               ) : (
-                <Markdown key={index}>{message.text}</Markdown>
+                // Web scales this Markdown down and tightens its lines (see AGENT_TEXT_CSS).
+                <View key={index} {...AGENT_TEXT}>
+                  <Markdown>{message.text}</Markdown>
+                </View>
               ),
-            ) : <Text style={{ color: c.foregroundMuted, fontSize: 13 }}>No messages yet.</Text>}
+            ) : <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>No messages yet.</Text>}
           </ScrollView>
         ) : null}
       </Pressable>
