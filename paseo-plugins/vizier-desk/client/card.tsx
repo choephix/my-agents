@@ -1,6 +1,6 @@
 import { openExternalUrl } from "@getpaseo/plugin/client";
-import { copyText, Icon, Markdown, useToast } from "@getpaseo/plugin/client/ui";
-import { useState } from "react";
+import { copyText, Icon, Markdown, Modal, useToast } from "@getpaseo/plugin/client/ui";
+import { type ReactNode, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { Desk, DeskCard, DeskPerson, PrState } from "../shared/desk";
 import { Inline, prInfo, prsIn, prStyle, prUrl } from "./inline";
@@ -12,7 +12,7 @@ export interface CardScene {
   now: number;
   asksByName: Map<string, DeskCard>;
   openAgent?: (agentId: string) => void;
-  /** Touch layout: no hover, so the ⋯ button never shows; tapping the card opens everything. */
+  /** Touch layout: no hover highlight. */
   compact: boolean;
 }
 
@@ -158,26 +158,68 @@ function RefLink({ target, scene }: { target: Target; scene: CardScene }) {
 const stamp = (iso: string) =>
   new Date(iso).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-export function Card({ card, scene }: { card: DeskCard; scene: CardScene }) {
-  const { desk, c, now, compact } = scene;
-  const [open, setOpen] = useState(false);
-  const [info, setInfo] = useState(false);
-  const [hovered, setHovered] = useState(false);
+/** What the card shows beyond its face: references, people, times and the file. */
+function refsOf(card: DeskCard, desk: Desk, shown: string, rest: string) {
+  const words = `${shown}\n${rest}`;
+  return {
+    links: card.links.filter((url) => !url.includes(`github.com/${desk.repo}/pull/`) && !words.includes(url)).map((url) => linkTarget(url, desk.shared)),
+    asks: card.asks.filter((url) => !words.includes(url)),
+  };
+}
+
+function shownOf(card: DeskCard) {
   const doing = card.kind === "doing";
-  const state = stateOf(card);
   const face = doing ? (card.now ?? card.title) : card.title;
   const nowLine = doing ? null : card.now;
   const { lead, rest } = doing ? { lead: "", rest: [card.now ? card.title : "", card.body].filter(Boolean).join("\n\n") } : splitBody(card.body);
-  // References the visible text doesn't already carry.
   const shown = `${face}\n${card.answer ?? ""}\n${nowLine ?? ""}\n${lead}\n${card.blocks ?? ""}`;
-  const inText = prsIn(shown);
-  const chips = card.prs.filter((n) => !inText.has(n));
-  const words = `${shown}\n${rest}`;
-  const links = card.links.filter((url) => !url.includes(`github.com/${desk.repo}/pull/`) && !words.includes(url)).map((url) => linkTarget(url, desk.shared));
-  const asks = card.asks.filter((url) => !words.includes(url));
-  const when = doing ? age(card.updated, now) : age(card.opened, now);
-  const old = !doing && !card.closed && card.opened != null && now - Date.parse(card.opened) > DAY;
-  const details = open || info;
+  return { doing, face, nowLine, lead, rest, shown };
+}
+
+function Blocks({ card, desk, c, size }: { card: DeskCard; desk: Desk; c: Palette; size: { fontSize: number; lineHeight: number } }) {
+  if (!card.blocks) return null;
+  return (
+    <View style={{ backgroundColor: c.alpha(c.danger, 0.08), paddingHorizontal: 5, paddingVertical: 2 }}>
+      <Inline text={`Blocks ${card.blocks}`} desk={desk} c={c} style={{ ...size, color: c.danger }} />
+    </View>
+  );
+}
+
+function Answer({ card, desk, c, size }: { card: DeskCard; desk: Desk; c: Palette; size: { fontSize: number; lineHeight: number } }) {
+  if (!card.answer) return null;
+  return (
+    <View style={{ flexDirection: "row", gap: 6 }}>
+      <View style={{ paddingTop: 2 }}>
+        <Icon name="CornerDownRight" size={12} color={c.ok} />
+      </View>
+      <Text style={{ ...size, color: c.fg, flex: 1 }}>
+        <Text style={{ color: c.muted }}>You: </Text>
+        <Inline text={card.answer} desk={desk} c={c} style={{ ...size, color: c.fg }} />
+      </Text>
+    </View>
+  );
+}
+
+const MODAL = { title: { fontSize: 15, lineHeight: 21, fontWeight: "600" as const }, body: { fontSize: 13, lineHeight: 19 }, label: { fontSize: 11, lineHeight: 15 } };
+
+function Section({ label, c, children }: { label: string; c: Palette; children: ReactNode }) {
+  return (
+    <View style={{ gap: 6 }}>
+      <Text style={{ ...MODAL.label, color: c.faint }}>{label}</Text>
+      {children}
+    </View>
+  );
+}
+
+/** The whole card in Paseo's modal: a centred dialog on wide layouts, a sheet on compact ones. */
+function CardModal({ card, scene, open, onOpenChange }: { card: DeskCard; scene: CardScene; open: boolean; onOpenChange(open: boolean): void }) {
+  const { desk, c } = scene;
+  const state = stateOf(card);
+  const { doing, face, nowLine, lead, rest, shown } = shownOf(card);
+  const { links, asks } = refsOf(card, desk, shown, rest);
+  const workspace = desk.workspaces.find((w) => w.key === card.workspace)?.title;
+  // Following a link to a Paseo tab leaves the screen, so the modal closes first.
+  const inner: CardScene = { ...scene, openAgent: scene.openAgent ? (id) => (onOpenChange(false), scene.openAgent!(id)) : undefined };
   const people: { person: DeskPerson; role: string }[] = [
     ...(card.asker ? [{ person: card.asker, role: doing ? "Owner" : "Asker" }] : []),
     ...card.sessions.map((person) => ({ person, role: "Session" })),
@@ -185,99 +227,58 @@ export function Card({ card, scene }: { card: DeskCard; scene: CardScene }) {
   ];
 
   return (
-    <Pressable
-      onPress={() => setOpen((v) => !v)}
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
-      accessibilityRole="button"
-      accessibilityLabel={`${STATE_WORDS[state]}: ${plain(face)}`}
-      accessibilityState={{ expanded: open }}
-      style={{
-        backgroundColor: c.s1,
-        borderWidth: 1,
-        borderColor: hovered ? c.alpha(c.fg, 0.16) : c.border,
-        paddingHorizontal: 11,
-        paddingVertical: 9,
-        gap: 5,
-      }}
+    <Modal
+      title={[STATE_WORDS[state], workspace].filter(Boolean).join(" · ")}
+      icon={<View style={{ width: 3, height: 14, backgroundColor: c.state(state) }} />}
+      open={open}
+      onOpenChange={onOpenChange}
     >
-      <View style={{ position: "absolute", left: -1, top: 11, width: 3, height: 14, backgroundColor: c.state(state) }} />
-      {!compact && (hovered || info) ? (
-        <Pressable
-          onPress={() => setInfo((v) => !v)}
-          accessibilityRole="button"
-          accessibilityLabel="People, times and file"
-          style={({ hovered: over }: { pressed: boolean; hovered?: boolean }) => ({
-            position: "absolute",
-            top: 6,
-            right: 6,
-            width: 22,
-            height: 22,
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1,
-            backgroundColor: over || info ? c.s2 : "transparent",
-          })}
-        >
-          <Icon name="Ellipsis" size={14} color={c.muted} />
-        </Pressable>
-      ) : null}
+      <Modal.Content contentContainerStyle={{ padding: 20, gap: 14 }}>
+        <Inline text={face} desk={desk} c={c} style={{ ...MODAL.title, color: card.closed ? c.muted : c.fg }} />
+        <Answer card={card} desk={desk} c={c} size={MODAL.body} />
+        {nowLine ? <Inline text={nowLine} desk={desk} c={c} style={{ ...MODAL.body, color: c.body }} /> : null}
+        {lead ? <Inline text={lead} desk={desk} c={c} style={{ ...MODAL.body, color: c.body }} /> : null}
+        {rest ? <Markdown>{rest}</Markdown> : null}
+        <Blocks card={card} desk={desk} c={c} size={MODAL.body} />
+        {card.broken ? <Text style={{ ...MODAL.body, color: c.danger }}>The front matter can't be read.</Text> : null}
 
-      <Inline text={face} desk={desk} c={c} style={{ ...TYPE.title, color: card.closed ? c.muted : c.fg, paddingRight: compact ? 0 : 18 }} />
-
-      {card.answer ? (
-        <View style={{ flexDirection: "row", gap: 6 }}>
-          <View style={{ paddingTop: 2 }}>
-            <Icon name="CornerDownRight" size={12} color={c.ok} />
-          </View>
-          <Text style={{ ...TYPE.body, color: c.fg, flex: 1 }}>
-            <Text style={{ color: c.muted }}>You: </Text>
-            <Inline text={card.answer} desk={desk} c={c} style={{ ...TYPE.body, color: c.fg }} />
-          </Text>
-        </View>
-      ) : null}
-      {nowLine ? <Inline text={nowLine} desk={desk} c={c} style={{ ...TYPE.body, color: c.body }} lines={open ? undefined : 3} /> : null}
-      {lead ? <Inline text={lead} desk={desk} c={c} style={{ ...TYPE.body, color: c.body }} lines={open ? undefined : 3} /> : null}
-      {open && rest ? <Markdown>{rest}</Markdown> : null}
-
-      {card.blocks ? (
-        <View style={{ backgroundColor: c.alpha(c.danger, 0.08), paddingHorizontal: 5, paddingVertical: 2 }}>
-          <Inline text={`Blocks ${card.blocks}`} desk={desk} c={c} style={{ ...TYPE.small, color: c.danger }} />
-        </View>
-      ) : null}
-      {card.broken ? <Text style={{ ...TYPE.small, color: c.danger }}>The front matter can't be read.</Text> : null}
-
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 16, borderTopWidth: 1, borderTopColor: c.border, paddingTop: 6, marginTop: 1 }}>
-        {card.asker ? <Person person={card.asker} scene={scene} /> : null}
-        {links[0] ? <RefLink target={links[0]} scene={scene} /> : null}
-        <View style={{ flex: 1 }} />
-        {chips.map((n) => (
-          <PrChip key={n} n={n} scene={scene} />
-        ))}
-        {when ? <Text style={{ ...TYPE.small, color: old ? c.warn : c.meta, fontVariant: ["tabular-nums"] }}>{when}</Text> : null}
-      </View>
-
-      {details ? (
-        <View style={{ gap: 4, paddingTop: 2 }}>
-          {people.map(({ person, role }, i) => (
-            <Person key={i} person={person} role={role} scene={scene} wide />
-          ))}
-          {asks.map((url) => {
-            const name = url.replace(/^.*\//, "").replace(/\.md$/, "");
-            const ask = scene.asksByName.get(name);
-            const label = name.replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(/-/g, " ");
-            return (
-              <Text key={url} onPress={() => void openExternalUrl(url)} accessibilityRole="link" style={{ ...TYPE.small, color: ask?.live ? c.metaStrong : c.meta }}>
-                {ask?.live ? "Open ask: " : "Settled ask: "}
-                {label}
+        {card.prs.length ? (
+          <Section label="Pull requests" c={c}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+              {card.prs.map((n) => (
+                <PrChip key={n} n={n} scene={inner} />
+              ))}
+            </View>
+          </Section>
+        ) : null}
+        {people.length ? (
+          <Section label="People" c={c}>
+            {people.map(({ person, role }, i) => (
+              <Person key={i} person={person} role={role} scene={inner} wide />
+            ))}
+          </Section>
+        ) : null}
+        {asks.length || links.length ? (
+          <Section label="Links" c={c}>
+            {asks.map((url) => {
+              const name = url.replace(/^.*\//, "").replace(/\.md$/, "");
+              const ask = scene.asksByName.get(name);
+              const label = name.replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(/-/g, " ");
+              return (
+                <Text key={url} onPress={() => void openExternalUrl(url)} accessibilityRole="link" style={{ ...TYPE.small, color: ask?.live ? c.metaStrong : c.meta }}>
+                  {ask?.live ? "Open ask: " : "Settled ask: "}
+                  {label}
+                </Text>
+              );
+            })}
+            {links.map((t, i) => (
+              <Text key={i} onPress={follow(t, inner)} accessibilityRole="link" style={{ ...TYPE.small, color: c.meta, textDecorationLine: t.url || t.agentId ? "underline" : "none" }}>
+                {t.label}
               </Text>
-            );
-          })}
-          {links.map((t, i) => (
-            <Text key={i} onPress={follow(t, scene)} accessibilityRole="link" style={{ ...TYPE.small, color: c.meta, textDecorationLine: t.url || t.agentId ? "underline" : "none" }}>
-              {t.label}
-            </Text>
-          ))}
+            ))}
+          </Section>
+        ) : null}
+        <Section label="File" c={c}>
           <Text style={{ ...TYPE.small, color: c.meta }}>
             {card.opened ? `${doing ? "Started" : "Opened"} ${stamp(card.opened)}` : ""}
             {card.updated ? `${card.opened ? " · " : ""}updated ${stamp(card.updated)}` : ""}
@@ -288,8 +289,62 @@ export function Card({ card, scene }: { card: DeskCard; scene: CardScene }) {
           <Text onPress={() => void openExternalUrl(card.url)} accessibilityRole="link" style={{ ...TYPE.small, color: c.ok }}>
             Open the file
           </Text>
+        </Section>
+      </Modal.Content>
+    </Modal>
+  );
+}
+
+export function Card({ card, scene }: { card: DeskCard; scene: CardScene }) {
+  const { desk, c, now, compact } = scene;
+  const [open, setOpen] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const state = stateOf(card);
+  const { doing, face, nowLine, lead, rest, shown } = shownOf(card);
+  // References the visible text doesn't already carry.
+  const inText = prsIn(shown);
+  const chips = card.prs.filter((n) => !inText.has(n));
+  const { links } = refsOf(card, desk, shown, rest);
+  const when = doing ? age(card.updated, now) : age(card.opened, now);
+  const old = !doing && !card.closed && card.opened != null && now - Date.parse(card.opened) > DAY;
+
+  return (
+    <>
+      <Pressable
+        onPress={() => setOpen(true)}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        accessibilityRole="button"
+        accessibilityLabel={`${STATE_WORDS[state]}: ${plain(face)}`}
+        accessibilityHint="Opens the whole card"
+        style={{
+          backgroundColor: c.s1,
+          borderWidth: 1,
+          borderColor: hovered && !compact ? c.alpha(c.fg, 0.16) : c.border,
+          paddingHorizontal: 11,
+          paddingVertical: 9,
+          gap: 5,
+        }}
+      >
+        <View style={{ position: "absolute", left: -1, top: 11, width: 3, height: 14, backgroundColor: c.state(state) }} />
+        <Inline text={face} desk={desk} c={c} style={{ ...TYPE.title, color: card.closed ? c.muted : c.fg }} />
+        <Answer card={card} desk={desk} c={c} size={TYPE.body} />
+        {nowLine ? <Inline text={nowLine} desk={desk} c={c} style={{ ...TYPE.body, color: c.body }} lines={3} /> : null}
+        {lead ? <Inline text={lead} desk={desk} c={c} style={{ ...TYPE.body, color: c.body }} lines={3} /> : null}
+        <Blocks card={card} desk={desk} c={c} size={TYPE.small} />
+        {card.broken ? <Text style={{ ...TYPE.small, color: c.danger }}>The front matter can't be read.</Text> : null}
+
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 16, borderTopWidth: 1, borderTopColor: c.border, paddingTop: 6, marginTop: 1 }}>
+          {card.asker ? <Person person={card.asker} scene={scene} /> : null}
+          {links[0] ? <RefLink target={links[0]} scene={scene} /> : null}
+          <View style={{ flex: 1 }} />
+          {chips.map((n) => (
+            <PrChip key={n} n={n} scene={scene} />
+          ))}
+          {when ? <Text style={{ ...TYPE.small, color: old ? c.warn : c.meta, fontVariant: ["tabular-nums"] }}>{when}</Text> : null}
         </View>
-      ) : null}
-    </Pressable>
+      </Pressable>
+      {open ? <CardModal card={card} scene={scene} open={open} onOpenChange={setOpen} /> : null}
+    </>
   );
 }

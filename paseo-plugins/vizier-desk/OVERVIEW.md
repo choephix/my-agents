@@ -13,7 +13,7 @@ The screen is drawn in Paseo's own style: its tab strip, project badges and stat
 - Square cards with a short mark beside the title in the card's state colour: red blocking, amber revisit, gray whenever, blue in flight (fainter when quiet), faint green settled.
 - On each card: the title, the answer you gave, a short lead, what the card blocks in a small red callout, and one line under a hairline with the asker, the first link, PRs not already in the text, and the age. The age turns amber after a day.
 - PR numbers coloured by their state on GitHub, with GitHub's icon for the state: purple for merged, green for ready to merge, amber for open but not ready, red for conflicts, gray for drafts, struck through when closed.
-- Tap a card to read the rest of it, with everyone involved, the times, the file and every link. On a desktop the ⋯ that appears on hover shows just those details.
+- Tap a card to open it in a Paseo dialog (a sheet on a phone) with the whole text, every pull request, everyone involved, every link, the times and the file.
 - Tap the asker to open that agent. When its tab is gone, tapping copies the command that revives it.
 - Settled cards and cards outside a live state, in two folded columns at the end.
 
