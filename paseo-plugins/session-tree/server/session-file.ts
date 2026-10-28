@@ -62,8 +62,8 @@ function time(entry: Entry | undefined): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-/** Reads complete lines only: a writer may be mid-line at the end. */
-export async function readEntries(file: string): Promise<{ lines: string[]; entries: Entry[] }> {
+/** The file up to its last newline: a writer may be mid-line at the end. */
+async function readComplete(file: string): Promise<Buffer> {
   const handle = await open(file, "r");
   let bytes: Buffer;
   try {
@@ -79,20 +79,65 @@ export async function readEntries(file: string): Promise<{ lines: string[]; entr
   } finally {
     await handle.close();
   }
-  const end = bytes.lastIndexOf(10);
-  const lines = end < 0 ? [] : bytes.subarray(0, end).toString("utf8").split("\n").filter(line => line.trim());
+  return bytes.subarray(0, bytes.lastIndexOf(10) + 1);
+}
+
+/** Decodes one line at a time, so the whole file never exists as one string. */
+function* linesOf(bytes: Buffer): Generator<string> {
+  for (let start = 0; start < bytes.length;) {
+    const end = bytes.indexOf(10, start);
+    const line = bytes.toString("utf8", start, end);
+    start = end + 1;
+    if (line.trim()) yield line;
+  }
+}
+
+/** Raw lines, for copying a branch into a new file. */
+export async function readLines(file: string): Promise<string[]> {
+  return [...linesOf(await readComplete(file))];
+}
+
+export async function readEntries(file: string): Promise<Entry[]> {
+  return entriesOf(linesOf(await readComplete(file)));
+}
+
+export function entriesOf(lines: Iterable<string>): Entry[] {
   const entries: Entry[] = [];
   for (const line of lines) {
     try {
       const value = JSON.parse(line);
-      if (value && typeof value === "object" && typeof value.id === "string" && typeof value.type === "string") {
-        entries.push({ ...value, parentId: typeof value.parentId === "string" ? value.parentId : null });
-      }
+      if (value && typeof value === "object" && typeof value.id === "string" && typeof value.type === "string") entries.push(slim(value));
     } catch {
       // Not ours to judge; OMP skips such lines too.
     }
   }
-  return { lines, entries };
+  return entries;
+}
+
+/** Roles whose whole text the tree reads (turns, message counts, replay numbering). */
+const FULL_TEXT_ROLES = new Set(["user", "assistant", "custom", "developer"]);
+
+/**
+ * Keeps only what SessionTree reads: links, kinds, markers and message text. Tool output, images,
+ * thinking and tool calls go, and other roles keep only their title line. A parsed tree is then
+ * about the size of the chat's text rather than of its file.
+ */
+function slim(value: Record<string, any>): Entry {
+  const entry: Entry = { type: value.type, id: value.id, parentId: typeof value.parentId === "string" ? value.parentId : null };
+  if (typeof value.timestamp === "string") entry.timestamp = value.timestamp;
+  if (typeof value.customType === "string") entry.customType = value.customType;
+  if (value.customType === MARKER_TYPE) entry.data = value.data;
+  if (typeof value.summary === "string") entry.summary = value.summary;
+  if (typeof value.activeLeafId === "string") entry.activeLeafId = value.activeLeafId;
+  if ("display" in value) entry.display = value.display;
+  if (value.type === "custom_message" && value.display !== false) entry.content = textOf(value.content);
+  const message = value.message;
+  if (message && typeof message === "object") {
+    const role = typeof message.role === "string" ? message.role : undefined;
+    const text = textOf(message.content);
+    entry.message = { role, content: role && FULL_TEXT_ROLES.has(role) ? text : oneLine(text), id: message.id, display: message.display };
+  }
+  return entry;
 }
 
 export function isMarker(entry: Entry | undefined): entry is Entry & { data: MarkerData } {

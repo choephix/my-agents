@@ -10,7 +10,7 @@ import {
   treeCancel, treeChats, treeDismiss, treeGoto, treeOpenTab, treeState, treeSummarize, treeSummary,
 } from "./shared/tree";
 import { DEFAULT_DISPLAY, displaySettings } from "./shared/settings";
-import { readEntries, SessionTree } from "./server/session-file";
+import { entriesOf, readEntries, readLines, SessionTree } from "./server/session-file";
 import { awaitResult, cancelRequest, cleanUp, linkRoot, type LinkRequest, loadsExtension, ompHosts, sendRequest, servingPids } from "./server/link";
 import { connectLocalDaemon, reloadChat } from "./server/daemon";
 import { copyBranch, removeCopy } from "./server/branch-copy";
@@ -42,7 +42,7 @@ async function cachedRead<T>(cache: Map<string, Cached<T>>, file: string, read: 
 /** Session files parse one at a time: a cold chat list would otherwise hold every file (~700 MB) in memory at once. */
 let parsing: Promise<void> = Promise.resolve();
 function parseTree(file: string): Promise<SessionTree> {
-  const tree = parsing.then(async () => new SessionTree((await readEntries(file)).entries));
+  const tree = parsing.then(async () => new SessionTree(await readEntries(file)));
   parsing = tree.then(() => undefined, () => undefined); // Holds no tree.
   return tree;
 }
@@ -315,8 +315,8 @@ export default function contribute(server: PluginServerContext) {
     const found = await supportedAgent(paseo, agentId);
     if (!found) throw new Error("Branches work only in OMP chats.");
     const { agent, file } = found;
-    const { lines, entries } = await readEntries(file);
-    const tree = new SessionTree(entries);
+    const lines = await readLines(file);
+    const tree = new SessionTree(entriesOf(lines));
     const until = before ? tree.byId.get(entryId)?.parentId : entryId;
     if (!until) throw new Error("There is nothing before the first message to open.");
     const copy = await copyBranch(file, lines, tree, until);
