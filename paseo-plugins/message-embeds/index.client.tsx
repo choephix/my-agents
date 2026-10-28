@@ -1,13 +1,28 @@
-import { settingsRpc } from "@getpaseo/plugin";
-import type { PluginClientContext } from "@getpaseo/plugin/client";
+import { type PluginTimelineItem, settingsRpc } from "@getpaseo/plugin";
+import type { PluginClientContext, PluginScreenProps } from "@getpaseo/plugin/client";
 import { SettingsCard, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { useEffect } from "react";
+import { Text } from "react-native";
 import { useSettings } from "@getpaseo/plugin/client";
 import { z } from "zod";
+import { AGENT_CARD_KIND, agentCardSchema, createAgentCard } from "./client/agent-card";
 import { EmbedCard, embedCardSchema } from "./client/card";
 import { MarkdownChunk, markdownSchema } from "./client/markdown";
 import { parseMessage } from "./client/parse";
 import { DEFAULTS, preferences } from "./shared/preferences";
+
+/** Timeline rows have no navigation; an agent card opens its chat through this screen. */
+function OpenAgent({ navigation, params, theme }: PluginScreenProps) {
+  const { serverId, agentId } = params;
+  useEffect(() => {
+    if (agentId) navigation?.openAgent({ agentId, serverId });
+  }, [navigation, serverId, agentId]);
+  return (
+    <Text style={{ color: theme.colors.foregroundMuted, padding: 16 }}>
+      {navigation ? "Opening the chat…" : "This Paseo client cannot open chats from plugins."}
+    </Text>
+  );
+}
 
 const PLUGIN_ID = "message-embeds";
 let enabled = DEFAULTS.enabled;
@@ -25,7 +40,7 @@ function Settings() {
     return <SettingsSection title="File embeds"><SettingsCard><SettingsSwitch label="Enable file embeds" value={enabled} disabled onValueChange={() => {}} /></SettingsCard></SettingsSection>;
   }
   return (
-    <SettingsSection title="File embeds" info="Turn Obsidian-style ![[path]] previews on or off in assistant messages.">
+    <SettingsSection title="File embeds" info="Turn Obsidian-style ![[path]] file previews and ![[agent link]] chat previews on or off in assistant messages.">
       <SettingsCard>
         <SettingsSwitch
           label="Enable file embeds"
@@ -60,6 +75,7 @@ export default function contribute(client: PluginClientContext) {
   const command = client.addCommandCenterItem({
     id: "toggle-file-embeds",
     title: "Toggle file embeds",
+    keywords: ["chat embeds", "agent cards"],
     icon: "FileCode2",
     context: "global",
     async onSelect({ rpc }) {
@@ -81,17 +97,28 @@ export default function contribute(client: PluginClientContext) {
     },
   });
 
+  const openAgent = client.addScreen({ id: "open-agent", title: "Opening chat", Component: OpenAgent });
   const markdown = client.addTimelineRenderer({ kind: "message-embeds-markdown", version: 1, schema: markdownSchema, Component: MarkdownChunk });
   const card = client.addTimelineRenderer({ kind: "message-embeds-card", version: 1, schema: embedCardSchema, Component: EmbedCard });
+  const agentCard = client.addTimelineRenderer({
+    kind: AGENT_CARD_KIND,
+    version: 1,
+    schema: agentCardSchema,
+    Component: createAgentCard(({ serverId, agentId }) => client.openScreen({ screenId: "open-agent", params: { serverId, agentId } })),
+  });
   const transformer = client.addTimelineTransformer({
     id: "message-embeds",
     query: { itemType: "assistant_message" },
     transform({ item, phase }) {
       if (!enabled || !item.text.includes("![[")) return undefined;
       const segments = parseMessage(item.text);
-      if (!segments.some((segment) => segment.kind === "embed")) return undefined;
+      // Unchanged text (half-typed or code-only embeds) keeps Paseo's own rendering.
+      if (segments.length === 1 && segments[0].kind === "markdown" && segments[0].text === item.text) return undefined;
       return {
-        items: segments.map((segment) => {
+        items: segments.map((segment): PluginTimelineItem => {
+          if (segment.kind === "agent") {
+            return { type: "plugin" as const, id: segment.id, kind: AGENT_CARD_KIND, version: 1, data: { ...segment.link, url: segment.url } };
+          }
           if (segment.kind === "embed") {
             const data = {
               original: segment.embed.original,
@@ -120,6 +147,8 @@ export default function contribute(client: PluginClientContext) {
     command();
     markdown();
     card();
+    agentCard();
+    openAgent();
     transformer();
     void events.release().catch(() => {});
     revision = undefined;

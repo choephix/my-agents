@@ -1,3 +1,5 @@
+import { type AgentLink, parseAgentLink } from "./agent-link";
+
 export interface Embed {
   id: string;
   original: string;
@@ -8,7 +10,8 @@ export interface Embed {
 
 export type Segment =
   | { kind: "markdown"; id: string; text: string }
-  | { kind: "embed"; embed: Embed };
+  | { kind: "embed"; embed: Embed }
+  | { kind: "agent"; id: string; url: string; link: AgentLink };
 
 const EMBED = /!\[\[([^\]\r\n]+?)\]\]/g;
 const FENCE_START = /^ {0,3}(`{3,}|~{3,})/;
@@ -56,7 +59,9 @@ function appendMarkdown(out: Segment[], text: string): void {
 }
 
 /**
- * Splits assistant text into markdown and complete Obsidian-style file embeds.
+ * Splits assistant text into markdown, complete Obsidian-style file embeds, and agent embeds
+ * (`![[https://app.paseo.sh/h/<serverId>/agent/<agentId>]]`). An agent embed becomes a card only
+ * on a line of its own; inside a sentence it is written back as the plain link.
  * Fenced blocks and inline-code spans are always left untouched.
  */
 export function parseMessage(text: string): Segment[] {
@@ -83,7 +88,17 @@ export function parseMessage(text: string): Segment[] {
       for (const match of line.matchAll(EMBED)) {
         const start = match.index ?? 0;
         const original = match[0];
-        const parsed = !isInside(spans, start) ? parseEmbed(original, match[1], `embed-${embedIndex++}`) : null;
+        if (isInside(spans, start)) continue;
+        const agent = parseAgentLink(match[1]);
+        if (agent) {
+          const url = match[1].trim();
+          appendMarkdown(out, fullLine.slice(cursor, start));
+          if (line.trim() === original) out.push({ kind: "agent", id: `agent-${embedIndex++}`, url, link: agent });
+          else appendMarkdown(out, url);
+          cursor = start + original.length;
+          continue;
+        }
+        const parsed = parseEmbed(original, match[1], `embed-${embedIndex++}`);
         if (!parsed) continue;
         appendMarkdown(out, fullLine.slice(cursor, start));
         out.push({ kind: "embed", embed: parsed });

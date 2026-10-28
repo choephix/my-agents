@@ -4,14 +4,13 @@ import { Icon, Markdown } from "@getpaseo/plugin/client/ui";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { z } from "zod";
-import type { AgentLink } from "./links";
+import type { AgentLink } from "./agent-link";
 import { pressedLink } from "./web";
 
-export const PREVIEW_KIND = "agent-links-preview";
-export const MARKDOWN_KIND = "agent-links-markdown";
+export const AGENT_CARD_KIND = "message-embeds-agent";
 
-export const previewSchema = z.object({ serverId: z.string(), agentId: z.string(), line: z.string() });
-export const markdownSchema = z.object({ text: z.string() });
+/** `url` is the plain link shown when the chat can't be previewed. */
+export const agentCardSchema = z.object({ serverId: z.string(), agentId: z.string(), url: z.string() });
 
 type Message = { role: "user" | "assistant"; text: string };
 type State = "working" | "permission" | "error" | "idle";
@@ -81,14 +80,10 @@ function ago(iso: string | null): string {
   return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
 }
 
-export function MarkdownChunk({ item }: PluginTimelineItemProps<z.output<typeof markdownSchema>>) {
-  return <Markdown>{item.data.text}</Markdown>;
-}
-
-/** The card for one linked chat. `open` switches to the tab. */
-export function createPreviewCard(open: (link: AgentLink) => void) {
-  return function PreviewCard({ item, theme }: PluginTimelineItemProps<z.output<typeof previewSchema>>) {
-    const { serverId, agentId, line } = item.data;
+/** The card for one embedded chat. `open` switches to its tab. */
+export function createAgentCard(open: (link: AgentLink) => void) {
+  return function AgentCard({ item, theme }: PluginTimelineItemProps<z.output<typeof agentCardSchema>>) {
+    const { serverId, agentId, url } = item.data;
     const key = `${serverId}/${agentId}`;
     const [preview, setPreview] = useState<Preview | null | undefined>(() => cache.get(key));
     const scroll = useRef<ScrollView>(null);
@@ -114,8 +109,8 @@ export function createPreviewCard(open: (link: AgentLink) => void) {
       return () => { live = false; };
     }, [serverId, agentId, key]);
 
-    // Unknown, archived or unreachable chat: the link as the agent wrote it.
-    if (preview === null) return <Markdown>{line}</Markdown>;
+    // Unknown, archived or unreachable chat: a plain link.
+    if (preview === null) return <Markdown>{url}</Markdown>;
 
     const c = theme.colors;
     const status = preview && {
