@@ -108,13 +108,11 @@ function Person({ person, role, scene, wide, reply }: { person: DeskPerson; role
       : undefined
     : person.agentId && openAgent
       ? async () => {
-          // The toast has to be raised before navigating away unmounts this screen.
-          if (reply)
-            await copyText(reply).then(
-              () => toast.show("Pointer to the ask copied. Paste it to answer", { variant: "success" }),
-              () => toast.error("Couldn't copy the pointer"),
-            );
+          const copied = reply ? await copyText(reply).then(() => true, () => false) : undefined;
           openAgent(person.agentId!);
+          // Raised after opening the agent so it shows over the agent view while you paste.
+          if (copied === true) toast.show("Copied a pointer to the ask. Paste it into the prompt to answer", { variant: "success", durationMs: 6000 });
+          if (copied === false) toast.show(`Couldn't copy the pointer. The ask is ${reply!.slice(4).trim()}`, { variant: "error", durationMs: 8000 });
         }
       : undefined;
   return (
