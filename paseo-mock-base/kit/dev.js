@@ -424,10 +424,10 @@
     const top = y + 46;
     const bottom = situationBar.hidden ? 14 : window.innerHeight - situationBar.getBoundingClientRect().top + 24;
     const availH = window.innerHeight - top - bottom;
-    // The notes column's room is reserved whenever the page has notes, so
-    // toggling them never moves the frame.
+    // The notes column's room is kept only while notes show; with notes off
+    // the frame centres instead of sitting beside an empty column.
     const notesW = Math.round(Math.min(300, Math.max(200, window.innerWidth * 0.2)));
-    const reserve = hasNotes ? notesW + 24 : 0;
+    const reserve = hasNotes && state.notes ? notesW + 24 : 0;
     const availW = window.innerWidth - 48 - reserve;
     const scale = Math.min(1, availW / vp.w, availH / vp.h);
     stage.style.paddingRight = reserve + "px";
