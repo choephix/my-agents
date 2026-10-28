@@ -1,0 +1,6 @@
+{
+  "id": "vizier-desk",
+  "name": "Vizier desk",
+  "description": "The Vizier desk (asks, work in flight, endeavors) as Axalon Mainframe's /desk shows it: one column per workspace, PR numbers coloured by live state, asker tabs one tap away. Read-only.",
+  "requirements": { "paseo": ">=0.13.0" }
+}
