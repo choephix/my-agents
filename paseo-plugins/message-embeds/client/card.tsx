@@ -92,10 +92,10 @@ function CardHeader({ theme, original, href, detail, cardHovered, action }: Card
   // Paseo exposes no file-open API to plugins, so the button clicks a hidden Paseo Markdown file link.
   const linkHost = useRef<View>(null);
   const forwarding = useRef(false);
-  const faint = { color: theme.colors.foregroundMuted, fontFamily: MONO, fontSize: 10, lineHeight: 14 };
+  const faint = { color: theme.colors.foregroundMuted, fontFamily: MONO, fontSize: 9, lineHeight: 12 };
   return (
     <View style={{ paddingLeft: 9, paddingRight: 4, paddingTop: 3, paddingBottom: 2 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 24 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 20 }}>
         <Text numberOfLines={1} style={{ ...faint, flex: 1, opacity: cardHovered ? 0.85 : 0.5 }} selectable>
           {original}
         </Text>
@@ -122,17 +122,17 @@ function CardHeader({ theme, original, href, detail, cardHovered, action }: Card
               }
             }}
             style={{
-              width: 24,
-              height: 24,
+              width: 20,
+              height: 20,
               borderRadius: 5,
               alignItems: "center",
               justifyContent: "center",
               backgroundColor: hovered ? theme.colors.surface2 : "transparent",
             }}
           >
-            <View style={{ width: 24, height: 24, alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ color: hovered ? theme.colors.foreground : theme.colors.foregroundMuted, fontFamily: MONO, fontSize: 14, lineHeight: 18 }}>↗</Text>
-              <View ref={linkHost} pointerEvents={Platform.OS === "web" ? "none" : "auto"} style={{ position: "absolute", left: 0, top: 0, width: 24, height: 24, opacity: 0, overflow: "hidden" }}>
+            <View style={{ width: 20, height: 20, alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ color: hovered ? theme.colors.foreground : theme.colors.foregroundMuted, fontFamily: MONO, fontSize: 12, lineHeight: 14 }}>↗</Text>
+              <View ref={linkHost} pointerEvents={Platform.OS === "web" ? "none" : "auto"} style={{ position: "absolute", left: 0, top: 0, width: 20, height: 20, opacity: 0, overflow: "hidden" }}>
                 <Markdown>{`[↗](${href})`}</Markdown>
               </View>
             </View>
@@ -152,9 +152,9 @@ function PageToggle({ theme, open, onToggle }: { theme: PluginTheme; open: boole
       onPress={onToggle}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
-      style={{ paddingHorizontal: 6, height: 24, borderRadius: 5, justifyContent: "center", backgroundColor: hovered ? theme.colors.surface2 : "transparent" }}
+      style={{ paddingHorizontal: 5, height: 20, borderRadius: 4, justifyContent: "center", backgroundColor: hovered ? theme.colors.surface2 : "transparent" }}
     >
-      <Text style={{ color: hovered ? theme.colors.foreground : theme.colors.foregroundMuted, fontFamily: MONO, fontSize: 11, lineHeight: 14 }}>
+      <Text style={{ color: hovered ? theme.colors.foreground : theme.colors.foregroundMuted, fontFamily: MONO, fontSize: 10, lineHeight: 12 }}>
         {open ? "▾ Hide page" : "▸ Show page"}
       </Text>
     </Pressable>
