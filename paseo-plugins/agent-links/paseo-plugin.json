@@ -1,0 +1,8 @@
+{
+  "id": "agent-links",
+  "name": "Agent links",
+  "description": "Clicking a link to a Paseo tab in a chat opens that tab in Paseo instead of the browser. Web and desktop.",
+  "requirements": {
+    "paseo": ">=0.12.0"
+  }
+}

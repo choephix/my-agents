@@ -18,6 +18,7 @@ Source: Paseo 0.12.0 app code (`packages/app/src/utils/host-routes.ts`,
 | Desktop (Electron) | Only `paseo://h/<serverId>/agent/<agentId>`: opens or focuses that agent; every other `paseo://` path is ignored |
 | Android | `paseo://` scheme is registered; Expo Router should route any app path from it (*untested*). `https://app.paseo.sh` links open in Chrome, not the app (no app links) |
 | Inside a plugin | Everything, on every client, through the plugin navigation API (below) |
+| A link clicked inside Paseo (web, desktop) | With the `agent-links` plugin, `https://app.paseo.sh/h/<serverId>/agent/<agentId>` opens that tab in the same window (below) |
 
 ## Web routes
 
@@ -83,9 +84,22 @@ with no query or hash. It opens or focuses a window on that agent. Workspace,
 terminal, plugin-screen and settings URLs do nothing there. The other way in is
 the CLI: `paseo <folder>` opens a project window.
 
-`https://app.paseo.sh/...` links open in the browser, never in the desktop app.
-An installed PWA may take them over if the browser's "open supported links"
-setting is on (*untested*).
+`https://app.paseo.sh/...` links opened from outside Paseo open in the browser,
+never in the desktop app. An installed PWA may take them over if the browser's
+"open supported links" setting is on (*untested*). Clicked inside Paseo, see
+the next section.
+
+## Links clicked inside Paseo
+
+Paseo itself sends every chat link to the system browser, its own links
+included. The `agent-links` plugin (`agent-links/`) catches a plain left click
+on exactly `https://app.paseo.sh/h/<serverId>/agent/<agentId>` (trailing slash
+allowed) before Paseo does and opens that tab in the current window, on web and
+desktop. Every other link, other `app.paseo.sh` paths included, and modifier or
+middle clicks still go to the browser. Phones: no effect (no DOM). Checked live
+on app.paseo.sh 2026-10-28; desktop *untested*. So in chat, that agent URL is
+the link to write: it switches tabs inside Paseo and still works from anywhere
+else.
 
 ## Not reachable by any URL
 
