@@ -8,13 +8,16 @@ The plugin is enabled by default, and one switch covers file and chat embeds. Us
 
 `![[https://app.paseo.sh/h/<serverId>/agent/<agentId>]]` on a line of its own becomes a read-only
 card of that chat: its title, its state (working, needs permission, error, or how long ago its last
-message was) and its last three messages in a 240 px window scrolled to the bottom, so a question it
-asked is readable without opening it. Clicking the card opens the chat; links inside the card work as
-links. The same embed inside a sentence is written back as the plain link, and a plain link is never
-turned into a card.
+message was) and the end of its last three messages in a fixed 240 px window, older text fading out
+at the top, so a question it asked is readable without opening it. The window does not scroll, so
+the mouse wheel always scrolls the chat around it, and the card has the same height while loading as
+when loaded, so the chat doesn't shift. Clicking the card opens the chat; links inside the card work
+as links. The same embed inside a sentence is written back as the plain link, and a plain link is
+never turned into a card.
 
-- The card is a snapshot taken when it is drawn. It does not follow the chat while you look at it;
-  coming back to the reply takes a new one.
+- The card is a snapshot. It does not follow the chat while you look at it. A card that scrolls back
+  into view within 30 seconds shows the same snapshot; later it takes a new one. Cards showing the
+  same chat share one fetch.
 - An archived, unknown or unreachable chat shows the plain link instead.
 - A card can appear while the reply is still streaming; the rest of the reply keeps streaming below.
 - Drawing a card reads the newest 20 timeline entries of that chat from the host, and up to 80 more

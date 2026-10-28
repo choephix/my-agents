@@ -1,8 +1,8 @@
 import type { PaseoApi } from "@getpaseo/client";
 import { getPaseoClient, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { Icon, Markdown } from "@getpaseo/plugin/client/ui";
-import { useEffect, useRef, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Pressable, Text, View } from "react-native";
 import { z } from "zod";
 import type { AgentLink } from "./agent-link";
 import { cardColors } from "./card-colors";
@@ -22,14 +22,39 @@ interface Preview {
   messages: Message[];
 }
 
-/** Messages shown; the window scrolls, so more would only cost fetch and render time. */
+/** Messages shown; only the end of them fits the window, so more would only cost fetch time. */
 const MESSAGES = 3;
 /** Long replies keep their end, which is where the question usually is. */
 const MAX_CHARS = 3000;
+/**
+ * The body is this tall from the first frame, loading or loaded, and does not scroll: the chat
+ * around the card keeps its scroll position, and the wheel always scrolls the chat.
+ */
 const BODY_HEIGHT = 240;
+/** A cached preview this fresh is shown as is when a card mounts again (scrolled back into view). */
+const FRESH_MS = 30_000;
 
-/** Last previews by `serverId/agentId`, so a card that scrolls back into view doesn't flash. */
-const cache = new Map<string, Preview>();
+/** Previews by `serverId/agentId`; cards showing the same chat share one fetch. */
+const cache = new Map<string, { preview: Preview | null; at: number }>();
+const inflight = new Map<string, Promise<Preview | null>>();
+
+function sharedLoad(key: string, serverId: string, agentId: string): Promise<Preview | null> {
+  const pending = inflight.get(key);
+  if (pending) return pending;
+  const load = (async () => {
+    try {
+      return await loadPreview(getPaseoClient(serverId), agentId);
+    } catch {
+      return null; // host offline or unknown agent: the plain link
+    }
+  })().then(preview => {
+    cache.set(key, { preview, at: Date.now() });
+    inflight.delete(key);
+    return preview;
+  });
+  inflight.set(key, load);
+  return load;
+}
 
 const isMessage = (type: string): type is "user_message" | "assistant_message" =>
   type === "user_message" || type === "assistant_message";
@@ -86,27 +111,16 @@ export function createAgentCard(open: (link: AgentLink) => void) {
   return function AgentCard({ item, theme }: PluginTimelineItemProps<z.output<typeof agentCardSchema>>) {
     const { serverId, agentId, url } = item.data;
     const key = `${serverId}/${agentId}`;
-    const [preview, setPreview] = useState<Preview | null | undefined>(() => cache.get(key));
-    const scroll = useRef<ScrollView>(null);
+    const [preview, setPreview] = useState<Preview | null | undefined>(() => cache.get(key)?.preview);
     const [hovered, setHovered] = useState(false);
+    // The newest messages sit at the bottom of the fixed body; anything above is clipped.
+    const [contentHeight, setContentHeight] = useState(0);
 
     useEffect(() => {
+      const cached = cache.get(key);
+      if (cached && Date.now() - cached.at < FRESH_MS) return;
       let live = true;
-      let paseo: PaseoApi;
-      try {
-        paseo = getPaseoClient(serverId);
-      } catch {
-        setPreview(null);
-        return;
-      }
-      loadPreview(paseo, agentId).then(
-        next => {
-          if (next) cache.set(key, next);
-          else cache.delete(key);
-          if (live) setPreview(next);
-        },
-        () => { if (live) setPreview(null); },
-      );
+      void sharedLoad(key, serverId, agentId).then(next => { if (live) setPreview(next); });
       return () => { live = false; };
     }, [serverId, agentId, key]);
 
@@ -148,28 +162,56 @@ export function createAgentCard(open: (link: AgentLink) => void) {
           <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>Open</Text>
           <Icon name="ArrowUpRight" size={13} color={c.foregroundMuted} />
         </View>
-        {preview ? (
-          <ScrollView
-            ref={scroll}
-            style={{ maxHeight: BODY_HEIGHT }}
-            contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 6, gap: 6 }}
-            onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })}
-          >
-            {preview.messages.length ? preview.messages.map((message, index) =>
-              message.role === "user" ? (
-                <View key={index} style={{ borderLeftWidth: 2, borderLeftColor: c.border, paddingLeft: 8 }}>
-                  <Text style={{ color: c.foregroundMuted, fontSize: 11, lineHeight: 14 }}>You</Text>
-                  <Text numberOfLines={6} style={{ color: c.foregroundMuted, fontSize: 12, lineHeight: 16 }}>{message.text}</Text>
-                </View>
-              ) : (
-                // Web scales this Markdown down and tightens its lines (see AGENT_TEXT_CSS).
-                <View key={index} {...AGENT_TEXT}>
-                  <Markdown>{message.text}</Markdown>
-                </View>
-              ),
-            ) : <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>No messages yet.</Text>}
-          </ScrollView>
-        ) : null}
+        <View style={{ height: BODY_HEIGHT, overflow: "hidden" }}>
+          {preview ? (
+            <View
+              onLayout={event => setContentHeight(event.nativeEvent.layout.height)}
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                top: Math.min(0, BODY_HEIGHT - contentHeight),
+                opacity: contentHeight ? 1 : 0,
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                gap: 6,
+              }}
+            >
+              {preview.messages.length ? preview.messages.map((message, index) =>
+                message.role === "user" ? (
+                  <View key={index} style={{ borderLeftWidth: 2, borderLeftColor: c.border, paddingLeft: 8 }}>
+                    <Text style={{ color: c.foregroundMuted, fontSize: 11, lineHeight: 14 }}>You</Text>
+                    <Text numberOfLines={6} style={{ color: c.foregroundMuted, fontSize: 12, lineHeight: 16 }}>{message.text}</Text>
+                  </View>
+                ) : (
+                  // Web scales this Markdown down and tightens its lines (see AGENT_TEXT_CSS).
+                  <View key={index} {...AGENT_TEXT}>
+                    <Markdown>{message.text}</Markdown>
+                  </View>
+                ),
+              ) : <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>No messages yet.</Text>}
+            </View>
+          ) : null}
+          {contentHeight > BODY_HEIGHT ? (
+            // Older text fades out under the header instead of being cut mid-line.
+            <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, height: 24 }}>
+              {Array.from({ length: 6 }, (_, index) => (
+                <View
+                  key={index}
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    right: 0,
+                    top: index * 4,
+                    height: 5,
+                    backgroundColor: hovered ? colors.backgroundHover : colors.background,
+                    opacity: 1 - index / 6,
+                  }}
+                />
+              ))}
+            </View>
+          ) : null}
+        </View>
       </Pressable>
     );
   };
