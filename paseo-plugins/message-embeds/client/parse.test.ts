@@ -27,4 +27,15 @@ describe("message embed parser", () => {
     ]);
     expect(parseMessage("Typing ![[foo")).toMatchObject([{ kind: "markdown", text: "Typing ![[foo" }]);
   });
+
+  it("does not convert embeds in a fence nested inside a list item", () => {
+    const text = "1. Step\n\n    ```ts\n    ![[ignored.ts]]\n    ```\n";
+    expect(parseMessage(text).some((segment) => segment.kind === "embed")).toBe(false);
+  });
+
+  it("accepts the GitHub-style #L40-L80 range", () => {
+    expect(parseMessage("![[src/file.ts#L40-L80]]")).toMatchObject([
+      { kind: "embed", embed: { path: "src/file.ts", lineStart: 40, lineEnd: 80 } },
+    ]);
+  });
 });

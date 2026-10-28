@@ -1,87 +1,115 @@
-import { open, type FileHandle } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { readEmbedFile, type EmbedReadErrorCode } from "../shared/preferences";
 
+/** Most text a card receives. */
 const MAX_BYTES = 64 * 1024;
-const CHUNK_BYTES = 16 * 1024;
+/** How far into a file the reader scans before giving up on reaching the requested lines. */
+const MAX_SCAN_BYTES = 8 * 1024 * 1024;
 
-function error(code: EmbedReadErrorCode, message: string): RpcOutput<typeof readEmbedFile> {
+type Output = RpcOutput<typeof readEmbedFile>;
+
+function error(code: EmbedReadErrorCode, message: string): Output {
   return { status: "error", code, message };
 }
 
-function isAllowed(resolved: string, cwd: string): boolean {
-  const relative = path.relative(cwd, resolved);
+function isInside(target: string, root: string): boolean {
+  const relative = path.relative(root, target);
   return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
-}
-
-function resolvePath(requested: string, cwd: string): string {
-  const expanded = requested.replace(/^~(?=$|[\\/])/, homedir());
-  return path.resolve(cwd, expanded);
-}
-
-function decode(bytes: Buffer): string {
-  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
 }
 
 export async function readFileWindow(
   input: RpcInput<typeof readEmbedFile>,
   { paseo }: PluginHandlerContext,
-): Promise<RpcOutput<typeof readEmbedFile>> {
+): Promise<Output> {
   const agent = await paseo.agents.ref(input.agentId).refresh();
   if (!agent) return error("disallowed", "This chat is no longer available.");
 
   const cwd = path.resolve(agent.agent.cwd);
-  const resolved = resolvePath(input.path, cwd);
-  if (!isAllowed(resolved, cwd)) return error("disallowed", "That file is outside the chat's working directory.");
+  const requested = path.resolve(cwd, input.path.replace(/^~(?=$|[\\/])/, homedir()));
+  // Checked before touching the disk so "not found" never reveals files outside the chat's folder.
+  if (!isInside(requested, cwd)) return error("disallowed", "That file is outside the chat's working directory.");
 
   const start = input.lineStart ?? 1;
-  const requestedEnd = input.lineEnd;
-  if (requestedEnd !== undefined && requestedEnd < start) return error("invalid-range", "The requested line range is invalid.");
+  const end = input.lineEnd;
+  if (end !== undefined && end < start) return error("invalid-range", "The requested line range is invalid.");
 
-  let handle: FileHandle;
+  let real: string;
   try {
-    handle = await open(resolved, "r");
+    // Symlinks are resolved on both sides, so a link inside the folder cannot point outside it.
+    const [realRoot, realTarget] = await Promise.all([realpath(cwd), realpath(requested)]);
+    if (!isInside(realTarget, realRoot)) return error("disallowed", "That file links outside the chat's working directory.");
+    // FIFOs, devices and directories would block or never end; only regular files are read.
+    if (!(await stat(realTarget)).isFile()) return error("unreadable", "Only regular files are previewed.");
+    real = realTarget;
   } catch (cause) {
-    const code = (cause as NodeJS.ErrnoException).code;
-    return error(code === "ENOENT" ? "missing" : "unreadable", code === "ENOENT" ? "File not found." : "File could not be read.");
+    const code = (cause as NodeJS.ErrnoException | undefined)?.code;
+    return code === "ENOENT" ? error("missing", "File not found.") : error("unreadable", "File could not be read.");
   }
 
-  try {
-    const chunks: Buffer[] = [];
-    let total = 0;
-    let binary = false;
-    while (total < MAX_BYTES) {
-      const size = Math.min(CHUNK_BYTES, MAX_BYTES - total);
-      const chunk = Buffer.allocUnsafe(size);
-      const { bytesRead } = await handle.read(chunk, 0, size, total);
-      if (!bytesRead) break;
-      const used = chunk.subarray(0, bytesRead);
-      if (used.includes(0)) binary = true;
-      chunks.push(used);
-      total += bytesRead;
-      if (bytesRead < size) break;
-    }
-    if (binary) return error("binary", "Binary files are not previewed.");
+  const lines: string[] = [];
+  let bytes = 0;
+  let lineNo = 1;
+  let scanned = 0;
+  let pending = "";
+  let truncated = false;
+  let done = false;
+  const decoder = new StringDecoder("utf8");
 
-    const info = await handle.stat();
-    const truncated = info.size > total;
-    const text = decode(Buffer.concat(chunks));
-    const lines = text.split(/\r?\n/);
-    if (truncated && requestedEnd !== undefined && lines.length < requestedEnd) {
-      return error("too-large", "The requested line range is beyond the preview limit.");
+  // Returns true once the window is complete.
+  const take = (line: string): boolean => {
+    if (lineNo >= start) {
+      const text = line.endsWith("\r") ? line.slice(0, -1) : line;
+      if (bytes + text.length > MAX_BYTES) {
+        truncated = true;
+        return true;
+      }
+      lines.push(text);
+      bytes += text.length + 1;
     }
-    if (start > lines.length || (requestedEnd !== undefined && start > requestedEnd)) {
-      return error("invalid-range", "The requested line is not present in this file.");
+    lineNo++;
+    return end !== undefined && lineNo > end;
+  };
+
+  try {
+    for await (const chunk of createReadStream(real, { highWaterMark: 64 * 1024 }) as AsyncIterable<Buffer>) {
+      if (chunk.includes(0)) return error("binary", "Binary files are not previewed.");
+      scanned += chunk.length;
+      const parts = (pending + decoder.write(chunk)).split("\n");
+      pending = parts.pop() ?? "";
+      for (const part of parts) {
+        if ((done = take(part))) break;
+      }
+      if (done) break;
+      if (lineNo >= start && pending.length > MAX_BYTES) {
+        // One endless line (minified file): show its beginning.
+        lines.push(pending.slice(0, MAX_BYTES));
+        truncated = done = true;
+        break;
+      }
+      if (scanned >= MAX_SCAN_BYTES) {
+        if (!lines.length) return error("too-large", "The requested lines are too far into this file to preview.");
+        truncated = done = true;
+        break;
+      }
     }
-    const end = Math.min(requestedEnd ?? lines.length, lines.length);
-    const selected = lines.slice(start - 1, end).join("\n");
-    return { status: "ok", path: resolved, lineStart: start, lineEnd: end, text: selected, truncated };
+    if (!done) {
+      const last = pending + decoder.end();
+      if (last) take(last);
+    }
   } catch {
     return error("unreadable", "File could not be read.");
-  } finally {
-    await handle.close().catch(() => {});
   }
+
+  if (!lines.length) {
+    // An empty file previews as empty; a range past its end is an error.
+    if (input.lineStart !== undefined || lineNo > 1) return error("invalid-range", "The requested line is not present in this file.");
+    return { status: "ok", path: real, lineStart: 1, lineEnd: 1, text: "", truncated: false };
+  }
+  return { status: "ok", path: real, lineStart: start, lineEnd: start + lines.length - 1, text: lines.join("\n"), truncated };
 }

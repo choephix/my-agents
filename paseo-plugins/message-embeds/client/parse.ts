@@ -14,10 +14,11 @@ export type Segment =
   | { kind: "agent"; id: string; url: string; link: AgentLink };
 
 const EMBED = /!\[\[([^\]\r\n]+?)\]\]/g;
-const FENCE_START = /^ {0,3}(`{3,}|~{3,})/;
+// Any indent: agents nest fences inside list items deeper than CommonMark's three spaces.
+const FENCE_START = /^\s*(`{3,}|~{3,})/;
 
 function parseEmbed(original: string, inner: string, id: string): Embed | null {
-  const range = /^(.*?)(?:#L(\d+)(?:-(\d+))?)?$/.exec(inner);
+  const range = /^(.*?)(?:#L(\d+)(?:-L?(\d+))?)?$/.exec(inner);
   if (!range || !range[1].trim()) return null;
   const lineStart = range[2] ? Number(range[2]) : undefined;
   const lineEnd = range[3] ? Number(range[3]) : lineStart;
