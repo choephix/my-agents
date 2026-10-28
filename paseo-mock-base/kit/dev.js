@@ -187,7 +187,7 @@
 
   // ---------------------------------------------------------------- state + hash
   // picks: each section's last variant, so switching sections keeps every choice.
-  const state = { section: sections[0].id, variant: null, theme: themes[0], vp: viewports[0], states: {}, picks: {}, base: false, notes: true };
+  const state = { section: sections[0].id, variant: null, theme: themes[0], vp: viewports[0], states: {}, picks: {}, base: false, notes: true, knobs: {} };
 
   function readHash() {
     const [path, query] = location.hash.slice(1).split("?");
@@ -208,10 +208,15 @@
     if (state.variant) state.picks[state.section] = state.variant;
     else state.variant = state.picks[state.section] || null;
     state.states = {};
-    for (const [k, v] of q) if (!["theme", "vp", "canvas", "picks", "data", "base", "notes"].includes(k)) state.states[k] = v;
+    for (const [k, v] of q) if (!["theme", "vp", "canvas", "picks", "data", "base", "notes", "knobs"].includes(k)) state.states[k] = v;
     state.data = q.get("data") || defaultData;
     state.base = q.get("base") === "1";
     state.notes = q.get("notes") !== "off";
+    state.knobs = {};
+    for (const pair of (q.get("knobs") || "").split(",")) {
+      const i = pair.indexOf(":");
+      if (i > 0) state.knobs[pair.slice(0, i)] = pair.slice(i + 1);
+    }
   }
   function writeHash() {
     const q = new URLSearchParams();
@@ -223,6 +228,8 @@
     if (state.data !== defaultData) q.set("data", state.data);
     if (state.base) q.set("base", "1");
     if (hasNotes && !state.notes) q.set("notes", "off");
+    const knobs = Object.entries(state.knobs).filter(([, v]) => v != null && v !== "");
+    if (knobs.length) q.set("knobs", knobs.map(([k, v]) => k + ":" + v).join(","));
     const picks = sections
       .filter((s) => s.id !== state.section && state.picks[s.id] && state.picks[s.id] !== s.variants[0]?.id)
       .map((s) => s.id + "." + state.picks[s.id]);
@@ -250,8 +257,10 @@
 
   // ---------------------------------------------------------------- apply
   const listeners = [];
-  // Kit modules (appearance.js) add their own controls to the situation bar.
+  // Kit modules (appearance.js) add their own controls to the situation bar;
+  // a mock's knobs on its chosen design go in the knob bar under the variants.
   const situationExtras = [];
+  const knobControls = [];
   let shownAxes = new Set();
   function apply() {
     const sec = current();
@@ -390,7 +399,7 @@
     // Base / Notes sit in the top-right corner. When the window is too narrow
     // for both, the top stack centres in the space left of them. Only the
     // first top bar shares their row, and it is the same on every section.
-    const topStack = [designBar, variantBar, caption];
+    const topStack = [designBar, variantBar, knobBar, caption];
     for (const b of topStack) {
       b.style.right = "";
       b.style.maxWidth = "";
@@ -421,6 +430,11 @@
       caption.style.top = y + "px";
       y += 16;
     }
+    if (!knobBar.hidden) {
+      if (!caption.hidden) y += 4;
+      knobBar.style.top = y + "px";
+      y += knobBar.getBoundingClientRect().height + 6;
+    }
     const top = y + 46;
     const bottom = situationBar.hidden ? 14 : window.innerHeight - situationBar.getBoundingClientRect().top + 24;
     const availH = window.innerHeight - top - bottom;
@@ -446,6 +460,10 @@
   // Second top bar: controls that exist only for the current section (its variants).
   const variantBar = document.createElement("div");
   variantBar.className = "kit-bar kit-design kit-design-2";
+  // Third top bar: the mock's knobs (MockKit.addDesignControl), fine-tuning
+  // within the chosen design. Values live in the hash as knobs=key:value,...
+  const knobBar = document.createElement("div");
+  knobBar.className = "kit-bar kit-design kit-design-3";
   // Variant note: a quiet line under the design bar, outside it, so the bar
   // keeps one width whatever variant is shown.
   const caption = document.createElement("div");
@@ -523,6 +541,8 @@
     }
     variantBar.hidden = !sections.some((s) => s.variants.length);
     variantBar.classList.toggle("kit-vacant", !sec.variants.length);
+    knobBar.replaceChildren(...knobControls);
+    knobBar.hidden = !knobControls.length;
     caption.hidden = !sections.some((s) => s.variants.some((v) => v.note));
     caption.textContent = sec.variants.find((v) => v.id === state.variant)?.note || "";
 
@@ -643,7 +663,7 @@
   if (exportMode) {
     document.body.replaceChildren(frame);
   } else {
-    document.body.replaceChildren(stage, designBar, variantBar, caption, situationBar, reviewBar);
+    document.body.replaceChildren(stage, designBar, variantBar, knobBar, caption, situationBar, reviewBar);
     window.addEventListener("resize", layout);
     window.addEventListener("keydown", onKey);
     window.addEventListener("hashchange", () => {
@@ -668,6 +688,10 @@
       enhanceCycle,
       addSituationControl: (n) => {
         situationExtras.push(n);
+        apply();
+      },
+      addDesignControl: (n) => {
+        knobControls.push(n);
         apply();
       },
       icon,

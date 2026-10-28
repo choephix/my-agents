@@ -262,6 +262,8 @@ html.kit-export .mock-frame {
  * without variants it keeps its slot but shows nothing, so nothing below moves. */
 .kit-design-2 { top: 54px; }
 .kit-design-2.kit-vacant { visibility: hidden; }
+/* Third top bar (MockKit.addDesignControl): knobs within the chosen design. */
+.kit-design-3 { top: 94px; }
 
 /* kit/data.js: data-if="path" hides the element while the value is empty */
 .kit-data-off { display: none !important; }
@@ -287,7 +289,7 @@ html.kit-export .mock-frame {
 }
 .kit-seg-btn:disabled { opacity: 0.35; cursor: default; background: transparent; }
 /* Base on: the variant choice doesn't apply, so it fades */
-html.kit-base-on :is(.kit-design-2, .kit-caption) { opacity: 0.35; }
+html.kit-base-on :is(.kit-design-2, .kit-design-3, .kit-caption) { opacity: 0.35; }
 
 /* Markers over the frame: an outline on what changed plus its number. Outlines
  * and the overlay never take layout space, so the mock doesn't move. */

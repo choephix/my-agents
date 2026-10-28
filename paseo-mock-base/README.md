@@ -45,7 +45,12 @@ A screen that is even a little bit confusing didn't get simpler.
 - **Top (amber): design.** The options being decided. The first bar holds the
   sections and looks the same on every section. The current section's variants
   sit in a second bar below it; on a section without variants its slot stays
-  empty, so nothing moves.
+  empty, so nothing moves. Knobs that fine-tune the chosen design (a fade
+  strength, a callout style, a mark's width) are design too: a mock adds them
+  with `MockKit.addDesignControl(node)` and they sit in a third top bar. Their
+  values go in the hash (`MockKit.set({ knobs: { ...MockKit.state.knobs, key:
+  value } })`, read back from `MockKit.state.knobs`), so a link shows exactly
+  what its sender saw. Never put them in the bottom bar or in localStorage.
 - **Bottom (violet): situation.** Where the chosen option is seen: theme,
   viewport, app state. It belongs to the workbench, like the canvas. Its
   `Aa` button holds Paseo's appearance settings (fonts, sizes, content
@@ -153,7 +158,8 @@ choices together.
 Keys: ← → variant, ↑ ↓ section, `t` theme, `v` viewport, `d` data, `b` base,
 `n` notes. The hash holds the
 whole view. Behaviour, only if a design needs it: `MockKit.set({...})`,
-`MockKit.onChange(fn)`, `mockready` event.
+`MockKit.onChange(fn)`, `MockKit.addDesignControl(node)` with
+`MockKit.state.knobs`, `mockready` event.
 
 ## Styling
 
