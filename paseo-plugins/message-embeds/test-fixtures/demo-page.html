@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; font: 14px system-ui, sans-serif; background: #14181a; color: #e6e6e6; display: grid; place-items: center; height: 100vh; }
+  .dot { width: 48px; height: 48px; border-radius: 50%; background: #58f287; animation: pulse 1.2s ease-in-out infinite alternate; }
+  @keyframes pulse { from { transform: scale(0.6); opacity: 0.5; } to { transform: scale(1); opacity: 1; } }
+  p { margin: 12px 0 0; text-align: center; }
+</style>
+</head>
+<body>
+  <div>
+    <div class="dot"></div>
+    <p>Sandboxed demo page. Clicks: <b id="count">0</b></p>
+    <p id="escape"></p>
+  </div>
+  <script>
+    let clicks = 0;
+    document.body.addEventListener("click", () => { document.getElementById("count").textContent = ++clicks; });
+    let reached;
+    try { reached = !!window.parent.document.body; } catch { reached = false; }
+    document.getElementById("escape").textContent = reached ? "Can reach Paseo (sandbox broken)" : "Cannot reach Paseo (sandboxed)";
+  </script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseMessage } from "./parse";
+import { linkIssueRefs, parseMessage } from "./parse";
 
 describe("message embed parser", () => {
   it("extracts a complete embed and preserves surrounding markdown", () => {
@@ -37,5 +37,23 @@ describe("message embed parser", () => {
     expect(parseMessage("![[src/file.ts#L40-L80]]")).toMatchObject([
       { kind: "embed", embed: { path: "src/file.ts", lineStart: 40, lineEnd: 80 } },
     ]);
+  });
+
+  it("links #123 only outside code, existing links and words", () => {
+    const link = (n: string) => `<${n}>`;
+    const text = [
+      "Fixed in #123 and (#45); option #2 stays.",
+      "See `#99` and [#77](https://x) and abc#88 and #12-b.",
+      "```",
+      "#555",
+      "```",
+    ].join("\n");
+    expect(linkIssueRefs(text, link)).toBe([
+      "Fixed in <123> and (<45>); option #2 stays.",
+      "See `#99` and [#77](https://x) and abc#88 and #12-b.",
+      "```",
+      "#555",
+      "```",
+    ].join("\n"));
   });
 });

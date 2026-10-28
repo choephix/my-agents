@@ -2,7 +2,29 @@ Shows inline file previews when an assistant writes an Obsidian-style embed such
 
 Only complete embeds in assistant messages are converted. Fenced code blocks, inline code, and half-typed embeds stay as the assistant wrote them. Relative paths use the chat's working directory. Absolute paths and `~/` paths are accepted only when they resolve inside that directory. Missing, unreadable, binary, and oversized requests show a muted error instead of breaking the message.
 
-The plugin is enabled by default, and one switch covers file and chat embeds. Use **⌘K → Toggle file embeds** (or Ctrl+K on Windows and Linux) for a quick switch. The same setting is available at **Settings → Plugins → message-embeds → File embeds**. Turning it off leaves native Paseo message rendering untouched.
+The plugin is enabled by default, and one switch covers every embed kind below. Use **⌘K → Toggle file embeds** (or Ctrl+K on Windows and Linux) for a quick switch. The same setting is available at **Settings → Plugins → message-embeds → File embeds**. Turning it off leaves native Paseo message rendering untouched.
+
+## Images
+
+`![[shot.webp]]` (also png, jpg, gif, avif, svg) shows the picture, fitted to the card width and at
+most 240 px tall; a taller picture enlarges to the window height on tap. The header shows the
+original text, the pixel size and the file size. Files over 4 MB show an error instead. SVG needs
+the desktop or web app; the phone app shows a one-line note.
+
+## HTML pages
+
+`![[report.html]]` shows a "Show page" toggle. The page loads only when shown and unloads when
+hidden, so an animated page costs nothing while folded. It runs in an iframe sandboxed to scripts
+only: it cannot reach Paseo, its storage or your session, and cannot open popups or navigate the
+app. Pages are loaded as a single file, so relative links to its own CSS, scripts or images don't
+resolve; inline them. The phone app shows a one-line note instead.
+
+## GitHub links
+
+`#123` (two digits or more) becomes a link to issue or PR 123 of the chat folder's GitHub
+repository (its `origin` remote; GitHub forwards `/issues/123` to the PR when it is one). Inline
+code, code blocks, existing links and `abc#12` stay as written; folders without a GitHub remote
+keep plain text. Links appear once the reply finishes streaming.
 
 ## Chat embeds
 
@@ -40,3 +62,10 @@ These verifier screenshots are saved under `screenshots/`:
 - `screenshots/phone-collapsed.webp`
 - `screenshots/phone-expanded.webp`
 - `screenshots/diff-plus-embed.webp`
+- `screenshots/image-folded.webp`
+- `screenshots/image-enlarged.webp`
+- `screenshots/svg.webp`
+- `screenshots/html-hidden.webp`
+- `screenshots/html-shown.webp`
+- `screenshots/pr-links.webp`
+- `screenshots/phone-media.webp`

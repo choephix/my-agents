@@ -8,7 +8,7 @@ import { z } from "zod";
 import { AGENT_CARD_KIND, agentCardSchema, createAgentCard } from "./client/agent-card";
 import { EmbedCard, embedCardSchema } from "./client/card";
 import { MarkdownChunk, markdownSchema } from "./client/markdown";
-import { parseMessage } from "./client/parse";
+import { linkIssueRefs, parseMessage } from "./client/parse";
 import { installAgentTextStyles } from "./client/web";
 import { DEFAULTS, preferences } from "./shared/preferences";
 
@@ -41,7 +41,7 @@ function Settings() {
     return <SettingsSection title="File embeds"><SettingsCard><SettingsSwitch label="Enable file embeds" value={enabled} disabled onValueChange={() => {}} /></SettingsCard></SettingsSection>;
   }
   return (
-    <SettingsSection title="File embeds" info="Turn Obsidian-style ![[path]] file previews and ![[agent link]] chat previews on or off in assistant messages.">
+    <SettingsSection title="File embeds" info="Turn Obsidian-style ![[path]] file, image and HTML previews, ![[agent link]] chat previews, and #123 GitHub links on or off in assistant messages.">
       <SettingsCard>
         <SettingsSwitch
           label="Enable file embeds"
@@ -112,10 +112,14 @@ export default function contribute(client: PluginClientContext) {
     id: "message-embeds",
     query: { itemType: "assistant_message" },
     transform({ item, phase }) {
-      if (!enabled || !item.text.includes("![[")) return undefined;
+      if (!enabled) return undefined;
+      // Cheap checks first; most messages have neither an embed nor a `#123`.
+      const hasEmbed = item.text.includes("![[");
+      const hasRef = /#\d\d/.test(item.text) && linkIssueRefs(item.text, () => "") !== item.text;
+      if (!hasEmbed && !hasRef) return undefined;
       const segments = parseMessage(item.text);
-      // Unchanged text (half-typed or code-only embeds) keeps Paseo's own rendering.
-      if (segments.length === 1 && segments[0].kind === "markdown" && segments[0].text === item.text) return undefined;
+      // Unchanged text (half-typed or code-only embeds, no `#123`) keeps Paseo's own rendering.
+      if (!hasRef && segments.length === 1 && segments[0].kind === "markdown" && segments[0].text === item.text) return undefined;
       return {
         items: segments.map((segment): PluginTimelineItem => {
           if (segment.kind === "agent") {

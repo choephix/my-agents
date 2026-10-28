@@ -59,6 +59,32 @@ function appendMarkdown(out: Segment[], text: string): void {
   else out.push({ kind: "markdown", id: `markdown-${out.length}`, text });
 }
 
+// `#123` after a line start, space or opening bracket; two digits or more, so "option #2" stays text.
+const ISSUE_REF = /(^|[\s([])#(\d{2,})(?![\w-])/g;
+
+/**
+ * Rewrites `#123` outside fenced blocks and inline code with `link(number)`, e.g. into a Markdown link.
+ * Text inside existing Markdown links (`[see #12](…)`) is left alone.
+ */
+export function linkIssueRefs(text: string, link: (number: string) => string): string {
+  let inFence: string | null = null;
+  return text.split("\n").map((line) => {
+    const fence = FENCE_START.exec(line)?.[1];
+    if (inFence) {
+      if (fence && fence[0] === inFence[0] && fence.length >= inFence.length) inFence = null;
+      return line;
+    }
+    if (fence) {
+      inFence = fence;
+      return line;
+    }
+    const spans = inlineCodeSpans(line);
+    for (const match of line.matchAll(/\[[^\]\n]*\]\([^)\n]*\)/g)) spans.push([match.index ?? 0, (match.index ?? 0) + match[0].length]);
+    return line.replace(ISSUE_REF, (whole, lead: string, number: string, offset: number) =>
+      isInside(spans, offset + lead.length) ? whole : `${lead}${link(number)}`);
+  }).join("\n");
+}
+
 /**
  * Splits assistant text into markdown, complete Obsidian-style file embeds, and agent embeds
  * (`![[https://app.paseo.sh/h/<serverId>/agent/<agentId>]]`). An agent embed becomes a card only
