@@ -12,7 +12,7 @@ import {
 import { DEFAULT_DISPLAY, displaySettings } from "./shared/settings";
 import { entriesOf, readEntries, readLines, SessionTree } from "./server/session-file";
 import { awaitResult, cancelRequest, cleanUp, linkRoot, type LinkRequest, loadsExtension, ompHosts, sendRequest, servingPids } from "./server/link";
-import { connectLocalDaemon, reloadChat } from "./server/daemon";
+import { openBranchTab, reloadChat } from "./server/daemon";
 import { copyBranch, removeCopy } from "./server/branch-copy";
 
 const UNSUPPORTED: TreeState = { supported: false, ready: false, busy: false, turns: [], branches: [], offer: null, op: null, last: null };
@@ -320,31 +320,27 @@ export default function contribute(server: PluginServerContext) {
     const until = before ? tree.byId.get(entryId)?.parentId : entryId;
     if (!until) throw new Error("There is nothing before the first message to open.");
     const copy = await copyBranch(file, lines, tree, until);
-    const daemon = await connectLocalDaemon();
-    let importedId: string | undefined;
+    const thinkingOptionId = agent.thinkingOptionId ?? agent.effectiveThinkingOptionId;
     try {
-      const child = await daemon.importAgent({
-        providerId: agent.provider, providerHandleId: copy, cwd: agent.cwd,
-        ...(agent.workspaceId ? { workspaceId: agent.workspaceId } : {}),
-        labels: { "paseo.parent-agent-id": agent.id, "session-tree.from-entry": entryId },
-      });
-      importedId = child.id;
-      const title = `${(agent.title?.trim() || "Chat").replace(/ · branch$/, "").slice(0, 60)} · branch`;
-      await daemon.updateAgent(child.id, { name: title });
-      const thinkingOptionId = agent.thinkingOptionId ?? agent.effectiveThinkingOptionId;
-      await daemon.applyAgentConfig(child.id, {
-        modelId: agent.model, thinkingOptionId: thinkingOptionId ?? null,
-        ...(agent.currentModeId ? { modeId: agent.currentModeId } : {}),
-        featureValues: Object.fromEntries((agent.features ?? []).map(feature => [feature.id, feature.value])),
-      });
-      return { agentId: child.id };
+      return {
+        agentId: await openBranchTab({
+          request: {
+            providerId: agent.provider, providerHandleId: copy, cwd: agent.cwd,
+            ...(agent.workspaceId ? { workspaceId: agent.workspaceId } : {}),
+            labels: { "paseo.parent-agent-id": agent.id, "session-tree.from-entry": entryId },
+          },
+          name: `${(agent.title?.trim() || "Chat").replace(/ · branch$/, "").slice(0, 60)} · branch`,
+          config: {
+            modelId: agent.model, thinkingOptionId: thinkingOptionId ?? null,
+            ...(agent.currentModeId ? { modeId: agent.currentModeId } : {}),
+            featureValues: Object.fromEntries((agent.features ?? []).map(feature => [feature.id, feature.value])),
+          },
+        }),
+      };
     } catch (error) {
-      // Never leave a half-configured tab or an orphan copy behind.
-      if (importedId) await daemon.archiveAgent(importedId).catch(() => undefined);
+      // Never leave an orphan copy behind (the helper archives a half-configured tab).
       await removeCopy(copy);
       throw error;
-    } finally {
-      await daemon.close();
     }
   });
 
