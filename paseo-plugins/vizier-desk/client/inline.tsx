@@ -17,7 +17,7 @@ export function prInfo(desk: Desk, n: number): { state: PrState; tip: string } {
 export function prStyle(c: Palette, state: PrState): TextStyle {
   return {
     color: c.pr(state),
-    fontWeight: state === "unknown" ? "400" : "700",
+    fontWeight: state === "unknown" || state === "draft" ? "400" : "600",
     textDecorationLine: state === "closed" ? "line-through" : "none",
   };
 }
@@ -51,7 +51,7 @@ function nodes(text: string, desk: Desk, c: Palette, style: TextStyle): ReactNod
       );
     } else if (m[2] != null) {
       parts.push(
-        <Text key={key} style={{ fontWeight: "700" }}>
+        <Text key={key} style={{ fontWeight: "600" }}>
           {nodes(m[2], desk, c, style)}
         </Text>,
       );
@@ -62,7 +62,7 @@ function nodes(text: string, desk: Desk, c: Palette, style: TextStyle): ReactNod
         pull && pull[1] === desk.repo && /^#?\d+$/.test(m[3]) ? (
           <PrRef key={key} desk={desk} c={c} n={Number(pull[2])} />
         ) : (
-          <Text key={key} style={{ color: c.accent }} onPress={() => void openExternalUrl(url)} accessibilityRole="link">
+          <Text key={key} style={{ color: c.ok }} onPress={() => void openExternalUrl(url)} accessibilityRole="link">
             {m[3]}
           </Text>
         ),

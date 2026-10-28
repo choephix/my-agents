@@ -6,11 +6,15 @@ Open it from the "Vizier desk" row at the top of the sidebar, or from the comman
 
 ## What it shows
 
-- One column per workspace, headed in that workspace's colour. The column with the most urgent card comes first. Tap a heading to fold the column into a pill above the board.
-- Asks, Doing and Endeavors as three views, with live counts. On Asks you can narrow the board to one priority.
-- Cards in the desk's own order: priority dot, title, the answer you gave, a short lead, the rest under "more", what the card blocks, its priority and its age.
-- PR numbers coloured by their state on GitHub: purple for merged, green for ready to merge, amber for open but not ready, red for conflicts, gray for drafts, struck through when closed. PRs mentioned only in the body show as chips under the text.
-- The asker's tab. Tap it to open that agent. When the tab is gone, tapping copies the command that revives it.
+The screen is drawn in Paseo's own style: its tab strip, project badges and status colours, with type a step smaller than chat so more fits.
+
+- One column per workspace, headed with the workspace's project badge, its name and a count. A red dot and number mark columns with blocking asks. The column with the most urgent card comes first. Tap a heading to fold the column into a pill above the board.
+- Asks, Doing and Endeavors as tabs with live counts; Endeavors appears when there is one. On Asks, a filter button steps through the priorities.
+- Square cards with a short mark beside the title in the card's state colour: red blocking, amber revisit, gray whenever, blue in flight (fainter when quiet), faint green settled.
+- On each card: the title, the answer you gave, a short lead, what the card blocks in a small red callout, and one line under a hairline with the asker, the first link, PRs not already in the text, and the age. The age turns amber after a day.
+- PR numbers coloured by their state on GitHub, with GitHub's icon for the state: purple for merged, green for ready to merge, amber for open but not ready, red for conflicts, gray for drafts, struck through when closed.
+- Tap a card to read the rest of it, with everyone involved, the times, the file and every link. On a desktop the ⋯ that appears on hover shows just those details.
+- Tap the asker to open that agent. When its tab is gone, tapping copies the command that revives it.
 - Settled cards and cards outside a live state, in two folded columns at the end.
 
 On a phone the columns become sections in one list; pull down to read the desk again.

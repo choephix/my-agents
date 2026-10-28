@@ -2,25 +2,34 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Platform } from "react-native";
 import type { PrState } from "../shared/desk";
 
-// The desk's own colours, the same as Mainframe's /desk (public/style.css, `--pr-*`, `--pri-*`, `--ws-*`), dark and
-// light. PR states are the most saturated thing on the screen; priority, age and workspace hues are dialled back.
+// Paseo's own look. Text, surfaces and the red/amber/green states come from the theme; the theme has no running blue,
+// merged purple, PR dot colours or project palette, so those are Paseo's values (styles/theme.ts), dark and light.
 
 const DARK = {
-  pr: { merged: "#a371f7", ready: "#3fb950", open: "#d29922", conflict: "#f85149", closed: "#f85149", draft: "#8b949e" },
-  blocking: "#e5484d",
-  revisit: "#6ea6f5",
-  hues: ["#7aa2f7", "#9ece6a", "#e0af68", "#bb9af7", "#7dcfff", "#f7768e", "#73daca", "#c0caf5", "#ff9e64", "#b4f9f8", "#c3e88d", "#e68ac2"],
+  running: "#5caaf6",
+  pr: { merged: "#9e7ee1", ready: "#35c264", open: "#db932e", conflict: "#f7796d" },
 };
 const LIGHT = {
-  pr: { merged: "#8250df", ready: "#1a7f37", open: "#9a6700", conflict: "#cf222e", closed: "#cf222e", draft: "#6e7781" },
-  blocking: "#d1242f",
-  revisit: "#1f6feb",
-  hues: ["#2f5fd0", "#3f8f2a", "#a4731c", "#7b4fd1", "#1a7fa8", "#c2405a", "#1f8f80", "#5b6a9a", "#c25e14", "#1f8a8a", "#5e8a1f", "#b03a8a"],
+  running: "#268ae0",
+  pr: { merged: "#7b4ec8", ready: "#299f51", open: "#b37824", conflict: "#f12e2f" },
 };
+/** Paseo's project palette, the badge colours in its sidebar. */
+const PROJECT = ["#7a6aa8", "#3d7ea6", "#388068", "#a4673a", "#b05c80", "#6a70b8", "#368080", "#b06260", "#8f7838", "#5179b0"];
+
+/** What a card's title tick says. */
+export type CardState = "blocking" | "revisit" | "whenever" | "doing" | "quiet" | "done" | "stray";
 
 export interface Palette {
   fg: string;
   muted: string;
+  /** Paseo's extra-muted: 40% of the foreground. */
+  faint: string;
+  /** The line under a card's text. */
+  meta: string;
+  /** The asker's name, a step above the meta line. */
+  metaStrong: string;
+  /** Lead paragraph and the doing line. */
+  body: string;
   s0: string;
   s1: string;
   s2: string;
@@ -28,11 +37,13 @@ export interface Palette {
   accent: string;
   ok: string;
   warn: string;
+  danger: string;
+  running: string;
   pr(state: PrState): string;
-  blocking: string;
-  revisit: string;
-  hue(n: number): string;
-  /** `color` at `alpha` (0–1), for tints and dialled-back marks. */
+  state(state: CardState): string;
+  /** Project badge colour for a workspace hue (1-based). */
+  project(hue: number): string;
+  /** `color` at `alpha` (0–1). */
   alpha(color: string, alpha: number): string;
 }
 
@@ -56,9 +67,24 @@ export function paletteOf(theme: PluginTheme): Palette {
   const bg = rgb(colors.surface0);
   const light = bg ? (0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2]) / 255 > 0.5 : false;
   const set = light ? LIGHT : DARK;
+  const fg = colors.foreground;
+  const faint = alpha(fg, 0.4);
+  const states: Record<CardState, string> = {
+    blocking: colors.statusDanger,
+    revisit: colors.statusWarning,
+    whenever: alpha(fg, 0.3),
+    doing: set.running,
+    quiet: alpha(set.running, 0.4),
+    done: alpha(colors.statusSuccess, 0.5),
+    stray: alpha(fg, 0.15),
+  };
   return {
-    fg: colors.foreground,
+    fg,
     muted: colors.foregroundMuted,
+    faint,
+    meta: alpha(fg, 0.75),
+    metaStrong: alpha(fg, 0.95),
+    body: alpha(fg, 0.55),
     s0: colors.surface0,
     s1: colors.surface1,
     s2: colors.surface2,
@@ -66,20 +92,21 @@ export function paletteOf(theme: PluginTheme): Palette {
     accent: colors.accent,
     ok: colors.statusSuccess,
     warn: colors.statusWarning,
-    pr: (state) => (state === "unknown" ? colors.foregroundMuted : set.pr[state]),
-    blocking: set.blocking,
-    revisit: set.revisit,
-    hue: (n) => set.hues[(n - 1 + set.hues.length) % set.hues.length]!,
+    danger: colors.statusDanger,
+    running: set.running,
+    pr: (state) => (state === "closed" ? colors.foregroundMuted : state === "draft" || state === "unknown" ? faint : set.pr[state]),
+    state: (s) => states[s],
+    project: (hue) => PROJECT[(hue - 1 + PROJECT.length) % PROJECT.length]!,
     alpha,
   };
 }
 
-/** Paseo's type ramp (Interface size 14). */
+/** One step below Paseo's chat sizes, as on the mock. */
 export const TYPE = {
-  title: { fontSize: 14, lineHeight: 20 },
-  body: { fontSize: 13, lineHeight: 19 },
-  small: { fontSize: 12, lineHeight: 17 },
-  label: { fontSize: 11, lineHeight: 15 },
+  heading: { fontSize: 13, lineHeight: 18 },
+  title: { fontSize: 13, lineHeight: 18 },
+  body: { fontSize: 12, lineHeight: 17 },
+  small: { fontSize: 11, lineHeight: 15 },
 } as const;
 
 export const MONO = Platform.select({ ios: "Menlo", web: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", default: "monospace" });
