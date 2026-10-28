@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import type { PaseoAgent as Agent, PaseoApi } from "@getpaseo/client";
+import { z } from "zod";
 import {
   type ChatSummary, type Op, type OpKind, type Outcome, type TreeState,
   treeCancel, treeChats, treeDismiss, treeGoto, treeOpenTab, treeState, treeSummarize, treeSummary,
@@ -74,7 +75,58 @@ function offerIn(tree: SessionTree): Offer | null {
 }
 
 /** The chat list's facts per session file, kept for every chat; the tree they come from is not kept. */
-const listFacts = new Map<string, Cached<{ branches: number; offer: Offer | null }>>();
+type Facts = { branches: number; offer: Offer | null };
+const listFacts = new Map<string, Cached<Facts>>();
+
+/**
+ * listFacts also lives on disk, so a restart parses only chats whose file changed instead of all of them
+ * (a cold parse of every chat grows the heap to ~400 MB). Bump FACTS_VERSION when what offerIn or
+ * branches() report changes, or old facts are served until their chat changes.
+ */
+const FACTS_VERSION = 1;
+const SavedFacts = z.object({
+  version: z.literal(FACTS_VERSION),
+  files: z.record(z.string(), z.object({
+    size: z.number(),
+    mtimeMs: z.number(),
+    branches: z.number(),
+    offer: z.object({ markerId: z.string(), setAside: z.number(), summarized: z.boolean(), from: z.string(), fork: z.string() }).nullable(),
+  })),
+});
+const factsPath = () => join(linkRoot(), "list-facts.json");
+let factsLoaded: Promise<void> | undefined;
+let factsDirty = false;
+let factsSaving: Promise<void> = Promise.resolve();
+
+function loadSavedFacts(): Promise<void> {
+  factsLoaded ??= readFile(factsPath(), "utf8").then(text => {
+    const saved = SavedFacts.safeParse(JSON.parse(text));
+    if (!saved.success) return; // Older version or damaged: parse everything once, then save anew.
+    for (const [file, { size, mtimeMs, ...facts }] of Object.entries(saved.data.files)) {
+      if (!listFacts.has(file)) listFacts.set(file, { size, mtimeMs, usedAt: 0, value: Promise.resolve(facts) });
+    }
+  }).catch(() => undefined);
+  return factsLoaded;
+}
+
+/** Writes listFacts when it changed; saves run one at a time, and each writes the newest state. */
+function saveFacts(): Promise<void> {
+  if (!factsDirty) return factsSaving;
+  factsDirty = false;
+  const write = factsSaving.then(async () => {
+    const files: z.infer<typeof SavedFacts>["files"] = {};
+    for (const [file, entry] of listFacts) {
+      const facts = await entry.value.catch(() => undefined);
+      if (facts) files[file] = { size: entry.size, mtimeMs: entry.mtimeMs, ...facts };
+    }
+    const path = factsPath();
+    await mkdir(linkRoot(), { recursive: true });
+    await writeFile(`${path}.tmp`, JSON.stringify({ version: FACTS_VERSION, files }));
+    await rename(`${path}.tmp`, path);
+  });
+  factsSaving = write.catch(() => undefined);
+  return factsSaving;
+}
 
 /** Providers that are OMP: `omp` itself and custom providers that extend it (`~/.paseo/config.json`). */
 let providerCache: { mtimeMs: number; extendsOf: Record<string, string | undefined> } | undefined;
@@ -212,6 +264,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(treeChats, async (_input, { paseo }) => {
     const listed = await paseo.agents.list();
     const isOmp = await ompProviders();
+    await loadSavedFacts();
     // Chats the plugin serves (as `supportedAgent` judges); one whose file fails to read this time still counts.
     const served = listed.entries.flatMap(({ agent }) => {
       const file = !agent.archivedAt && isOmp(agent.provider) ? sessionFile(agent) : undefined;
@@ -221,6 +274,7 @@ export default function contribute(server: PluginServerContext) {
       served.map(async ({ agent, file }) => {
         if (!agent.workspaceId) return undefined;
         const facts = await cachedRead(listFacts, file, async info => {
+          factsDirty = true;
           const open = trees.get(file);
           const tree = open && open.size === info.size && open.mtimeMs === info.mtimeMs
             ? await open.value
@@ -238,9 +292,15 @@ export default function contribute(server: PluginServerContext) {
     // Forget chats that are gone, and trees nothing has opened for a while.
     const files = new Set(served.map(chat => chat.file));
     const agentIds = new Set(served.map(chat => chat.agent.id));
-    for (const file of listFacts.keys()) if (!files.has(file)) listFacts.delete(file);
+    for (const file of listFacts.keys()) {
+      if (!files.has(file)) {
+        listFacts.delete(file);
+        factsDirty = true;
+      }
+    }
     for (const [file, entry] of trees) if (!files.has(file) || Date.now() - entry.usedAt > TREE_IDLE_MS) trees.delete(file);
     for (const agentId of outcomes.keys()) if (!agentIds.has(agentId)) outcomes.delete(agentId);
+    void saveFacts();
     const settings = await display.read();
     return { chats: rows.filter(row => row !== undefined), display: settings.status === "ready" ? settings.values : DEFAULT_DISPLAY };
   });

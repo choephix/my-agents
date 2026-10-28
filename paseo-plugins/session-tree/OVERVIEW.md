@@ -76,6 +76,10 @@ apply without a reload. `/tree` works whatever is off.
   `custom` marker `paseo-session-tree` ({op, kind, from, fork, …}) so the move survives restarts and
   the offer is derived from the file (it ends when a message follows the marker). × is stored in
   `dismissed.json` there.
+- The chat list's facts per session file (branch count, offer) are saved to
+  `$PASEO_HOME/omp-session-tree/list-facts.json`, keyed by file size and mtime, so a plugin restart
+  parses only chats whose file changed. Bump `FACTS_VERSION` in `index.server.ts` when what
+  `branches()` or `offerIn` report changes.
 - Summarize on going back = the goto request carries `summarize`: one `navigateTree(target,
   {summarize: true})` → `branch_summary` at the branch point, marker op `summarize`.
 - "Summarize them" later = in one request: back to the left branch, then `navigateTree(fork,
