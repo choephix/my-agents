@@ -7,13 +7,14 @@ The plugin is enabled by default, and one switch covers every embed kind below. 
 ## Images
 
 `![[shot.webp]]` (also png, jpg, gif, avif, svg) shows the picture, fitted to the card width and at
-most 240 px tall; a taller picture enlarges to the window height on tap. The header shows the
-original text, the pixel size and the file size. Files over 4 MB show an error instead. SVG needs
+most 240 px tall; a taller picture enlarges to the window height on tap. The header row shows the
+original text in small faint monospace and, fainter still at the right, the pixel and file size;
+both brighten while the mouse is over the card. Files over 4 MB show an error instead. SVG needs
 the desktop or web app; the phone app shows a one-line note.
 
 ## HTML pages
 
-`![[report.html]]` shows a "Show page" toggle. The page loads only when shown and unloads when
+`![[report.html]]` shows a "▸ Show page" toggle at the right of its header row. The page loads only when shown and unloads when
 hidden, so an animated page costs nothing while folded. It runs in an iframe sandboxed to scripts
 only: it cannot reach Paseo, its storage or your session, and cannot open popups or navigate the
 app. Pages are loaded as a single file, so relative links to its own CSS, scripts or images don't

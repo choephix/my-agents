@@ -25,6 +25,7 @@ interface BodyProps {
   background: string;
   /** Expanded height: the window minus room for the chat header and composer. */
   bodyHeight: number;
+  cardHovered: boolean;
 }
 
 const MONO = Platform.select({
@@ -75,18 +76,31 @@ function Note({ theme, children }: { theme: PluginTheme; children: ReactNode }) 
   return <Text style={{ paddingHorizontal: 9, paddingBottom: 9, color: theme.colors.foregroundMuted, fontSize: 12 }}>{children}</Text>;
 }
 
-/** The original `![[…]]` text, a detail line (range, size) and the open-on-the-side button. */
-function CardHeader({ theme, original, href, detail }: { theme: PluginTheme; original: string; href: string | null; detail: string | null }) {
+interface CardHeaderProps {
+  theme: PluginTheme;
+  original: string;
+  href: string | null;
+  /** Range or size, faint at the right; both header texts brighten while the card is hovered. */
+  detail: string | null;
+  cardHovered: boolean;
+  action?: ReactNode;
+}
+
+/** One row: the original `![[…]]` text, the detail, an optional action, the open-on-the-side button. */
+function CardHeader({ theme, original, href, detail, cardHovered, action }: CardHeaderProps) {
   const [hovered, setHovered] = useState(false);
   // Paseo exposes no file-open API to plugins, so the button clicks a hidden Paseo Markdown file link.
   const linkHost = useRef<View>(null);
   const forwarding = useRef(false);
+  const faint = { color: theme.colors.foregroundMuted, fontFamily: MONO, fontSize: 10, lineHeight: 14 };
   return (
-    <View style={{ paddingHorizontal: 9, paddingTop: 7, paddingBottom: 5, gap: 3 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.foregroundMuted, fontFamily: MONO, fontSize: CODE_SIZE, lineHeight: 16 }} selectable>
+    <View style={{ paddingLeft: 9, paddingRight: 4, paddingTop: 3, paddingBottom: 2 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 24 }}>
+        <Text numberOfLines={1} style={{ ...faint, flex: 1, opacity: cardHovered ? 0.85 : 0.5 }} selectable>
           {original}
         </Text>
+        {detail ? <Text numberOfLines={1} style={{ ...faint, opacity: cardHovered ? 0.7 : 0.3 }}>{detail}</Text> : null}
+        {action}
         {href ? (
           <Pressable
             {...({ title: "Open on the side" } as { title: string })}
@@ -125,12 +139,25 @@ function CardHeader({ theme, original, href, detail }: { theme: PluginTheme; ori
           </Pressable>
         ) : null}
       </View>
-      {detail ? (
-        <Text style={{ color: theme.colors.foregroundMuted, fontFamily: MONO, fontSize: 11, lineHeight: 15 }}>
-          {detail}
-        </Text>
-      ) : null}
     </View>
+  );
+}
+
+/** Show / hide toggle for an HTML page; sits in the header row. */
+function PageToggle({ theme, open, onToggle }: { theme: PluginTheme; open: boolean; onToggle(): void }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onToggle}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      style={{ paddingHorizontal: 6, height: 24, borderRadius: 5, justifyContent: "center", backgroundColor: hovered ? theme.colors.surface2 : "transparent" }}
+    >
+      <Text style={{ color: hovered ? theme.colors.foreground : theme.colors.foregroundMuted, fontFamily: MONO, fontSize: 11, lineHeight: 14 }}>
+        {open ? "▾ Hide page" : "▸ Show page"}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -148,7 +175,7 @@ function Fade({ background }: { background: string }) {
   );
 }
 
-function TextEmbed({ data, agentId, theme, background, bodyHeight }: BodyProps) {
+function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered }: BodyProps) {
   const read = useRpc(readEmbedFile);
   const [expanded, setExpanded] = useState(false);
   const result = useRead(
@@ -160,7 +187,7 @@ function TextEmbed({ data, agentId, theme, background, bodyHeight }: BodyProps) 
   const detail = ok ? lineLabel(ok.lineStart, ok.lineEnd) : data.lineStart ? lineLabel(data.lineStart, data.lineEnd ?? data.lineStart) : null;
   return (
     <>
-      <CardHeader theme={theme} original={data.original} href={ok ? fileHref(ok.path, ok.lineStart, ok.lineEnd) : null} detail={detail} />
+      <CardHeader theme={theme} original={data.original} href={ok ? fileHref(ok.path, ok.lineStart, ok.lineEnd) : null} detail={detail} cardHovered={cardHovered} />
       {result?.status === "error" ? (
         <Note theme={theme}>{result.message}</Note>
       ) : ok ? (
@@ -181,7 +208,7 @@ function TextEmbed({ data, agentId, theme, background, bodyHeight }: BodyProps) 
   );
 }
 
-function ImageEmbed({ data, agentId, theme, bodyHeight }: BodyProps) {
+function ImageEmbed({ data, agentId, theme, bodyHeight, cardHovered }: BodyProps) {
   const read = useRpc(readEmbedAsset);
   const result = useRead(() => read({ agentId, path: data.path }), `${agentId}\n${data.path}`);
   const ok = result?.status === "ok" ? result : null;
@@ -204,7 +231,7 @@ function ImageEmbed({ data, agentId, theme, bodyHeight }: BodyProps) {
 
   return (
     <>
-      <CardHeader theme={theme} original={data.original} href={ok ? fileHref(ok.path) : null} detail={detail} />
+      <CardHeader theme={theme} original={data.original} href={ok ? fileHref(ok.path) : null} detail={detail} cardHovered={cardHovered} />
       {result?.status === "error" ? (
         <Note theme={theme}>{result.message}</Note>
       ) : natural === "failed" ? (
@@ -234,7 +261,7 @@ function ImageEmbed({ data, agentId, theme, bodyHeight }: BodyProps) {
  * Paseo, its storage or its session. It loads only while open; closing unloads it, so pages
  * with animations cost nothing while folded.
  */
-function HtmlEmbed({ data, agentId, theme, bodyHeight }: BodyProps) {
+function HtmlEmbed({ data, agentId, theme, bodyHeight, cardHovered }: BodyProps) {
   const read = useRpc(readEmbedAsset);
   const [open, setOpen] = useState(false);
   const result = useRead(open ? () => read({ agentId, path: data.path }) : null, `${agentId}\n${data.path}`);
@@ -244,14 +271,18 @@ function HtmlEmbed({ data, agentId, theme, bodyHeight }: BodyProps) {
 
   return (
     <>
-      <CardHeader theme={theme} original={data.original} href={ok ? fileHref(ok.path) : null} detail={ok ? `HTML · ${sizeLabel(ok.bytes)}` : "HTML page"} />
+      <CardHeader
+        theme={theme}
+        original={data.original}
+        href={ok ? fileHref(ok.path) : null}
+        detail={null}
+        cardHovered={cardHovered}
+        action={web ? <PageToggle theme={theme} open={open} onToggle={() => setOpen((value) => !value)} /> : null}
+      />
       {!web ? (
         <Note theme={theme}>HTML previews need the desktop or web app.</Note>
       ) : (
         <>
-          <Pressable accessibilityRole="button" onPress={() => setOpen((value) => !value)} style={{ paddingHorizontal: 9, paddingBottom: 9 }}>
-            <Text style={{ color: theme.colors.foregroundMuted, fontFamily: MONO, fontSize: CODE_SIZE }}>{open ? "▾ Hide page" : "▸ Show page"}</Text>
-          </Pressable>
           {!open ? null : result?.status === "error" ? (
             <Note theme={theme}>{result.message}</Note>
           ) : ok ? (
@@ -285,10 +316,12 @@ export function EmbedCard({ item, agentId, theme, layout }: PluginTimelineItemPr
     marginVertical: 5,
     overflow: "hidden" as const,
   }), [theme.colors.border, background]);
-  const props: BodyProps = { data: item.data, agentId, theme, background, bodyHeight };
+  const [cardHovered, setCardHovered] = useState(false);
+  const props: BodyProps = { data: item.data, agentId, theme, background, bodyHeight, cardHovered };
   const kind = embedKind(item.data.path);
   return (
-    <View style={cardStyle}>
+    // Hover brightens the header texts. Pointer events, not a Pressable: an outer Pressable never got hover on web.
+    <View onPointerEnter={() => setCardHovered(true)} onPointerLeave={() => setCardHovered(false)} style={cardStyle}>
       {kind === "image" ? <ImageEmbed {...props} /> : kind === "html" ? <HtmlEmbed {...props} /> : <TextEmbed {...props} />}
     </View>
   );
