@@ -85,7 +85,14 @@ function StatusDot({ status, c }: { status: string; c: Palette }) {
 }
 
 /** A session: opens its Paseo tab, or copies the command that revives it when the tab is gone. */
-function Person({ person, role, scene, wide }: { person: DeskPerson; role?: string; scene: CardScene; wide?: boolean }) {
+/** What tapping an ask's asker puts on the clipboard: the composer can't be prefilled from a plugin. */
+function replyOf(card: DeskCard): string | undefined {
+  if (card.kind !== "asks" || !card.file) return undefined;
+  const at = card.file.lastIndexOf("/desk/");
+  return `Re: ${at < 0 ? card.file : card.file.slice(at + 1)}\n\n`;
+}
+
+function Person({ person, role, scene, wide, reply }: { person: DeskPerson; role?: string; scene: CardScene; wide?: boolean; reply?: string }) {
   const { c, openAgent } = scene;
   const toast = useToast();
   const gone = person.status === "gone";
@@ -100,7 +107,15 @@ function Person({ person, role, scene, wide }: { person: DeskPerson; role?: stri
           )
       : undefined
     : person.agentId && openAgent
-      ? () => openAgent(person.agentId!)
+      ? async () => {
+          // The toast has to be raised before navigating away unmounts this screen.
+          if (reply)
+            await copyText(reply).then(
+              () => toast.show("Pointer to the ask copied. Paste it to answer", { variant: "success" }),
+              () => toast.error("Couldn't copy the pointer"),
+            );
+          openAgent(person.agentId!);
+        }
       : undefined;
   return (
     <Pressable
@@ -254,7 +269,7 @@ function CardModal({ card, scene, open, onOpenChange }: { card: DeskCard; scene:
         {people.length ? (
           <Section label="People" c={c}>
             {people.map(({ person, role }, i) => (
-              <Person key={i} person={person} role={role} scene={inner} wide />
+              <Person key={i} person={person} role={role} scene={inner} wide reply={role === "Asker" ? replyOf(card) : undefined} />
             ))}
           </Section>
         ) : null}
@@ -343,7 +358,7 @@ export function Card({ card, scene }: { card: DeskCard; scene: CardScene }) {
             </View>
           ) : null}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 16 }}>
-            {card.asker ? <Person person={card.asker} scene={scene} /> : null}
+            {card.asker ? <Person person={card.asker} scene={scene} reply={replyOf(card)} /> : null}
             {links[0] ? <RefLink target={links[0]} scene={scene} /> : null}
             <View style={{ flex: 1 }} />
             {when ? <Text style={{ ...TYPE.small, color: old ? c.warn : c.meta, fontVariant: ["tabular-nums"] }}>{when}</Text> : null}
