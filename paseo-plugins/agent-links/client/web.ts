@@ -47,3 +47,10 @@ export function interceptAgentLinks(open: (link: AgentLink) => void): () => void
   document.addEventListener("click", onClick, true);
   return () => document.removeEventListener("click", onClick, true);
 }
+
+/** Web: whether a press landed on a link (inside a preview, the link wins over the card). */
+export function pressedLink(event: unknown): boolean {
+  if (Platform.OS !== "web" || !event || typeof event !== "object" || !("target" in event)) return false;
+  const target = event.target as ClickTarget | null; // a DOM node on web
+  return typeof target?.closest === "function" && !!target.closest("a[href]");
+}
