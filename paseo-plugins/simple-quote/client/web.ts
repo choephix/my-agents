@@ -6,7 +6,8 @@ import { appendQuote } from "./quote";
 // Pressing it writes into that chat's message box the way agent-commands does: the native textarea
 // value setter plus an `input` event, which Paseo's draft state follows. Nothing runs while no
 // text is selected: no observers or timers, and the scroll listener exists only while the button
-// is up.
+// is up. The quoted text is Paseo's own copy-as-Markdown for assistant replies (what Ctrl+C gives),
+// read from a copy event aimed at a throwaway clipboard; elsewhere it is the selection's plain text.
 
 // The plugin typechecks without the DOM library; declare only what this module uses.
 interface Rect {
@@ -42,15 +43,16 @@ interface DomElement extends DomNode {
   append(...nodes: DomNode[]): void;
   remove(): void;
   addEventListener(type: string, listener: (event: DomEvent) => void): void;
+  dispatchEvent(event: unknown): boolean;
 }
 interface DomTextArea extends DomElement {
   readonly value: string;
   focus(): void;
   setSelectionRange(start: number, end: number): void;
-  dispatchEvent(event: unknown): boolean;
 }
 interface DomRange {
   readonly commonAncestorContainer: DomNode;
+  readonly startContainer: DomNode;
   getClientRects(): ArrayLike<Rect>;
 }
 interface DomSelection {
@@ -81,6 +83,8 @@ declare const document: {
 declare const window: {
   HTMLTextAreaElement: { prototype: object };
   Event: new (type: string, init: { bubbles: boolean }) => unknown;
+  DataTransfer: new () => { getData(format: string): string };
+  ClipboardEvent: new (type: string, init: { bubbles: boolean; cancelable: boolean; clipboardData: unknown }) => unknown;
   addEventListener(type: string, listener: Listener, options?: ListenerOptions): void;
   removeEventListener(type: string, listener: Listener, options?: ListenerOptions): void;
 };
@@ -174,6 +178,19 @@ function readSelection(): Target | null {
   return composer ? { composer, chat, range, text } : null;
 }
 
+/**
+ * The selection as Paseo copies it: assistant replies come back as their Markdown source
+ * (Paseo 0.13 `assistant-selection-copy`, a React onCopy that reads the page selection). The
+ * synthetic event carries its own clipboard, so the real one is untouched. Null when Paseo
+ * leaves it empty (any other part of the chat).
+ */
+function markdownOf(range: DomRange): string | null {
+  const clipboard = new window.DataTransfer();
+  const copy = new window.ClipboardEvent("copy", { bubbles: true, cancelable: true, clipboardData: clipboard });
+  elementOf(range.startContainer)?.dispatchEvent(copy);
+  return clipboard.getData("text/plain") || null;
+}
+
 /** Shows the Quote button over text selected in a chat. Returns cleanup; a no-op off the web. */
 export function startSimpleQuote(): () => void {
   if (Platform.OS !== "web" || typeof document === "undefined") return () => {};
@@ -264,7 +281,7 @@ export function startSimpleQuote(): () => void {
     const current = readSelection();
     hide();
     if (!current?.composer.isConnected) return;
-    const next = appendQuote(current.composer.value, current.text);
+    const next = appendQuote(current.composer.value, markdownOf(current.range) ?? current.text);
     const setValue = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
     if (!next || !setValue) return;
     setValue.call(current.composer, next.text);
