@@ -334,13 +334,14 @@ export function Card({ card, scene }: { card: DeskCard; scene: CardScene }) {
         <Blocks card={card} desk={desk} c={c} size={TYPE.small} />
         {card.broken ? <Text style={{ ...TYPE.small, color: c.danger }}>The front matter can't be read.</Text> : null}
 
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 16, borderTopWidth: 1, borderTopColor: c.border, paddingTop: 6, marginTop: 1 }}>
+        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, minHeight: 16, borderTopWidth: 1, borderTopColor: c.border, paddingTop: 6, marginTop: 1 }}>
           {card.asker ? <Person person={card.asker} scene={scene} /> : null}
           {links[0] ? <RefLink target={links[0]} scene={scene} /> : null}
-          <View style={{ flex: 1 }} />
-          {chips.map((n) => (
-            <PrChip key={n} n={n} scene={scene} />
-          ))}
+          <View style={{ flex: 1, minWidth: 0, flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", columnGap: 8, rowGap: 3 }}>
+            {chips.map((n) => (
+              <PrChip key={n} n={n} scene={scene} />
+            ))}
+          </View>
           {when ? <Text style={{ ...TYPE.small, color: old ? c.warn : c.meta, fontVariant: ["tabular-nums"] }}>{when}</Text> : null}
         </View>
       </Pressable>
