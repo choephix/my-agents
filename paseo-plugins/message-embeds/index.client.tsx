@@ -1,0 +1,127 @@
+import { settingsRpc } from "@getpaseo/plugin";
+import type { PluginClientContext } from "@getpaseo/plugin/client";
+import { SettingsCard, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
+import { useEffect } from "react";
+import { useSettings } from "@getpaseo/plugin/client";
+import { z } from "zod";
+import { EmbedCard, embedCardSchema } from "./client/card";
+import { MarkdownChunk, markdownSchema } from "./client/markdown";
+import { parseMessage } from "./client/parse";
+import { DEFAULTS, preferences } from "./shared/preferences";
+
+const PLUGIN_ID = "message-embeds";
+let enabled = DEFAULTS.enabled;
+
+function setEnabled(value: boolean): void {
+  enabled = value;
+}
+
+function Settings() {
+  const settings = useSettings(preferences);
+  useEffect(() => {
+    if (settings.status === "ready") setEnabled(settings.values.enabled);
+  }, [settings]);
+  if (settings.status !== "ready") {
+    return <SettingsSection title="File embeds"><SettingsCard><SettingsSwitch label="Enable file embeds" value={enabled} disabled onValueChange={() => {}} /></SettingsCard></SettingsSection>;
+  }
+  return (
+    <SettingsSection title="File embeds" info="Turn Obsidian-style ![[path]] previews on or off in assistant messages.">
+      <SettingsCard>
+        <SettingsSwitch
+          label="Enable file embeds"
+          hint="When off, assistant messages render exactly as native Paseo."
+          value={settings.values.enabled}
+          disabled={settings.saving}
+          onValueChange={(value) => {
+            setEnabled(value);
+            void settings.save({ enabled: value }, settings.revision);
+          }}
+        />
+      </SettingsCard>
+    </SettingsSection>
+  );
+}
+
+export default function contribute(client: PluginClientContext) {
+  const readSettings = settingsRpc(preferences.id).read;
+  const writeSettings = settingsRpc(preferences.id).write;
+  let revision: string | undefined;
+  let disposed = false;
+  const refresh = () => {
+    void client.rpc(readSettings, {}).then((result) => {
+      if (disposed || result.status !== "ready") return;
+      revision = result.revision;
+      setEnabled(z.object({ enabled: z.boolean() }).parse(result.values).enabled);
+    }).catch(() => {});
+  };
+  refresh();
+
+  const settings = client.addSettingsScreen({ id: "settings", title: "File embeds", icon: "FileCode2", Component: Settings });
+  const command = client.addCommandCenterItem({
+    id: "toggle-file-embeds",
+    title: "Toggle file embeds",
+    icon: "FileCode2",
+    context: "global",
+    async onSelect({ rpc }) {
+      const current = await rpc(readSettings, {});
+      if (current.status !== "ready") return;
+      const next = !z.object({ enabled: z.boolean() }).parse(current.values).enabled;
+      const saved = await rpc(writeSettings, { revision: current.revision, values: { enabled: next } });
+      if (saved.status === "saved") {
+        revision = saved.revision;
+        setEnabled(next);
+      }
+    },
+  });
+  const events = client.paseo.observeEvents(["status.plugin_settings_changed"]);
+  events.subscribe({
+    snapshot: refresh,
+    update(message) {
+      if (message.type === "status" && message.payload.status === "plugin_settings_changed" && message.payload.pluginId === PLUGIN_ID && message.payload.settingsId === preferences.id) refresh();
+    },
+  });
+
+  const markdown = client.addTimelineRenderer({ kind: "message-embeds-markdown", version: 1, schema: markdownSchema, Component: MarkdownChunk });
+  const card = client.addTimelineRenderer({ kind: "message-embeds-card", version: 1, schema: embedCardSchema, Component: EmbedCard });
+  const transformer = client.addTimelineTransformer({
+    id: "message-embeds",
+    query: { itemType: "assistant_message" },
+    transform({ item, phase }) {
+      if (!enabled || !item.text.includes("![[")) return undefined;
+      const segments = parseMessage(item.text);
+      if (!segments.some((segment) => segment.kind === "embed")) return undefined;
+      return {
+        items: segments.map((segment) => {
+          if (segment.kind === "embed") {
+            const data = {
+              original: segment.embed.original,
+              path: segment.embed.path,
+              phase,
+              ...(segment.embed.lineStart === undefined ? {} : { lineStart: segment.embed.lineStart }),
+              ...(segment.embed.lineEnd === undefined ? {} : { lineEnd: segment.embed.lineEnd }),
+            };
+            return { type: "plugin" as const, id: segment.embed.id, kind: "message-embeds-card", version: 1, data };
+          }
+          return {
+            type: "plugin" as const,
+            id: segment.id,
+            kind: "message-embeds-markdown",
+            version: 1,
+            data: { text: segment.text, phase },
+          };
+        }),
+      };
+    },
+  });
+
+  return () => {
+    disposed = true;
+    settings();
+    command();
+    markdown();
+    card();
+    transformer();
+    void events.release().catch(() => {});
+    revision = undefined;
+  };
+}
