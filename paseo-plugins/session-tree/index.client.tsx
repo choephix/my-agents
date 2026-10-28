@@ -46,6 +46,8 @@ export default function contribute(client: PluginClientContext) {
   const workspaceOf = new Map<string, string>();
   function syncPills() {
     const snapshot = store.getSnapshot();
+    // Needed only until the chat list knows the chat, and only while its sheet is asked for.
+    for (const agentId of workspaceOf.keys()) if (snapshot.chats.has(agentId) || !snapshot.forced.has(agentId)) workspaceOf.delete(agentId);
     const wanted = new Map<string, { workspaceId: string; label: string }>();
     for (const agentId of new Set([...snapshot.chats.keys(), ...snapshot.forced])) {
       const chat = snapshot.chats.get(agentId);

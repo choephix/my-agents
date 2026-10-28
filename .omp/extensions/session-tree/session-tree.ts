@@ -35,7 +35,7 @@
  * members: navigateTree, abortBranchSummary, isBusyForSnapshot, sessionManager
  * (getSessionFile, getLeafId, getEntry, appendCustomEntry, flush).
  */
-import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, watch, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -141,7 +141,14 @@ export default function sessionTree(api: SessionTreeApi) {
 	if (Reflect.get(globalThis, loaded)) return;
 	Reflect.set(globalThis, loaded, true);
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(join(dir, `.process-${process.pid}`), String(REVISION));
+	const marker = join(dir, `.process-${process.pid}`);
+	writeFileSync(marker, String(REVISION));
+	// Gone on a clean exit; the plugin prunes the markers of killed processes.
+	process.once("exit", () => {
+		try {
+			rmSync(marker, { force: true });
+		} catch {}
+	});
 
 	/** Request id → session whose branch summary that request is generating. */
 	const summarizing = new Map<string, LiveSession>();
@@ -230,27 +237,41 @@ export default function sessionTree(api: SessionTreeApi) {
 		if (!request || request.id !== id || Date.now() - request.createdAt > STALE_MS) return;
 		const session = liveSession(request.sessionFile);
 		if (!session) return; // Another process (or none) holds this chat's session.
+		const claimedPath = join(dir!, `${id}.claimed-${process.pid}.json`);
 		try {
-			renameSync(path, join(dir!, `${id}.claimed-${process.pid}.json`));
+			renameSync(path, claimedPath);
 		} catch {
 			return;
 		}
 		const resultPath = join(dir!, `${id}.result.json`);
+		const write = (result: Result) => writeAtomic(resultPath, { version: FILE_VERSION, id, updatedAt: Date.now(), ...result });
 		if (busy) {
-			writeAtomic(resultPath, { version: FILE_VERSION, id, updatedAt: Date.now(), status: "error", error: "Another branch move is still running." });
+			try {
+				write({ status: "error", error: "Another branch move is still running." });
+			} catch {}
 			return;
 		}
 		busy = true;
-		writeAtomic(resultPath, { version: FILE_VERSION, id, updatedAt: Date.now(), status: "running", phase: "switching" });
 		let result: Result;
 		try {
+			write({ status: "running", phase: "switching" });
 			result = await run(request, session);
 		} catch (error) {
 			result = { status: "error", error: error instanceof Error ? error.message : String(error) };
 		} finally {
 			busy = false;
 		}
-		writeAtomic(resultPath, { version: FILE_VERSION, id, updatedAt: Date.now(), ...result });
+		try {
+			write(result);
+		} catch (error) {
+			// Never leave the plugin waiting for its timeout: try the short error result.
+			try {
+				write({ status: "error", error: `Could not write the result: ${error instanceof Error ? error.message : String(error)}` });
+			} catch {}
+		}
+		// The plugin removes the claimed request when it gives up; checked after writing, so a cleanup
+		// at any point either removes this result itself or leaves it to be removed here.
+		if (!existsSync(claimedPath)) rmSync(resultPath, { force: true });
 	}
 
 	function scan(): void {

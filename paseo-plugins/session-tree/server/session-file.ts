@@ -109,6 +109,9 @@ export class SessionTree {
   /** Message entries by their nearest message ancestor ("" = none). */
   readonly #messageChildren = new Map<string, string[]>();
   readonly #nearest = new Map<string, string | null>();
+  /** The tree never changes after construction; every poll asks again, so both are computed once. */
+  #turns: Turn[] | undefined;
+  #branches: Branch[] | undefined;
 
   constructor(readonly entries: Entry[]) {
     entries.forEach((entry, index) => {
@@ -191,6 +194,10 @@ export class SessionTree {
    * user message in between.
    */
   turns(): Turn[] {
+    return (this.#turns ??= this.#computeTurns());
+  }
+
+  #computeTurns(): Turn[] {
     const turns: Turn[] = [];
     let reset = false;
     for (const entry of this.path(this.leafId)) {
@@ -253,6 +260,10 @@ export class SessionTree {
 
   /** One row per branch, plus the empty branch you are on after going back. */
   branches(): Branch[] {
+    return (this.#branches ??= this.#computeBranches());
+  }
+
+  #computeBranches(): Branch[] {
     const current = this.nearestMessage(this.leafId);
     // Switching targets the newest raw leaf under a branch's last message, so markers and exits come back too.
     const rawLeaf = new Map<string, string>();

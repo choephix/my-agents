@@ -523,6 +523,8 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
 
   const shownNotices = new Set<number>();
   function showNotices(): void {
+    // A taken notice leaves the snapshot; its key is only needed until then.
+    for (const key of shownNotices) if (!snapshot.notices.some(notice => notice.key === key)) shownNotices.delete(key);
     for (const notice of snapshot.notices) {
       if (shownNotices.has(notice.key)) continue;
       shownNotices.add(notice.key);

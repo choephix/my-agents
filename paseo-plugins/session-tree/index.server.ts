@@ -1,4 +1,5 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import type { Stats } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -17,38 +18,91 @@ import { copyBranch, removeCopy } from "./server/branch-copy";
 const UNSUPPORTED: TreeState = { supported: false, ready: false, busy: false, turns: [], branches: [], offer: null, op: null, last: null };
 const NOT_LOADED = "This chat's OMP setup does not load the session-tree extension. Add it to ~/.paseo/omp-overlay.yml (see the plugin's OVERVIEW.md).";
 
-/** Parsed session files, re-read only when size or mtime changed. */
-const trees = new Map<string, { size: number; mtimeMs: number; tree: SessionTree }>();
+/** A session file's derived value, re-read only when the file's size or mtime changed; concurrent polls share one read. */
+interface Cached<T> {
+  size: number;
+  mtimeMs: number;
+  usedAt: number;
+  value: Promise<T>;
+}
 
-async function loadTree(file: string): Promise<SessionTree> {
+async function cachedRead<T>(cache: Map<string, Cached<T>>, file: string, read: (info: Stats) => Promise<T>): Promise<T> {
   const info = await stat(file);
-  const cached = trees.get(file);
-  if (cached && cached.size === info.size && cached.mtimeMs === info.mtimeMs) return cached.tree;
-  const { entries } = await readEntries(file);
-  const tree = new SessionTree(entries);
-  trees.set(file, { size: info.size, mtimeMs: info.mtimeMs, tree });
+  let entry = cache.get(file);
+  if (!entry || entry.size !== info.size || entry.mtimeMs !== info.mtimeMs) {
+    const value = read(info);
+    entry = { size: info.size, mtimeMs: info.mtimeMs, usedAt: 0, value };
+    cache.set(file, entry);
+    value.catch(() => cache.get(file)?.value === value && cache.delete(file));
+  }
+  entry.usedAt = Date.now();
+  return entry.value;
+}
+
+/** Session files parse one at a time: a cold chat list would otherwise hold every file (~700 MB) in memory at once. */
+let parsing: Promise<void> = Promise.resolve();
+function parseTree(file: string): Promise<SessionTree> {
+  const tree = parsing.then(async () => new SessionTree((await readEntries(file)).entries));
+  parsing = tree.then(() => undefined, () => undefined); // Holds no tree.
   return tree;
 }
 
+/** Full parsed trees, only of chats something opened (state, moves); dropped after TREE_IDLE_MS unused. */
+const trees = new Map<string, Cached<SessionTree>>();
+const TREE_IDLE_MS = 10 * 60_000;
+
+function loadTree(file: string): Promise<SessionTree> {
+  return cachedRead(trees, file, () => parseTree(file));
+}
+
+interface Offer {
+  markerId: string;
+  setAside: number;
+  summarized: boolean;
+  from: string;
+  fork: string;
+}
+
+/** What the last move left behind (before the user dismissed it): turns that a summary at the branch point would cover. */
+function offerIn(tree: SessionTree): Offer | null {
+  const marker = tree.currentMarker();
+  if (!marker || (marker.data.op === "goto" && marker.data.kind === "undo") || !marker.data.from || !marker.data.fork) return null;
+  const setAside = tree.setAside(marker.data.from, marker.data.fork);
+  return setAside > 0
+    ? { markerId: marker.id, setAside, summarized: marker.data.op === "summarize", from: marker.data.from, fork: marker.data.fork }
+    : null;
+}
+
+/** The chat list's facts per session file, kept for every chat; the tree they come from is not kept. */
+const listFacts = new Map<string, Cached<{ branches: number; offer: Offer | null }>>();
+
 /** Providers that are OMP: `omp` itself and custom providers that extend it (`~/.paseo/config.json`). */
 let providerCache: { mtimeMs: number; extendsOf: Record<string, string | undefined> } | undefined;
-async function isOmp(provider: string): Promise<boolean> {
+async function ompProviders(): Promise<(provider: string) => boolean> {
   const file = join(process.env.PASEO_HOME?.replace(/^~(?=\/|$)/, homedir()) || join(homedir(), ".paseo"), "config.json");
   const info = await stat(file).catch(() => undefined);
-  if (info && providerCache?.mtimeMs !== info.mtimeMs) {
-    const config = JSON.parse(await readFile(file, "utf8"));
-    const providers: Record<string, { extends?: unknown }> = config?.agents?.providers ?? {};
-    providerCache = {
-      mtimeMs: info.mtimeMs,
-      extendsOf: Object.fromEntries(Object.entries(providers).map(([id, value]) => [id, typeof value?.extends === "string" ? value.extends : undefined])),
-    };
+  if (!info) providerCache = undefined;
+  else if (providerCache?.mtimeMs !== info.mtimeMs) {
+    try {
+      const config = JSON.parse(await readFile(file, "utf8"));
+      const providers: Record<string, { extends?: unknown }> = config?.agents?.providers ?? {};
+      providerCache = {
+        mtimeMs: info.mtimeMs,
+        extendsOf: Object.fromEntries(Object.entries(providers).map(([id, value]) => [id, typeof value?.extends === "string" ? value.extends : undefined])),
+      };
+    } catch {
+      // Half-written or broken config: keep what was known, and read it again next time.
+    }
   }
-  let current: string | undefined = provider;
-  for (let depth = 0; current && depth < 8; depth++) {
-    if (current === "omp") return true;
-    current = providerCache?.extendsOf[current];
-  }
-  return false;
+  const extendsOf = providerCache?.extendsOf ?? {};
+  return provider => {
+    let current: string | undefined = provider;
+    for (let depth = 0; current && depth < 8; depth++) {
+      if (current === "omp") return true;
+      current = extendsOf[current];
+    }
+    return false;
+  };
 }
 
 function sessionFile(agent: Agent): string | undefined {
@@ -59,12 +113,13 @@ function sessionFile(agent: Agent): string | undefined {
 export default function contribute(server: PluginServerContext) {
   const ops = new Map<string, Op & { requestId?: string }>();
   const outcomes = new Map<string, Outcome>();
+  let dismissing: Promise<void> = Promise.resolve();
   const display = server.registerSettings(displaySettings);
 
   async function supportedAgent(paseo: PaseoApi, agentId: string): Promise<{ agent: Agent; file: string } | undefined> {
     const found = await paseo.agents.ref(agentId).refresh().catch(() => undefined);
     const agent = found?.agent;
-    if (!agent || agent.archivedAt || !(await isOmp(agent.provider))) return undefined;
+    if (!agent || agent.archivedAt || !(await ompProviders())(agent.provider)) return undefined;
     const file = sessionFile(agent);
     return file ? { agent, file } : undefined;
   }
@@ -77,14 +132,9 @@ export default function contribute(server: PluginServerContext) {
     }
   }
 
-  async function offerOf(agentId: string, tree: SessionTree): Promise<{ markerId: string; setAside: number; summarized: boolean; from: string; fork: string } | null> {
-    const marker = tree.currentMarker();
-    if (!marker || (marker.data.op === "goto" && marker.data.kind === "undo") || !marker.data.from || !marker.data.fork) return null;
-    if ((await dismissed(agentId)).has(marker.id)) return null;
-    const setAside = tree.setAside(marker.data.from, marker.data.fork);
-    return setAside > 0
-      ? { markerId: marker.id, setAside, summarized: marker.data.op === "summarize", from: marker.data.from, fork: marker.data.fork }
-      : null;
+  /** The offer unless the user dismissed it. */
+  async function shownOffer(agentId: string, offer: Offer | null): Promise<Offer | null> {
+    return offer && !(await dismissed(agentId)).has(offer.markerId) ? offer : null;
   }
 
   /** The latest finished move per chat, kept until the next one: a client that polled late still learns how its move ended. */
@@ -120,6 +170,8 @@ export default function contribute(server: PluginServerContext) {
       id: `op${Date.now().toString(36)}`, kind, phase: summarizing ? "summarizing" : "switching", startedAt: Date.now(),
       ...(focus ? { focus } : {}),
     };
+    // Checked here, in the same tick that takes the slot: a handler that awaited since `prepare` must not start a second move.
+    if (ops.has(agentId)) throw new Error("A branch switch is still running.");
     ops.set(agentId, op);
     outcomes.delete(agentId);
     void (async () => {
@@ -153,41 +205,56 @@ export default function contribute(server: PluginServerContext) {
   async function prepare(paseo: PaseoApi, agentId: string) {
     const found = await supportedAgent(paseo, agentId);
     if (!found) throw new Error("Branches work only in OMP chats.");
-    if (ops.has(agentId)) throw new Error("A branch switch is still running.");
     if (found.agent.status === "running") throw new Error("The agent is busy. Try again when it has finished.");
     return { ...found, tree: await loadTree(found.file) };
   }
 
   server.handle(treeChats, async (_input, { paseo }) => {
-    const chats: ChatSummary[] = [];
     const listed = await paseo.agents.list();
-    for (const { agent } of listed.entries) {
-      if (agent.archivedAt || !agent.workspaceId || !(await isOmp(agent.provider))) continue;
-      const file = sessionFile(agent);
-      if (!file) continue;
-      const tree = await loadTree(file).catch(() => undefined);
-      if (!tree) continue;
-      const offer = await offerOf(agent.id, tree);
-      chats.push({
-        agentId: agent.id, workspaceId: agent.workspaceId, branches: tree.branches().length,
-        offer: offer?.setAside ?? null, phase: ops.get(agent.id)?.phase ?? null,
-      });
-    }
+    const isOmp = await ompProviders();
+    // Chats the plugin serves (as `supportedAgent` judges); one whose file fails to read this time still counts.
+    const served = listed.entries.flatMap(({ agent }) => {
+      const file = !agent.archivedAt && isOmp(agent.provider) ? sessionFile(agent) : undefined;
+      return file ? [{ agent, file }] : [];
+    });
+    const rows = await Promise.all(
+      served.map(async ({ agent, file }) => {
+        if (!agent.workspaceId) return undefined;
+        const facts = await cachedRead(listFacts, file, async info => {
+          const open = trees.get(file);
+          const tree = open && open.size === info.size && open.mtimeMs === info.mtimeMs
+            ? await open.value
+            : await parseTree(file);
+          return { branches: tree.branches().length, offer: offerIn(tree) };
+        }).catch(() => undefined);
+        if (!facts) return undefined;
+        const offer = await shownOffer(agent.id, facts.offer);
+        return {
+          agentId: agent.id, workspaceId: agent.workspaceId, branches: facts.branches,
+          offer: offer?.setAside ?? null, phase: ops.get(agent.id)?.phase ?? null,
+        } satisfies ChatSummary;
+      }),
+    );
+    // Forget chats that are gone, and trees nothing has opened for a while.
+    const files = new Set(served.map(chat => chat.file));
+    const agentIds = new Set(served.map(chat => chat.agent.id));
+    for (const file of listFacts.keys()) if (!files.has(file)) listFacts.delete(file);
+    for (const [file, entry] of trees) if (!files.has(file) || Date.now() - entry.usedAt > TREE_IDLE_MS) trees.delete(file);
+    for (const agentId of outcomes.keys()) if (!agentIds.has(agentId)) outcomes.delete(agentId);
     const settings = await display.read();
-    return { chats, display: settings.status === "ready" ? settings.values : DEFAULT_DISPLAY };
+    return { chats: rows.filter(row => row !== undefined), display: settings.status === "ready" ? settings.values : DEFAULT_DISPLAY };
   });
 
   server.handle(treeState, async ({ agentId }, { paseo }) => {
     const found = await supportedAgent(paseo, agentId);
     if (!found) return UNSUPPORTED;
     const tree = await loadTree(found.file);
-    const hosts = await ompHosts(agentId);
     const serving = await servingPids(agentId);
-    const offer = await offerOf(agentId, tree);
+    const offer = await shownOffer(agentId, offerIn(tree));
     const op = ops.get(agentId);
     return {
       supported: true,
-      ready: hosts.every(host => serving.has(host.pid)),
+      ready: serving.size > 0,
       busy: found.agent.status === "running",
       turns: tree.turns(),
       branches: tree.branches(),
@@ -212,7 +279,7 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(treeSummarize, async ({ agentId, focus }, { paseo }) => {
     const { file, tree } = await prepare(paseo, agentId);
-    const offer = await offerOf(agentId, tree);
+    const offer = await shownOffer(agentId, offerIn(tree));
     if (!offer) throw new Error("A message was sent after going back, so there is nothing to summarize at the branch point.");
     if (offer.summarized) throw new Error("What you left is already summarized.");
     const trimmed = focus.trim();
@@ -231,9 +298,16 @@ export default function contribute(server: PluginServerContext) {
     if (!found) return {};
     const marker = (await loadTree(found.file)).currentMarker();
     if (!marker) return {};
-    const ids = [...(await dismissed(agentId)), marker.id].slice(-50);
-    await mkdir(join(linkRoot(), agentId), { recursive: true });
-    await writeFile(join(linkRoot(), agentId, "dismissed.json"), JSON.stringify(ids));
+    // One dismissal at a time: two clients must not both read the old list and drop each other's id.
+    const write = dismissing.then(async () => {
+      const ids = [...(await dismissed(agentId)), marker.id].slice(-50);
+      const path = join(linkRoot(), agentId, "dismissed.json");
+      await mkdir(join(linkRoot(), agentId), { recursive: true });
+      await writeFile(`${path}.tmp`, JSON.stringify(ids));
+      await rename(`${path}.tmp`, path);
+    });
+    dismissing = write.catch(() => undefined);
+    await write;
     return {};
   });
 

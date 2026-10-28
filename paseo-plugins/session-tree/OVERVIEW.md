@@ -80,8 +80,10 @@ apply without a reload. `/tree` works whatever is off.
   {summarize: true})` → `branch_summary` at the branch point, marker op `summarize`.
 - "Summarize them" later = in one request: back to the left branch, then `navigateTree(fork,
   {summarize, focus})` while the new branch is still empty. Cancel = `abortBranchSummary()`.
-- The extension writes its REVISION (2) into its `.process-<pid>` marker; the server reloads a chat
-  whose OMP runs an older one before the first move.
+- The extension writes its REVISION (2) into its `.process-<pid>` marker and removes it on a clean
+  exit; the server prunes markers of killed processes. Polls check only a chat's own markers; the
+  server walks every process only before a move, and reloads a chat whose OMP runs an older
+  REVISION (or no marker) first.
 - After each move the server reloads the chat (`DaemonClient.refreshAgent`, the same as
   `paseo agent reload`), because Paseo does not see in-place moves.
 - Web DOM (`client/web.ts`): icons after `assistant-fork-menu-trigger` / `rewind-menu-trigger`,

@@ -69,13 +69,12 @@ export class TreeStore {
   #snapshot: TreeSnapshot;
   readonly #listeners = new Set<() => void>();
   readonly #watched = new Map<string, number>();
-  /** Op ids this client started; their outcomes become notices here. */
+  /** Op ids this client started; their outcomes become notices here (and leave the set). */
   readonly #mine = new Set<string>();
-  readonly #reported = new Set<string>();
   /** Per chat: the move this client started and still waits on. */
   readonly #tracking = new Map<string, { opId: string; kind: OpKind; since: number }>();
-  /** Moves given up on: no longer shown as running even if the server still reports them. */
-  readonly #ignored = new Set<string>();
+  /** Per chat: the move given up on, no longer shown as running while the server still reports it. */
+  readonly #ignored = new Map<string, string>();
   #noticeKey = 0;
   #disposed = false;
   #chatsTimer: ReturnType<typeof setTimeout> | undefined;
@@ -118,11 +117,18 @@ export class TreeStore {
     try {
       const { chats, display } = await this.#transport.chats();
       this.#chats = new Map(chats.map(chat => [chat.agentId, chat]));
+      // Chats that are gone (archived, deleted) and shown nowhere take their last state with them.
+      for (const agentId of this.#states.keys()) {
+        if (!this.#chats.has(agentId) && !this.#watched.has(agentId) && !this.#starting.has(agentId) && agentId !== this.#sheetAgentId) {
+          this.#states.delete(agentId);
+        }
+      }
       this.#display = display;
       this.#emit();
     } catch {
       // Host offline or plugin reloading: keep what is shown and try again.
     }
+    if (this.#disposed) return;
     const fast = [...this.#chats.values()].some(chat => chat.phase) || this.#starting.size > 0;
     this.#chatsTimer = setTimeout(() => void this.refreshChats(), fast ? FAST_MS * 2 : SLOW_CHATS_MS);
   }
@@ -133,18 +139,24 @@ export class TreeStore {
     const ids = new Set([...this.#watched.keys(), ...this.#starting.keys(), ...(this.#sheetAgentId ? [this.#sheetAgentId] : [])]);
     await Promise.all(
       [...ids].map(async agentId => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
         try {
           // A hung request must not stop the polling loop (and leave a move "running" on screen).
           const state = await Promise.race([
             this.#transport.state(agentId),
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), STATE_TIMEOUT_MS)),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error("timeout")), STATE_TIMEOUT_MS);
+            }),
           ]);
           this.#states.set(agentId, this.#settle(agentId, state));
         } catch {
           // Keep the last state.
+        } finally {
+          clearTimeout(timer);
         }
       }),
     );
+    if (this.#disposed) return;
     this.#emit();
     const fast = [...ids].some(id => this.#states.get(id)?.op || this.#starting.has(id));
     this.#stateTimer = setTimeout(() => void this.refreshStates(), fast ? FAST_MS : SLOW_STATE_MS);
@@ -156,12 +168,13 @@ export class TreeStore {
    * Returns the state to show: a move given up on no longer dims the chat.
    */
   #settle(agentId: string, state: TreeState): TreeState {
-    if (state.op && this.#ignored.has(state.op.id)) state = { ...state, op: null };
+    const ignored = this.#ignored.get(agentId);
+    if (ignored && state.op?.id === ignored) state = { ...state, op: null };
+    else if (ignored) this.#ignored.delete(agentId); // That move has ended.
     if (state.op) this.#starting.delete(agentId);
     const last = state.last;
     const mine = this.#tracking.get(agentId);
-    if (last && !this.#reported.has(last.id) && this.#mine.has(last.id)) {
-      this.#reported.add(last.id);
+    if (last && this.#mine.delete(last.id)) {
       this.#starting.delete(agentId);
       if (mine?.opId === last.id) this.#tracking.delete(agentId);
       this.#report(agentId, last);
@@ -178,7 +191,9 @@ export class TreeStore {
       giveUp = "Lost track of the branch switch (the plugin restarted?). Reload the chat if it looks wrong.";
     }
     if (!giveUp) return state;
-    this.#ignored.add(mine.opId);
+    this.#ignored.set(agentId, mine.opId);
+    // A move the server lost never reports an outcome; one taking too long still may.
+    if (!state.op) this.#mine.delete(mine.opId);
     this.#tracking.delete(agentId);
     this.#starting.delete(agentId);
     this.notify(agentId, giveUp, undefined, true);
@@ -188,9 +203,10 @@ export class TreeStore {
   #report(agentId: string, last: Outcome): void {
     if (last.status === "error") this.notify(agentId, last.error ?? "The branch switch failed.", undefined, true);
     else if (last.status === "cancelled") this.notify(agentId, "Cancelled", "you stayed on this branch");
-    else if (last.kind === "summarize") {
+    else if (last.kind === "summarize" && !this.#disposed) {
       this.#summarized.add(agentId);
       setTimeout(() => {
+        if (this.#disposed) return;
         this.#summarized.delete(agentId);
         this.#emit();
       }, SUMMARIZED_MS);
