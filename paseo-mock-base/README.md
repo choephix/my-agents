@@ -109,6 +109,17 @@ table of every fact the previous version showed and where it lives now
 (glance, hover, click).
 
 
+## Copying to the clipboard
+
+`navigator.clipboard` only exists in a secure context (https or
+`localhost`). Stefan opens mocks over plain http by hostname and port, so
+there it is undefined and a "Copy" button that calls it silently does
+nothing. Use `MockKit.copyText(text)`: it tries the clipboard API, falls back
+to `document.execCommand("copy")`, and resolves `false` when both fail. On
+`false`, show the text selected in a read-only box so it can be copied by
+hand. Better still, prefer state in the link (knobs, picks) over anything
+that needs copying.
+
 ## Screenshots
 
 Every plugin screenshot is a PNG export of a mock (Stefan, 2026-10-25): images

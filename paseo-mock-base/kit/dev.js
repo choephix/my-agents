@@ -657,6 +657,31 @@
     });
   }
 
+  // navigator.clipboard exists only in secure contexts (https, localhost).
+  // Mocks are opened over plain http by hostname, where it is undefined, so
+  // fall back to execCommand; resolves false when neither works and the
+  // caller must show the text for selecting by hand.
+  async function copyText(text) {
+    if (window.isSecureContext && navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {}
+    }
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+    document.body.append(ta);
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch {}
+    ta.remove();
+    return ok;
+  }
+
   // ---------------------------------------------------------------- boot
   html.classList.add(exportMode ? "kit-export" : "kit");
   readHash();
@@ -694,6 +719,7 @@
         knobControls.push(n);
         apply();
       },
+      copyText,
       icon,
       renderIcons,
       data: () => dataSets[state.data],
