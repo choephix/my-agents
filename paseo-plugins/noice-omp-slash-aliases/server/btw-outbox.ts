@@ -1,4 +1,5 @@
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { readdirSync, readFileSync } from "node:fs";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { type BtwEntry, BtwFileSchema, SafeIdSchema } from "../shared/btw";
@@ -20,9 +21,13 @@ export function btwRoot(env: NodeJS.ProcessEnv = process.env): string {
   return join(env.PASEO_HOME || join(homedir(), ".paseo"), "omp-btw");
 }
 
-async function readDir(dir: string): Promise<string[]> {
+/**
+ * Synchronous on purpose: every Paseo client polls `btw.chats` (every 4 s; 600 ms while a sheet is
+ * open or an answer runs), and one scan of ~50 answer files took 3.8 ms with promises, 0.3 ms sync.
+ */
+function readDir(dir: string): string[] {
   try {
-    return await readdir(dir);
+    return readdirSync(dir);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
@@ -32,7 +37,7 @@ async function readDir(dir: string): Promise<string[]> {
 /** Undismissed answers of one chat, newest first. Unreadable or foreign files are skipped. */
 export async function listEntries(root: string, agentId: string, now = Date.now()): Promise<BtwEntry[]> {
   const dir = join(root, SafeIdSchema.parse(agentId));
-  const names = await readDir(dir);
+  const names = readDir(dir);
   const dismissed = new Set(names.filter(name => name.endsWith(".dismissed")).map(name => name.slice(0, -10)));
   const entries: BtwEntry[] = [];
   for (const name of names) {
@@ -41,7 +46,7 @@ export async function listEntries(root: string, agentId: string, now = Date.now(
     if (dismissed.has(id)) continue;
     let parsed;
     try {
-      parsed = BtwFileSchema.safeParse(JSON.parse(await readFile(join(dir, name), "utf8")));
+      parsed = BtwFileSchema.safeParse(JSON.parse(readFileSync(join(dir, name), "utf8")));
     } catch {
       continue; // Removed between readdir and read, or not JSON.
     }
@@ -66,7 +71,7 @@ export interface ChatSummary {
 /** Chats with at least one undismissed answer. */
 export async function summarizeChats(root: string, now = Date.now()): Promise<ChatSummary[]> {
   const summaries: ChatSummary[] = [];
-  for (const agentId of await readDir(root)) {
+  for (const agentId of readDir(root)) {
     if (!SafeIdSchema.safeParse(agentId).success) continue;
     const entries = await listEntries(root, agentId, now);
     if (entries.length === 0) continue;
@@ -93,7 +98,7 @@ export async function dismissEntry(root: string, agentId: string, id: string): P
 
 /** Pids of the OMP processes that announced /btw support for this chat. */
 export async function markedPids(root: string, agentId: string): Promise<Set<number>> {
-  const names = await readDir(join(root, SafeIdSchema.parse(agentId)));
+  const names = readDir(join(root, SafeIdSchema.parse(agentId)));
   return new Set(names.flatMap(name => (PROCESS_MARKER.test(name) ? [Number(name.slice(9))] : [])));
 }
 
@@ -102,9 +107,9 @@ export async function markedPids(root: string, agentId: string): Promise<Set<num
  * dead processes, then empty chat folders.
  */
 export async function pruneOutbox(root: string, isAlive: (pid: number) => boolean, now = Date.now()): Promise<void> {
-  for (const agentId of await readDir(root)) {
+  for (const agentId of readDir(root)) {
     const dir = join(root, agentId);
-    for (const name of await readDir(dir)) {
+    for (const name of readDir(dir)) {
       const file = join(dir, name);
       if (PROCESS_MARKER.test(name)) {
         if (!isAlive(Number(name.slice(9)))) await rm(file, { force: true });
@@ -113,6 +118,6 @@ export async function pruneOutbox(root: string, isAlive: (pid: number) => boolea
       const info = await stat(file).catch(() => undefined);
       if (info && now - info.mtimeMs > RETENTION_MS) await rm(file, { force: true });
     }
-    if ((await readDir(dir)).length === 0) await rm(dir, { recursive: true, force: true });
+    if (readDir(dir).length === 0) await rm(dir, { recursive: true, force: true });
   }
 }
