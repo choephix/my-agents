@@ -1,0 +1,7 @@
+{
+  "id": "noice-chat-quote",
+  "name": "Simple quote",
+  "description": "Select text in a chat, press Quote: it lands in that chat's message box as a Markdown block quote, ready for your reply.",
+  "requirements": { "paseo": ">=0.13.0" },
+  "media": ["screenshots/button-dark.webp", "screenshots/quoted-dark.webp", "screenshots/button-light.webp"]
+}

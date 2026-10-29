@@ -1,6 +1,6 @@
 /**
  * Moves a Paseo-hosted OMP chat around its own session tree, for the Paseo
- * plugin `session-tree` (`paseo-plugins/session-tree/`). OMP's `/tree` keeps
+ * plugin `noice-omp-tree` (`paseo-plugins/noice-omp-tree/`). OMP's `/tree` keeps
  * every branch in one session file and moves the "leaf" (the message the chat
  * continues from); Paseo has no RPC for that, so the plugin asks this
  * extension through files and then reloads the chat.
@@ -14,7 +14,7 @@
  *   $PASEO_HOME/omp-session-tree/<agentId>/<id>.result.json        written here: running → done | cancelled | error
  *   $PASEO_HOME/omp-session-tree/<agentId>/<id>.cancel             written by the plugin: stop a running summary
  *
- * Requests (keep in sync with `paseo-plugins/session-tree/server/link.ts`):
+ * Requests (keep in sync with `paseo-plugins/noice-omp-tree/server/link.ts`):
  * - `goto {target, summarize?}`: `navigateTree(target, {summarize})`. A user
  *   message moves to its parent (OMP's "edit and resend"); anything else
  *   becomes the leaf. With `summarize`, OMP writes a `branch_summary` of the

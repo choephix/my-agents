@@ -18,29 +18,29 @@ My agentic stuff.
 - [Search every OMP session](scripts/@omp-find), reasoning and tool traffic included
 - [Recap every session in a folder and pick up from there](tools/omp-session-recap)
 - [Cheap observer agents that journal a live session](tools/shadow-agent)
-- [Reopen past sessions in Paseo](paseo-plugins/past-sessions), including ones you started in a terminal
-- [Every link, image and file a chat mentioned](paseo-plugins/mentioned-links)
+- [Reopen past sessions in Paseo](paseo-plugins/noice-past-sessions), including ones you started in a terminal
+- [Every link, image and file a chat mentioned](paseo-plugins/noice-links-list)
 
 ## OMP inside Paseo
 
-- [Make `/tan`, `/btw` and `/omfg` work in Paseo](.omp/extensions/headless-builtins), [and show them as compact rows instead of chat bubbles](paseo-plugins/omp-slash-aliases)
-- [Go back to any earlier message and branch from there](paseo-plugins/session-tree)
-- [Spin off a side agent with `/side`](paseo-plugins/side-agent), with or without the parent's memory
-- [Your `.agents/commands/*.md` prompts one click away](paseo-plugins/agent-commands)
+- [Make `/tan`, `/btw` and `/omfg` work in Paseo](.omp/extensions/headless-builtins), [and show them as compact rows instead of chat bubbles](paseo-plugins/noice-omp-slash-aliases)
+- [Go back to any earlier message and branch from there](paseo-plugins/noice-omp-tree)
+- [Spin off a side agent with `/side`](paseo-plugins/noice-side-agent), with or without the parent's memory
+- [Your `.agents/commands/*.md` prompts one click away](paseo-plugins/noice-commands-list)
 - [Let the agent mark itself as waiting on you](.omp/extensions/await-decision)
-- [Put idle OMP chats to sleep to free memory](paseo-plugins/sleeping-tabs), on [my Paseo fork](tools/paseo-fork)
+- [Put idle OMP chats to sleep to free memory](paseo-plugins/noice-omp-sleeping-tabs), on [my Paseo fork](tools/paseo-fork)
 
 ## Paseo UI
 
-- [Dots on workspace rows for tabs that need you](paseo-plugins/tab-dots)
-- [Pick the working indicator](paseo-plugins/turn-status)
-- [One-word tab titles](paseo-plugins/titles)
-- [Your own provider icons](paseo-plugins/provider-icons)
-- [Sidebar filters by project group](paseo-plugins/filter-presets)
-- [Tidier sent messages](paseo-plugins/user-message-polish)
-- [Quieter diff colouring](paseo-plugins/chat-diff-highlight)
+- [Dots on workspace rows for tabs that need you](paseo-plugins/noice-tab-dots)
+- [Pick the working indicator](paseo-plugins/noice-chat-turn-status)
+- [One-word tab titles](paseo-plugins/noice-titles)
+- [Your own provider icons](paseo-plugins/noice-provider-icons)
+- [Sidebar filters by project group](paseo-plugins/noice-filter-presets)
+- [Tidier sent messages](paseo-plugins/noice-chat-message-polish)
+- [Quieter diff colouring](paseo-plugins/noice-chat-diff)
 - [More app themes](paseo-plugins/popular-themes), and [T3 Chat's](paseo-plugins/t3-chat-theme)
-- [Hide the composer controls you never use](paseo-plugins/composer-declutter)
+- [Hide the composer controls you never use](paseo-plugins/noice-composer-declutter)
 - [A clickable copy of Paseo for mocking plugins before building them](paseo-mock-base)
 
 ## Several models on one problem

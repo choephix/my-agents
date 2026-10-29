@@ -1,0 +1,5 @@
+{
+  "id": "noice-past-sessions",
+  "name": "Past sessions",
+  "requirements": { "paseo": ">=0.11.4" }
+}

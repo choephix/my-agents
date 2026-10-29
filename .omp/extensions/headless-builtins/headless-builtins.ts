@@ -11,12 +11,12 @@
  *
  * - /tan, /omfg: OMP's TUI command controllers with TUI calls mapped to RPC UI.
  *   Inside Paseo the /tan "Dispatched background tan bg_N" status is not posted:
- *   the omp-slash-aliases plugin shows the tangent as a row of its own.
+ *   the noice-omp-slash-aliases plugin shows the tangent as a row of its own.
  * - /btw: OMP's headless RPC side-question engine (`RpcBtwController`, the
  *   handler of the RPC `btw` command): native prompt, full conversation memory,
  *   no history change, runs while a turn streams, answers saved to the
  *   session's /btw history. Inside Paseo (PASEO_AGENT_ID set) answers stream to
- *   the chat's outbox for the omp-slash-aliases plugin (see btw-outbox.ts);
+ *   the chat's outbox for the noice-omp-slash-aliases plugin (see btw-outbox.ts);
  *   elsewhere the finished answer is posted as a notification.
  *
  * Commands run in the background: the input hook returns at once, so a slow

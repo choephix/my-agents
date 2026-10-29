@@ -1,0 +1,9 @@
+{
+  "name": "noice-titles",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": { "test": "node --test tests/*.test.mjs" },
+  "files": ["paseo-plugin.json", "OVERVIEW.md", "index.client.tsx", "index.server.ts", "server/", "shared/", "screenshots/", "tests/"],
+  "dependencies": { "@getpaseo/client": "0.11.4" }
+}

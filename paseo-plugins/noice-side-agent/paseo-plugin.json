@@ -1,0 +1,5 @@
+{
+  "id": "noice-side-agent",
+  "name": "Side agent",
+  "requirements": { "paseo": ">=0.11.4" }
+}

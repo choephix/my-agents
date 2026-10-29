@@ -1,6 +1,0 @@
-{
-  "id": "agent-commands",
-  "name": "Agent commands",
-  "description": "A cmds composer pill listing your reusable prompt files from .agents/commands (project and ~): click inserts one into the message box, on-click: send files send at once.",
-  "requirements": { "paseo": ">=0.12.0" }
-}

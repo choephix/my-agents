@@ -1,0 +1,13 @@
+{
+  "id": "noice-chat-message-polish",
+  "name": "User message polish",
+  "requirements": {
+    "paseo": ">=0.12.0"
+  },
+  "media": [
+    "screenshots/skill-open.webp",
+    "screenshots/after-mixed-open.webp",
+    "screenshots/after-nested-long-open.webp",
+    "screenshots/settings.webp"
+  ]
+}

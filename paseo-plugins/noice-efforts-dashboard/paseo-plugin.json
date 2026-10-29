@@ -1,0 +1,6 @@
+{
+  "id": "noice-efforts-dashboard",
+  "name": "Efforts",
+  "description": "Wayfinder efforts (.scratch/<effort>/map.md and issues/) per workspace: an Efforts tab in the explorer, a header pill, a global Efforts screen and a phone composer pill. Read-only.",
+  "requirements": { "paseo": ">=0.12.0" }
+}

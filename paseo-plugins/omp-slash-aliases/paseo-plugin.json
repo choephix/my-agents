@@ -1,5 +1,0 @@
-{
-  "id": "omp-slash-aliases",
-  "name": "OMP slash aliases",
-  "requirements": { "paseo": ">=0.11.4" }
-}

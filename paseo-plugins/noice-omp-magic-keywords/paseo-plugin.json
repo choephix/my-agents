@@ -1,0 +1,7 @@
+{
+  "id": "noice-omp-magic-keywords",
+  "name": "OMP magic keywords",
+  "description": "OMP's magic keywords (ultrathink, orchestrate, workflowz, jevify) in moving rainbow colors while you type and in sent messages, only in chats where they act. Web and desktop apps.",
+  "media": ["screenshots/composer-dark.webp", "screenshots/sent-dark-a.webp", "screenshots/settings-dark.webp"],
+  "requirements": { "paseo": ">=0.12.0" }
+}

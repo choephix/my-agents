@@ -18,7 +18,7 @@ Source: Paseo 0.12.0 app code (`packages/app/src/utils/host-routes.ts`,
 | Desktop (Electron) | Only `paseo://h/<serverId>/agent/<agentId>`: opens or focuses that agent; every other `paseo://` path is ignored |
 | Android | `paseo://` scheme is registered; Expo Router should route any app path from it (*untested*). `https://app.paseo.sh` links open in Chrome, not the app (no app links) |
 | Inside a plugin | Everything, on every client, through the plugin navigation API (below) |
-| A link clicked inside Paseo (web, desktop) | With the `agent-links` plugin, `https://app.paseo.sh/h/<serverId>/agent/<agentId>` opens that tab in the same window (below) |
+| A link clicked inside Paseo (web, desktop) | With the `noice-chat-go-to-agent-links` plugin, `https://app.paseo.sh/h/<serverId>/agent/<agentId>` opens that tab in the same window (below) |
 
 ## Web routes
 
@@ -92,7 +92,7 @@ the next section.
 ## Links clicked inside Paseo
 
 Paseo itself sends every chat link to the system browser, its own links
-included. The `agent-links` plugin (`agent-links/`) catches a plain left click
+included. The `noice-chat-go-to-agent-links` plugin (`noice-chat-go-to-agent-links/`) catches a plain left click
 on exactly `https://app.paseo.sh/h/<serverId>/agent/<agentId>` (trailing slash
 allowed) before Paseo does and opens that tab in the current window, on web and
 desktop. Every other link, other `app.paseo.sh` paths included, and modifier or

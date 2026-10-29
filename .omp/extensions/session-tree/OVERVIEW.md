@@ -1,4 +1,4 @@
-Companion of the Paseo plugin `session-tree` (`paseo-plugins/session-tree/`): moves a Paseo-hosted OMP chat around its own session tree (OMP's `/tree`). Loaded for Paseo's OMP agents (all profiles) by the `extensions:` entry in `~/.paseo/omp-overlay.yml` (Paseo's `omp`/`omp-nilo` providers set `PI_CONFIG_FILES` to it). If it is ever loaded twice, the second copy does nothing.
+Companion of the Paseo plugin `noice-omp-tree` (`paseo-plugins/noice-omp-tree/`): moves a Paseo-hosted OMP chat around its own session tree (OMP's `/tree`). Loaded for Paseo's OMP agents (all profiles) by the `extensions:` entry in `~/.paseo/omp-overlay.yml` (Paseo's `omp`/`omp-nilo` providers set `PI_CONFIG_FILES` to it). If it is ever loaded twice, the second copy does nothing.
 
 ## How
 

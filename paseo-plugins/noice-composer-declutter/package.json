@@ -1,0 +1,13 @@
+{
+  "name": "noice-composer-declutter",
+  "private": true,
+  "version": "0.0.0",
+  "files": ["paseo-plugin.json", "OVERVIEW.md", "index.client.tsx", "index.server.ts", "client/", "shared/", "screenshots/"],
+  "devDependencies": {
+    "@getpaseo/plugin": "0.11.4",
+    "@types/react": "~19.2.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "zod": "^4.4.3"
+  }
+}

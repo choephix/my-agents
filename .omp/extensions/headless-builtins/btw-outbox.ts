@@ -1,5 +1,5 @@
 /**
- * Hands /btw answers from an OMP process to the Paseo plugin `omp-slash-aliases`.
+ * Hands /btw answers from an OMP process to the Paseo plugin `noice-omp-slash-aliases`.
  *
  * Paseo starts every OMP agent with PASEO_AGENT_ID, so one outbox directory per
  * Paseo chat is the routing key: answers cannot land in another chat. Layout:
@@ -12,7 +12,7 @@
  * a partial file. A dismissal marker is final: once it exists the record file is
  * never written again, and a still-running answer is cancelled.
  *
- * Keep the file shape in sync with `paseo-plugins/omp-slash-aliases/shared/btw.ts`.
+ * Keep the file shape in sync with `paseo-plugins/noice-omp-slash-aliases/shared/btw.ts`.
  */
 import { existsSync, mkdirSync, renameSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { homedir } from "node:os";

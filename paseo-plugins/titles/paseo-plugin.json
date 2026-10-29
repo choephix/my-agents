@@ -1,5 +1,0 @@
-{
-  "id": "titles",
-  "name": "Titles",
-  "requirements": { "paseo": ">=0.11.4" }
-}

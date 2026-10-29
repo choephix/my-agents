@@ -1,0 +1,6 @@
+{
+  "id": "noice-tab-dots",
+  "name": "Tab dots",
+  "description": "Small dots on each sidebar workspace row, one per tab that is unread, running or waiting on you.",
+  "requirements": { "paseo": ">=0.12.0" }
+}
