@@ -24,6 +24,7 @@ export const MEMO_KINDS = ["revisit", "go", "ask", "notice", "parked", "musing"]
 const cardFields = {
   name: z.string(),
   url: z.string(),
+  workspace: z.string(),
   settled: z.boolean(),
   priority: z.string().nullable(),
   blocks: z.string().nullable(),

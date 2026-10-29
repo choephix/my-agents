@@ -25,47 +25,42 @@ const blockingCount = (desk: Desk): number => desk.inbox.filter((card) => !card.
 interface Column {
   key: string;
   title: string;
-  /** Workspace hue (1-based), or null for the closing groups (settled, not live). */
-  hue: number | null;
+  /** Workspace hue from Mainframe's workspace map. */
+  hue: number;
   cards: DeskCard[];
   blocking: number;
 }
 
-/** Live cards of one kind as one column per asker, with settled cards in a folded group. */
-function columnsOf(desk: Desk, kind: Kind, priority: Priority | null): Column[] {
+/** One workspace column per view. Settled cards stay in that workspace and are opt-in. */
+function columnsOf(desk: Desk, kind: Kind, priority: Priority | null, showSettled: boolean): Column[] {
   const source = kind === "inbox" ? desk.inbox : desk.doing;
+  const workspaceByKey = new Map(desk.workspaces.map((workspace) => [workspace.key, workspace]));
   const groups = new Map<string, DeskCard[]>();
   for (const card of source) {
-    if (card.settled || (priority && kind === "inbox" && card.priority !== priority)) continue;
-    const key = card.asker?.agentId ?? `${kind}:unassigned`;
-    groups.set(key, [...(groups.get(key) ?? []), card]);
+    if (card.settled && !showSettled) continue;
+    if (priority && kind === "inbox" && !card.settled && card.priority !== priority) continue;
+    groups.set(card.workspace, [...(groups.get(card.workspace) ?? []), card]);
   }
   const rankOf = (card: DeskCard) => (card.priority === "blocking" ? 0 : card.priority === "revisit" ? 1 : 2);
-  const live = [...groups.entries()]
+  return [...groups.entries()]
     .map(([key, cards]) => {
-      const sorted = [...cards].sort((a, b) => rankOf(a) - rankOf(b));
-      const title = cards[0]?.asker?.name ?? (kind === "inbox" ? "Inbox" : "Doing");
-      return { key, title, hue: 1, cards: sorted, blocking: cards.filter((card) => card.priority === "blocking").length };
+      const workspace = workspaceByKey.get(key);
+      const sorted = [...cards].sort((a, b) => Number(a.settled) - Number(b.settled) || rankOf(a) - rankOf(b));
+      return { key, title: workspace?.title ?? (key.replace(/^effort:/, "") || "No effort"), hue: workspace?.hue ?? 1, cards: sorted, blocking: cards.filter((card) => !card.settled && card.priority === "blocking").length };
     })
     .sort((a, b) => rankOf(a.cards[0]!) - rankOf(b.cards[0]!) || b.cards.length - a.cards.length || a.title.localeCompare(b.title));
-  const settled = source.filter((card) => card.settled);
-  return [...live, ...(settled.length ? [{ key: `${kind}:settled`, title: kind === "doing" ? "Done" : "Settled", hue: null, cards: settled, blocking: 0 }] : [])];
 }
 
 // Kept across visits to the screen (not across app restarts).
 let lastView: Kind = "inbox";
 let lastPriority: Priority | null = null;
+let lastSettled = false;
 const lastFolded = new Set<string>();
-const lastOpened = new Set<string>();
-
-/** Live columns start open; the closing groups start folded. */
-const isFolded = (column: Column, folded: Set<string>, opened: Set<string>) => (column.hue === null ? !opened.has(column.key) : folded.has(column.key));
 
 type HoverState = { pressed: boolean; hovered?: boolean };
 
 /** Paseo's project badge: the workspace colour with its initial; plain for the closing groups. */
 function Badge({ column, c }: { column: Column; c: Palette }) {
-  if (column.hue === null) return <View style={{ width: 16, height: 16, borderRadius: 4, backgroundColor: c.alpha(c.fg, 0.18) }} />;
   const initial = column.title.replace(/^[^A-Za-z0-9]+/, "")[0] ?? "?";
   return (
     <View style={{ width: 16, height: 16, borderRadius: 4, backgroundColor: c.project(column.hue), alignItems: "center", justifyContent: "center" }}>
@@ -152,7 +147,7 @@ export function DeskScreen({ theme, layout, navigation }: PluginScreenProps) {
   const [view, setView] = useState<Kind>(lastView);
   const [priority, setPriority] = useState<Priority | null>(lastPriority);
   const [folded, setFolded] = useState(() => new Set(lastFolded));
-  const [opened, setOpened] = useState(() => new Set(lastOpened));
+  const [showSettled, setShowSettled] = useState(lastSettled);
   const compact = layout.compact;
   const [narrow, setNarrow] = useState(() => Dimensions.get("window").width < SIDE_BY_SIDE_MIN);
   useEffect(() => {
@@ -177,14 +172,12 @@ export function DeskScreen({ theme, layout, navigation }: PluginScreenProps) {
   }
 
   const toggle = (column: Column) => {
-    const closing = column.hue === null;
-    const next = new Set(closing ? opened : folded);
+    const next = new Set(folded);
     if (next.has(column.key)) next.delete(column.key);
     else next.add(column.key);
-    const keep = closing ? lastOpened : lastFolded;
-    keep.clear();
-    next.forEach((key) => keep.add(key));
-    (closing ? setOpened : setFolded)(next);
+    lastFolded.clear();
+    next.forEach((key) => lastFolded.add(key));
+    setFolded(next);
   };
   const pickView = (kind: Kind) => {
     lastView = kind;
@@ -208,9 +201,9 @@ export function DeskScreen({ theme, layout, navigation }: PluginScreenProps) {
     inboxByName: new Map(desk.inbox.map((card) => [card.name, card])),
     openAgent: navigation ? (agentId) => navigation.openAgent({ agentId }) : undefined,
   };
-  const columns = columnsOf(desk, view, priority);
-  const live = columns.filter((column) => column.hue !== null);
+  const columns = columnsOf(desk, view, priority, showSettled);
   const count = (kind: Kind) => (kind === "inbox" ? desk.inbox : desk.doing).filter((card) => !card.settled).length;
+  const settledCount = (kind: Kind) => (kind === "inbox" ? desk.inbox : desk.doing).filter((card) => card.settled).length;
   const read = loading ? "Reading…" : error ? "Read failed, retry" : now - at < 60_000 ? "Read just now" : `Read ${age(new Date(at).toISOString(), now)} ago`;
 
   const tabs = (
@@ -239,6 +232,18 @@ export function DeskScreen({ theme, layout, navigation }: PluginScreenProps) {
           <Text style={{ ...TYPE.small, color: c.muted }}>{priority ? cap(priority) : "All priorities"}</Text>
         </Pressable>
       ) : null}
+      <Pressable
+        onPress={() => {
+          const next = !showSettled;
+          lastSettled = next;
+          setShowSettled(next);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={`${showSettled ? "Hide" : "Show"} settled cards (${settledCount(view)}).`}
+        style={({ hovered }: HoverState) => ({ flexDirection: "row", alignItems: "center", gap: 5, height: 24, paddingHorizontal: 8, borderWidth: 1, borderColor: c.border, backgroundColor: hovered || showSettled ? c.s1 : "transparent" })}
+      >
+        <Text style={{ ...TYPE.small, color: showSettled ? c.fg : c.muted }}>Settled {settledCount(view)}</Text>
+      </Pressable>
       {vertical ? null : <Text style={{ ...TYPE.small, color: error ? c.danger : c.faint, marginLeft: 6 }}>{read}</Text>}
       <Pressable
         onPress={() => void refresh()}
@@ -253,11 +258,11 @@ export function DeskScreen({ theme, layout, navigation }: PluginScreenProps) {
 
   const cardsOf = (column: Column): ReactNode =>
     column.cards.map((card) => <Card key={`${card.kind}/${card.settled ? "s" : "l"}/${card.name}`} card={card} scene={scene} />);
-  const empty = !live.length ? (
+  const empty = !columns.length ? (
     <Text style={{ ...TYPE.heading, color: c.muted, paddingHorizontal: gutter, paddingVertical: 24 }}>{priority && view === "inbox" ? `No ${priority} inbox items.` : EMPTY[view]}</Text>
   ) : null;
-  const shut = columns.filter((column) => isFolded(column, folded, opened));
-  const open = columns.filter((column) => !isFolded(column, folded, opened));
+  const shut = columns.filter((column) => folded.has(column.key));
+  const open = columns.filter((column) => !folded.has(column.key));
   const strip = shut.length ? (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: gutter, paddingTop: 10 }}>
       {shut.map((column) => (
