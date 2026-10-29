@@ -19,11 +19,14 @@ export const PANEL_ID = "links";
  * `pills`. The settings screen also edits the webshare mapping (`WebshareSettings`).
  *
  * A workspace's links are fetched when its links page becomes visible; again when one of its agents
- * finishes a turn, is closed or renamed while the page is on screen, else on next show. Nothing
- * polls while idle, and the header button itself fetches nothing.
+ * is created, finishes a turn, is closed or renamed while the page is on screen, else on next show.
+ * Nothing polls while idle, and the header button itself fetches nothing.
  */
 export function startWorkspaceLinks(client: PluginClientContext, pills: { setVisible(visible: boolean): void }) {
-  const store = new LinksStore<WorkspaceLinks>((workspaceId, subagents) => client.rpc(linksForWorkspace, { workspaceId, subagents }), keepWorkspaceSubagents);
+  const store = new LinksStore<WorkspaceLinks>(
+    (workspaceId, subagents, poll) => client.rpc(linksForWorkspace, { workspaceId, subagents, poll }),
+    keepWorkspaceSubagents,
+  );
   /** Visible links pages per workspace. */
   const onScreen = new Map<string, number>();
   /** Workspaces whose agents changed while nothing of theirs was on screen: refetch on next show. */
@@ -168,7 +171,7 @@ export function startWorkspaceLinks(client: PluginClientContext, pills: { setVis
     );
   }
 
-  // Agents changing what a workspace's page shows: a finished turn, a closed or renamed tab.
+  // Agents changing what a workspace's page shows: a new tab, a finished turn, a closed or renamed tab.
   const agents = new Map<string, { workspaceId: string; status: string; closed: boolean; title: string | null }>();
   const observe = (agent: AgentSummary, initial: boolean) => {
     const before = agents.get(agent.id);
@@ -178,9 +181,9 @@ export function startWorkspaceLinks(client: PluginClientContext, pills: { setVis
     }
     const now = { workspaceId: agent.workspaceId, status: agent.status, closed: !!agent.archivedAt, title: agent.title ?? null };
     agents.set(agent.id, now);
-    if (initial || !before) return;
-    const turnEnded = before.status === "running" && now.status !== "running";
-    if (turnEnded || before.closed !== now.closed || before.title !== now.title) touch(now.workspaceId);
+    if (initial) return;
+    const turnEnded = before?.status === "running" && now.status !== "running";
+    if (!before || turnEnded || before.closed !== now.closed || before.title !== now.title) touch(now.workspaceId);
   };
   const agentListener: AgentListener = {
     replace(list) {

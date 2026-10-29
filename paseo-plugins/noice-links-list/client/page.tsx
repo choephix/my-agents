@@ -155,7 +155,7 @@ export function createLinksPage(store: LinksStore<WorkspaceLinks>, show: (worksp
     useEffect(() => (visible ? show(workspaceId, true) : undefined), [visible, workspaceId]);
     useEffect(() => {
       if (!visible || !running) return;
-      const timer = setInterval(() => void store.refresh(workspaceId), RUNNING_REFRESH_MS);
+      const timer = setInterval(() => void store.refresh(workspaceId, true), RUNNING_REFRESH_MS);
       return () => clearInterval(timer);
     }, [visible, running, workspaceId]);
 

@@ -5,7 +5,7 @@ import { TailFold } from "./cache";
 import { addProse, listLinks, siteFor, subagentLinks, type LinkMap } from "./links";
 import { agentTranscripts, findSubagents, harnessSubagents, type SubagentTranscript } from "./subagents";
 import { findTranscript, type ProseReader } from "./transcripts";
-import { workspaceTree } from "./workspace";
+import { workspaceTree, type TabAgents } from "./workspace";
 
 /** Transcripts read at once; a session can have hundreds of sub-agents, a workspace dozens of tabs. */
 const BATCH = 16;
@@ -89,15 +89,23 @@ export function createLinksService(home: string, webshareOrigin = "", webshareFo
   }
 
   /**
+   * Each workspace's tabs as last listed. Listing them pages through every agent record (616 today:
+   * ~40 ms and 1.2 MB per call), so a poll reuses them; a new, closed or renamed tab makes the
+   * client ask without `poll`.
+   */
+  const trees = new Map<string, TabAgents<PaseoAgent>[]>();
+
+  /**
    * Every tab of the workspace, closed ones included, with its own links and (asked for) what its
    * sub-agents added: its harness sub-agents plus the Paseo agents folded into it. A tab whose
    * transcript can't be read lists no links.
    */
   async function forWorkspace(
-    { workspaceId, subagents }: RpcInput<typeof linksForWorkspace>,
+    { workspaceId, subagents, poll }: RpcInput<typeof linksForWorkspace>,
     paseo: PaseoApi,
   ): Promise<RpcOutput<typeof linksForWorkspace>> {
-    const tree = workspaceTree(await listAllAgents(paseo), workspaceId);
+    const tree = (poll && trees.get(workspaceId)) || workspaceTree(await listAllAgents(paseo), workspaceId);
+    trees.set(workspaceId, tree);
     const tabs = await inBatches(tree, async ({ root, children }): Promise<WorkspaceTab> => {
       const transcript = await findTranscript(root, home);
       let links: LinkMap = new Map();

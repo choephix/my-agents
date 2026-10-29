@@ -91,8 +91,11 @@ export type WorkspaceTab = z.infer<typeof WorkspaceTabSchema>;
 
 export const linksForWorkspace = defineRpc({
   name: "links.for-workspace",
-  /** `subagents`: also each tab's sub-agent links (the links page asks, the header button doesn't). */
-  input: z.object({ workspaceId: z.string(), subagents: z.boolean().optional() }),
+  /**
+   * `subagents`: also each tab's sub-agent links (the links page asks, the header button doesn't).
+   * `poll`: the page's timed refresh; it reuses the tabs listed last and reads only their links.
+   */
+  input: z.object({ workspaceId: z.string(), subagents: z.boolean().optional(), poll: z.boolean().optional() }),
   output: z.object({
     /** The workspace's root agents, closed ones included; sub-agents are folded into their root. */
     tabs: z.array(WorkspaceTabSchema),

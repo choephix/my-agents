@@ -7,13 +7,19 @@ export interface ListedAgent {
   internal?: boolean;
 }
 
+/** One tab and the agents folded into it. */
+export interface TabAgents<Agent> {
+  root: Agent;
+  children: Agent[];
+}
+
 /**
  * A workspace's tabs and the agents folded into each, following Paseo's root policy
  * (`app/src/subagents/workspace-root-policy.ts`): an agent is a tab unless it has a parent in the
  * same workspace. A child whose parent is gone is no tab in Paseo either, so it is left out.
  * Grandchildren fold into the tab at the top of their chain. Order follows `agents`.
  */
-export function workspaceTree<Agent extends ListedAgent>(agents: readonly Agent[], workspaceId: string): { root: Agent; children: Agent[] }[] {
+export function workspaceTree<Agent extends ListedAgent>(agents: readonly Agent[], workspaceId: string): TabAgents<Agent>[] {
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
   const inWorkspace = agents.filter((agent) => agent.workspaceId === workspaceId && !agent.internal);
   /** The tab an agent belongs to, or null when its chain breaks off. */
@@ -30,7 +36,7 @@ export function workspaceTree<Agent extends ListedAgent>(agents: readonly Agent[
       current = parent;
     }
   };
-  const tabs = new Map<string, { root: Agent; children: Agent[] }>();
+  const tabs = new Map<string, TabAgents<Agent>>();
   for (const agent of inWorkspace) {
     if (rootOf(agent) === agent) tabs.set(agent.id, { root: agent, children: [] });
   }

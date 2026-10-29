@@ -21,8 +21,9 @@ const NOTHING_YET: Fetched<never> = { data: null, error: null };
 
 /**
  * Each chat's or workspace's links as last fetched, by id; one request per id at a time, a refresh
- * asked for meanwhile runs after it. Sub-agent links are fetched only while something watches them
- * (an open popover or links page); `keep` carries the last ones over a fetch without them.
+ * asked for meanwhile runs after it (a poll doesn't: the next one comes anyway). Sub-agent links are
+ * fetched only while something watches them (an open popover or links page); `keep` carries the
+ * last ones over a fetch without them.
  */
 export class LinksStore<T> {
   private readonly entries = new Map<string, Fetched<T>>();
@@ -33,7 +34,7 @@ export class LinksStore<T> {
   private readonly watchers = new Map<string, number>();
 
   constructor(
-    private readonly load: (id: string, subagents: boolean) => Promise<T>,
+    private readonly load: (id: string, subagents: boolean, poll: boolean) => Promise<T>,
     private readonly keep: (prev: T, next: T) => T,
   ) {}
 
@@ -56,15 +57,16 @@ export class LinksStore<T> {
     };
   }
 
-  refresh(id: string): Promise<void> {
+  /** `poll`: a timed refresh, not one asked for by a change. */
+  refresh(id: string, poll = false): Promise<void> {
     const running = this.inFlight.get(id);
     if (running) {
-      this.again.add(id);
+      if (!poll) this.again.add(id);
       return running;
     }
     const run = (async () => {
       try {
-        const next = await this.load(id, this.watchers.has(id));
+        const next = await this.load(id, this.watchers.has(id), poll);
         const prev = this.get(id).data;
         this.set(id, { data: prev ? this.keep(prev, next) : next, error: null });
       } catch (error) {
