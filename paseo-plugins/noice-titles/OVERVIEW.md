@@ -346,3 +346,6 @@ own, Paseo's generated one; hand names never, including Paseo-like changes
 that are late, repeated or from a title given at creation), how project
 siblings are marked, splitting and capping the sibling lists, and picking the
 first agent (archived included, a stored one skipped).
+
+`npm run typecheck` runs `tsc --noEmit` over the TypeScript; the `.mjs` policy
+files lend their inferred types to it but are not checked themselves (`allowJs`, no `checkJs`).

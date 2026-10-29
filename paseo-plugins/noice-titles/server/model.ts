@@ -41,7 +41,7 @@ async function ask(model: ModelChoice, systemPrompt: string, request: object) {
 function askClaude(systemPrompt: string, input: string, timeoutMs: number) {
   // No telemetry, update checks or flag fetches for a one-shot title call: about
   // 1 s less per call (1.3 s before the answer, 0.7 s exit flush after it).
-  const env = { ...subprocessEnv(), CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" };
+  const env: NodeJS.ProcessEnv = { ...subprocessEnv(), CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" };
   const args = ["-p", "--model", "haiku", "--safe-mode", "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--system-prompt", systemPrompt, "--output-format", "text"];
   return run("Claude CLI", claudeCommand(env.PATH), args, env, input, timeoutMs).then(({ stdout }) => stdout);
 }
