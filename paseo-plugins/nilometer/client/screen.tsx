@@ -1,7 +1,7 @@
 import type { PluginScreenProps, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { Icon, ScrollView, SidebarRow } from "@getpaseo/plugin/client/ui";
-import { type ReactNode, useMemo, useState } from "react";
-import { Pressable, RefreshControl, Text, View } from "react-native";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { Dimensions, Pressable, RefreshControl, Text, View } from "react-native";
 import { type Desk, type DeskCard, type Kind, type Priority, PRIORITIES } from "../shared/desk";
 import { age, Card, type CardScene } from "./card";
 import { type Palette, paletteOf, TYPE } from "./palette";
@@ -16,6 +16,8 @@ const VIEWS: { kind: Kind; label: string }[] = [
 ];
 const EMPTY: Record<Kind, string> = { inbox: "Nothing in your inbox.", doing: "Nothing in progress." };
 const COLUMN_WIDTH = 300;
+/** Two columns plus their gap and shell padding; below this the board becomes a vertical list. */
+const SIDE_BY_SIDE_MIN = COLUMN_WIDTH * 2 + 44;
 const cap = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 
 const blockingCount = (desk: Desk): number => desk.inbox.filter((card) => !card.settled && card.priority === "blocking").length;
@@ -152,8 +154,14 @@ export function DeskScreen({ theme, layout, navigation }: PluginScreenProps) {
   const [folded, setFolded] = useState(() => new Set(lastFolded));
   const [opened, setOpened] = useState(() => new Set(lastOpened));
   const compact = layout.compact;
-  const touch = compact || layout.platform !== "web";
-  const gutter = compact ? 12 : 16;
+  const [narrow, setNarrow] = useState(() => Dimensions.get("window").width < SIDE_BY_SIDE_MIN);
+  useEffect(() => {
+    const subscription = Dimensions.addEventListener("change", ({ window }) => setNarrow(window.width < SIDE_BY_SIDE_MIN));
+    return () => subscription.remove();
+  }, []);
+  const vertical = compact || narrow;
+  const touch = vertical || layout.platform !== "web";
+  const gutter = vertical ? 12 : 16;
 
   if (!desk) {
     return (
@@ -231,7 +239,7 @@ export function DeskScreen({ theme, layout, navigation }: PluginScreenProps) {
           <Text style={{ ...TYPE.small, color: c.muted }}>{priority ? cap(priority) : "All priorities"}</Text>
         </Pressable>
       ) : null}
-      {compact ? null : <Text style={{ ...TYPE.small, color: error ? c.danger : c.faint, marginLeft: 6 }}>{read}</Text>}
+      {vertical ? null : <Text style={{ ...TYPE.small, color: error ? c.danger : c.faint, marginLeft: 6 }}>{read}</Text>}
       <Pressable
         onPress={() => void refresh()}
         accessibilityRole="button"
@@ -258,7 +266,7 @@ export function DeskScreen({ theme, layout, navigation }: PluginScreenProps) {
     </View>
   ) : null;
 
-  if (compact) {
+  if (vertical) {
     return (
       <View style={{ flex: 1, backgroundColor: c.s0 }}>
         {tabs}
