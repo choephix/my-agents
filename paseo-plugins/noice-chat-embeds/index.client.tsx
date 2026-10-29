@@ -8,10 +8,12 @@ import { AGENT_CARD_KIND, agentCardSchema, createAgentCard } from "./client/agen
 import { EmbedCard, embedCardSchema, SvgBlockCard, svgBlockSchema } from "./client/card";
 import { MarkdownChunk, markdownSchema } from "./client/markdown";
 import { linkIssueRefs, parseMessage, SVG_FENCE } from "./client/parse";
+import { type FeatureSwitch, featureSwitch } from "./client/feature-switch";
+import { startLinkClicks } from "./client/link-clicks";
 import { installAgentTextStyles } from "./client/web";
 import { DEFAULTS, type Preferences, preferences } from "./shared/preferences";
 
-/** Timeline rows have no navigation; an agent card opens its chat through this screen. */
+/** Timeline rows and page clicks have no navigation; agent cards and links open their chat through this screen. */
 function OpenAgent({ navigation, params, theme }: PluginScreenProps) {
   const { serverId, agentId } = params;
   useEffect(() => {
@@ -26,9 +28,12 @@ function OpenAgent({ navigation, params, theme }: PluginScreenProps) {
 
 const PLUGIN_ID = "noice-chat-embeds";
 let current: Preferences = DEFAULTS;
+/** Off until the saved settings arrive, so a switched-off feature never registers anything. */
+let linkClicks: FeatureSwitch | null = null;
 
 function apply(values: Preferences): void {
   current = values;
+  linkClicks?.set(values.openLinksInPlace);
 }
 
 function Settings() {
@@ -40,7 +45,7 @@ function Settings() {
     return <SettingsSection title="File embeds"><SettingsCard><SettingsSwitch label="Enable file embeds" value={current.enabled} disabled onValueChange={() => {}} /></SettingsCard></SettingsSection>;
   }
   return (
-    <SettingsSection title="File embeds" info="Turn Obsidian-style ![[path]] file, image and HTML previews, ![[agent link]] chat previews, and #123 GitHub links on or off in assistant messages.">
+    <SettingsSection title="File embeds" info="Turn Obsidian-style ![[path]] file, image and HTML previews, ![[agent link]] chat previews, and #123 GitHub links on or off in assistant messages, and choose where Paseo tab links open.">
       <SettingsCard>
         <SettingsSwitch
           label="Enable file embeds"
@@ -64,6 +69,17 @@ function Settings() {
             void settings.save(next, settings.revision);
           }}
         />
+        <SettingsSwitch
+          label="Open Paseo tab links in place"
+          hint="A plain click on an app.paseo.sh link to a chat tab switches to that tab here instead of opening the browser. Desktop and web app; independent of file embeds."
+          value={settings.values.openLinksInPlace}
+          disabled={settings.saving}
+          onValueChange={(value) => {
+            const next = { ...settings.values, openLinksInPlace: value };
+            apply(next);
+            void settings.save(next, settings.revision);
+          }}
+        />
       </SettingsCard>
     </SettingsSection>
   );
@@ -74,6 +90,9 @@ export default function contribute(client: PluginClientContext) {
   const writeSettings = settingsRpc(preferences.id).write;
   let revision: string | undefined;
   let disposed = false;
+  linkClicks = featureSwitch("Open Paseo tab links in place", () =>
+    startLinkClicks(({ serverId, agentId }) => client.openScreen({ screenId: "open-agent", params: { serverId, agentId } })),
+  );
   const refresh = () => {
     void client.rpc(readSettings, {}).then((result) => {
       if (disposed || result.status !== "ready") return;
@@ -171,6 +190,8 @@ export default function contribute(client: PluginClientContext) {
 
   return () => {
     disposed = true;
+    linkClicks?.set(false);
+    linkClicks = null;
     settings();
     command();
     markdown();

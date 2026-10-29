@@ -9,6 +9,8 @@ export const preferences = defineSettings({
     enabled: z.boolean().default(true),
     /** ```svg code blocks drawn as pictures; off by default, and the `enabled` switch overrides it. */
     svgBlocks: z.boolean().default(false),
+    /** A plain click on an `app.paseo.sh` agent link switches tabs in place; independent of `enabled`. */
+    openLinksInPlace: z.boolean().default(true),
   }),
 });
 

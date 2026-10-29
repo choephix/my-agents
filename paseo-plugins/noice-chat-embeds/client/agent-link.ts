@@ -4,7 +4,7 @@ export interface AgentLink {
   agentId: string;
 }
 
-// https://app.paseo.sh/h/<serverId>/agent/<agentId>, the form the noice-chat-go-to-agent-links plugin opens in place.
+// https://app.paseo.sh/h/<serverId>/agent/<agentId>: the form agent cards embed and link clicks open in place.
 const LINK = /^https:\/\/app\.paseo\.sh\/h\/([^/?#]+)\/agent\/([^/?#]+)\/?$/i;
 
 function decode(part: string): string | null {

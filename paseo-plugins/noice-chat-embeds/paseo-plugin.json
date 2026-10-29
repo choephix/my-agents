@@ -1,7 +1,7 @@
 {
   "id": "noice-chat-embeds",
   "name": "Message embeds",
-  "description": "Inline previews for Obsidian-style file embeds in assistant messages.",
+  "description": "Inline previews for Obsidian-style file embeds in assistant messages; links to Paseo chat tabs open in place.",
   "requirements": { "paseo": ">=0.13.0" },
   "media": [
     "screenshots/desktop-collapsed.webp",

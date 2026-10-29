@@ -1,17 +1,47 @@
 import { Platform } from "react-native";
 
 /** The DOM this module touches; the plugin's tsconfig has no DOM lib. */
+interface LinkElement {
+  getAttribute(name: string): string | null;
+}
 interface PressTarget {
-  closest?(selector: string): unknown;
+  closest?(selector: string): LinkElement | null;
 }
 interface StyleElement {
   textContent: string | null;
   remove(): void;
 }
+/** A page click, as far as link clicks read it. */
+export interface DocumentClick {
+  readonly target: unknown;
+  readonly button: number;
+  readonly ctrlKey: boolean;
+  readonly metaKey: boolean;
+  readonly shiftKey: boolean;
+  readonly altKey: boolean;
+  readonly defaultPrevented: boolean;
+  preventDefault(): void;
+  stopImmediatePropagation(): void;
+}
 declare const document: {
   createElement(tag: "style"): StyleElement;
   head: { appendChild(node: StyleElement): void };
+  addEventListener(type: "click", listener: (event: DocumentClick) => void, capture: boolean): void;
+  removeEventListener(type: "click", listener: (event: DocumentClick) => void, capture: boolean): void;
 };
+
+/** Web: runs `listener` on every click in the page, before Paseo's own handlers. Returns the remover; a no-op off the web. */
+export function onDocumentClick(listener: (event: DocumentClick) => void): () => void {
+  if (Platform.OS !== "web") return () => {};
+  document.addEventListener("click", listener, true);
+  return () => document.removeEventListener("click", listener, true);
+}
+
+/** The href of the link a click landed in, or null. */
+export function clickedHref(event: DocumentClick): string | null {
+  const target = event.target as PressTarget | null; // a DOM node on web
+  return target?.closest?.("a[href]")?.getAttribute("href") ?? null;
+}
 
 /** Web: whether a press landed on a link, so a link inside an agent card wins over the card. */
 export function pressedLink(event: unknown): boolean {

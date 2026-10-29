@@ -2,7 +2,7 @@ Shows inline file previews when an assistant writes an Obsidian-style embed such
 
 Only complete embeds in assistant messages are converted. Fenced code blocks, inline code, and half-typed embeds stay as the assistant wrote them. Relative paths use the chat's working directory. Absolute paths and `~/` paths are accepted only when they resolve inside that directory. Missing, unreadable, binary, and oversized requests show a muted error instead of breaking the message.
 
-The plugin is enabled by default, and one switch covers every embed kind below. Use **⌘K → Toggle file embeds** (or Ctrl+K on Windows and Linux) for a quick switch. The same setting is available at **Settings → Plugins → noice-chat-embeds → File embeds**. Turning it off leaves native Paseo message rendering untouched.
+The plugin is enabled by default, and one switch covers every embed kind below. Use **⌘K → Toggle file embeds** (or Ctrl+K on Windows and Linux) for a quick switch. The same setting is available at **Settings → Plugins → noice-chat-embeds → File embeds**. Turning it off leaves native Paseo message rendering untouched. Opening Paseo tab links in place (last section) has its own switch next to it.
 
 ## Images
 
@@ -65,6 +65,31 @@ never turned into a card.
 Clicking the card switches tabs through a short "Opening chat" plugin screen. On iOS and Android the
 cards use only cross-platform parts but have not been tried.
 
+## Paseo tab links
+
+Agents often link to another Paseo chat tab as `https://app.paseo.sh/h/<serverId>/agent/<agentId>`.
+Paseo opens such a link in the browser. With **Open Paseo tab links in place** on, a plain click
+switches to that tab in the Paseo window you are already in, through the same short "Opening chat"
+screen as the cards, and no browser opens. The switch is on by default and independent of the file
+embeds switch. Turned off, the plugin removes its click listener at once, with no refresh, and links
+behave as native Paseo.
+
+Only that exact link form is handled, with or without a trailing slash. Every other link, including
+other `app.paseo.sh` paths and links with a query or `#` part, behaves as before. Ctrl, Cmd, Shift
+and Alt clicks and middle clicks are not touched either. It works in the desktop and web apps: the
+plugin watches clicks on the page, which the iOS and Android apps do not have, so links there behave
+as before. The link's server ID is passed to Paseo's navigation, so a link to a chat on another
+connected host should open there (not tested with a second host).
+
+This was the separate plugin `noice-chat-go-to-agent-links` (earlier `agent-links`) until
+2026-10-29. It had no saved settings.
+
+Checked 2026-10-29 in the web app (app.paseo.sh) against the local daemon: with the switch on, a
+plain click on an agent link switched to that tab in the same browser tab; switched off live, the
+same click opened a new browser page and the chat stayed put; switched back on, the click worked in
+place again, all without a refresh. The agent card in the same message rendered throughout. Clicking
+one in the desktop app was reported to work with the earlier plugin.
+
 ## Screenshots
 
 These verifier screenshots are saved under `screenshots/`:
@@ -88,3 +113,8 @@ These verifier screenshots are saved under `screenshots/`:
 - `screenshots/svg-light.webp`
 - `screenshots/svg-off.webp`
 - `screenshots/svg-phone.webp`
+- `screenshots/link-click-before.webp`
+- `screenshots/link-click-in-place.webp`
+- `screenshots/link-settings.webp`
+- `screenshots/link-click-off.webp`
+- `screenshots/agent-card-with-links.webp`
