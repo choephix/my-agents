@@ -11,10 +11,10 @@ Usage:
                                     [--since <when>] [--until <when>] [--inherited] [--own]
   omp-transcript result --session <session.jsonl|id> --message-id <id>
   omp-transcript list [--cwd <dir>] [--under <dir>]... [--since <when>] [--until <when>]
-                      [--all-forks] [-n <count>]
+                      [--all-forks] [--spawned | --no-spawned] [-n <count>]
   omp-transcript search [--] <pattern> [--regex] [--cwd <dir>] [--under <dir>]...
                         [--since <when>] [--until <when>] [--inherited] [--all-forks]
-                        [-n <count>]
+                        [--spawned | --no-spawned] [-n <count>]
                         [--reasoning] [--with-tools] [--hits [<n>]]
                         [--no-snippet] [--width <chars>]
 
@@ -30,6 +30,14 @@ is half-open: since <= t < until.
 A fork starts by copying its parent's history, stamped with the fork's own
 creation time. Windows leave that copy out unless --inherited is given;
 --own leaves it out of a render even without a window.
+
+list and search rows carry an origin column, read from Paseo's agent
+records ($PASEO_HOME/agents, default ~/.paseo/agents): user (opened in
+Paseo by hand), agent (created by another agent), sched (created by a
+schedule), or ? (Paseo never ran it: a terminal, herdr, omp -p). A fork
+without a record of its own takes its lineage root's origin.
+--no-spawned drops agent and sched rows; --spawned keeps only those.
+? rows pass both.
 EOF
   exit "${1:-2}"
 }
@@ -63,6 +71,7 @@ since_epoch=
 until_epoch=
 under_dirs=()
 all_forks=false
+spawned_filter=
 inherited=false
 own=false
 around_id=
@@ -165,6 +174,14 @@ case ${1:-} in
           all_forks=true
           shift
           ;;
+        --no-spawned)
+          spawned_filter=exclude
+          shift
+          ;;
+        --spawned)
+          spawned_filter=only
+          shift
+          ;;
         -n)
           (($# >= 2)) || usage
           list_count=$2
@@ -227,6 +244,14 @@ case ${1:-} in
           ;;
         --all-forks)
           all_forks=true
+          shift
+          ;;
+        --no-spawned)
+          spawned_filter=exclude
+          shift
+          ;;
+        --spawned)
+          spawned_filter=only
           shift
           ;;
         --inherited)
@@ -483,6 +508,39 @@ lineage_label() {
   if [[ $root == "$(session_id_of "$path")" ]]; then printf -- '-'; else printf '%s' "$root"; fi
 }
 
+# Session id -> origin (user, agent, sched) for every OMP session Paseo has
+# run, archived agents included. Paseo labels an agent made through
+# create_agent with paseo.parent-agent-id and a scheduled run with
+# paseo.schedule-id.
+declare -A paseo_origin=()
+load_paseo_origins() {
+  local dir=${PASEO_HOME:-${HOME:-}/.paseo}/agents id origin
+  [[ -d $dir ]] || return 0
+  while IFS=$'\t' read -r id origin; do
+    if [[ -n $id ]]; then paseo_origin[$id]=$origin; fi
+  done < <(find "$dir" -mindepth 2 -maxdepth 2 -type f -name '*.json' -exec jq -r '
+      (.runtimeInfo.sessionId
+        // (.persistence.nativeHandle // "" | capture("_(?<id>[^_/]+)\\.jsonl$").id)) as $id
+      | [$id,
+         if .labels["paseo.parent-agent-id"] then "agent"
+         elif .labels["paseo.schedule-id"] then "sched"
+         else "user" end]
+      | @tsv' {} +)
+}
+
+# Sets REPLY to the origin of session $1, else of its lineage root $2, else "?".
+origin_of() {
+  REPLY=${paseo_origin[$1]-${paseo_origin[$2]-?}}
+}
+
+origin_passes() {
+  case $spawned_filter in
+    exclude) [[ $1 != agent && $1 != sched ]] ;;
+    only) [[ $1 == agent || $1 == sched ]] ;;
+    *) return 0 ;;
+  esac
+}
+
 # Header rows for the NUL-separated session files on stdin, one per file
 # whose first five lines hold a session header. Fields are joined by \x1f,
 # each escaped as @tsv would:
@@ -621,12 +679,13 @@ split_row() {
 
 list_sessions() {
   local roots=() order=() fields=()
-  local entry mtime path row id root lineage timestamp
+  local entry mtime path row id root lineage timestamp origin
   local matched=0
   declare -A seen_roots=() mtime_of=()
 
   collect_roots
   resolve_cwd_filters
+  load_paseo_origins
 
   while IFS= read -r -d '' entry; do
     mtime=${entry%%$'\t'*}
@@ -661,6 +720,10 @@ list_sessions() {
     id=${id#*_}
     lineage_root_loaded "$path"
     root=$REPLY
+    # Filtered before the dedupe, so a hidden fork never claims its lineage's row.
+    origin_of "$id" "$root"
+    origin=$REPLY
+    origin_passes "$origin" || continue
     if ! $all_forks; then
       [[ -z ${seen_roots[$root]+set} ]] || continue
       seen_roots[$root]=1
@@ -668,8 +731,8 @@ list_sessions() {
     if [[ $root == "$id" ]]; then lineage=-; else lineage=$root; fi
 
     TZ=UTC printf -v timestamp '%(%Y-%m-%dT%H:%M:%SZ)T' "${mtime_of[$path]}"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$timestamp" "${fields[1]-}" "${fields[2]-}" "${fields[3]-}" "$path" "$lineage"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$timestamp" "${fields[1]-}" "${fields[2]-}" "${fields[3]-}" "$path" "$lineage" "$origin"
 
     ((matched += 1))
     if ((list_count > 0 && matched >= list_count)); then break; fi
@@ -871,13 +934,14 @@ WORKER
 
 search_sessions() {
   local roots=() grep_bin prefilter_mode prefilter_pattern jobs
-  local all_files candidates rows_dir rows sorted entry row first rest path root id lineage
+  local all_files candidates rows_dir rows sorted entry row first rest path root id lineage origin
   local cols=() fields=()
   local total=0 shown=0
   declare -A seen_roots=()
 
   collect_roots
   resolve_cwd_filters
+  load_paseo_origins
   grep_bin=$(resolve_grep) || fatal 'GNU grep is required by search'
 
   if $search_regex; then
@@ -954,7 +1018,7 @@ search_sessions() {
   LC_ALL=C sort -z -r -- "$rows" > "$sorted"
 
   # Each entry is one row, followed by its hit lines when --hits is on. The
-  # lineage column goes in after the path, so the snippet stays last.
+  # lineage and origin columns go in after the path, so the snippet stays last.
   while IFS= read -r -d '' entry; do
     row=${entry#*$'\t'}
     first=${row%%$'\n'*}
@@ -970,6 +1034,9 @@ search_sessions() {
     else
       root=$(lineage_root "$path")
     fi
+    origin_of "$id" "$root"
+    origin=$REPLY
+    origin_passes "$origin" || continue
     if ! $all_forks; then
       [[ -z ${seen_roots[$root]+set} ]] || continue
       seen_roots[$root]=1
@@ -977,7 +1044,7 @@ search_sessions() {
     if [[ $root == "$id" ]]; then lineage=-; else lineage=$root; fi
     ((total += 1))
     if ((search_count == 0 || shown < search_count)); then
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' "${cols[@]:0:6}" "$lineage"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' "${cols[@]:0:6}" "$lineage" "$origin"
       if $search_snippet; then printf '\t%s' "${cols[6]-}"; fi
       printf '%s\n' "$rest"
       ((shown += 1))

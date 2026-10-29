@@ -11,10 +11,10 @@ Usage:
                                     [--since <when>] [--until <when>] [--inherited] [--own]
   omp-transcript result --session <session.jsonl|id> --message-id <id>
   omp-transcript list [--cwd <dir>] [--under <dir>]... [--since <when>] [--until <when>]
-                      [--all-forks] [-n <count>]
+                      [--all-forks] [--spawned | --no-spawned] [-n <count>]
   omp-transcript search [--] <pattern> [--regex] [--cwd <dir>] [--under <dir>]...
                         [--since <when>] [--until <when>] [--inherited] [--all-forks]
-                        [-n <count>]
+                        [--spawned | --no-spawned] [-n <count>]
                         [--reasoning] [--with-tools] [--hits [<n>]]
                         [--no-snippet] [--width <chars>]
 ```
@@ -71,6 +71,17 @@ Fenced blocks automatically use enough backticks to contain their content safely
 
 `list` and `search` show one row per root by default: the newest session of the lineage, with the root's id in the lineage column, or `-` when the session is itself a root. `--all-forks` shows every session instead, each with its own lineage value.
 
+## Origin
+
+`list` and `search` rows carry an origin column, read from Paseo's agent records under `$PASEO_HOME/agents` (default `~/.paseo/agents`). Paseo labels an agent made through `create_agent` with `paseo.parent-agent-id` and a scheduled run with `paseo.schedule-id`; the OMP session id comes from the record's `runtimeInfo.sessionId`, else its `persistence.nativeHandle` path.
+
+- `user`: Paseo ran the session and no agent or schedule created it.
+- `agent`: another agent created it.
+- `sched`: a schedule created it.
+- `?`: Paseo has no record of it — a terminal, herdr, `omp -p`, or a session from before Paseo kept its agent records.
+
+A fork without a record of its own takes its lineage root's origin. `--no-spawned` drops `agent` and `sched` rows; `--spawned` keeps only those; `?` rows pass both. The filter runs before the one-row-per-lineage dedupe, so a hidden fork never claims its lineage's row. A detached Paseo handoff loses its parent label and shows as `user`. Built-in task subagents live in a session's sidecar directory and never appear in either mode.
+
 ## List
 
 `list` scans the sessions roots and prints sessions newest first by mtime. `--cwd <dir>` is resolved with `realpath` and must exactly match the session header's `cwd`. `--under <dir>` matches that directory and everything below it, and may repeat; with both, both apply. `-n <count>` defaults to 10, and `-n 0` prints every row. `--since` and `--until` select by activity as described above; with `--since`, files last written earlier are never opened, which is what makes `list --since today` instant on thousands of sessions.
@@ -80,12 +91,12 @@ Only the first five lines of each file are read, all files through one `head` an
 Output is TSV with no header:
 
 ```
-<mtime as UTC ISO8601 seconds>	<session id>	<title or "-">	<cwd>	<path>	<lineage root id or "-">
+<mtime as UTC ISO8601 seconds>	<session id>	<title or "-">	<cwd>	<path>	<lineage root id or "-">	<origin>
 ```
 
 ## Search
 
-`search` finds the sessions whose conversation contains a pattern, for when the only thing you remember about a session is what was discussed in it. Rows are newest first, and `--cwd`, `--under`, `--since`, `--until`, and `--all-forks` work exactly as they do for `list`. `-n <count>` defaults to 20; `-n 0` prints every match, and a truncated run reports the full total on stderr.
+`search` finds the sessions whose conversation contains a pattern, for when the only thing you remember about a session is what was discussed in it. Rows are newest first, and `--cwd`, `--under`, `--since`, `--until`, `--all-forks`, `--spawned`, and `--no-spawned` work exactly as they do for `list`. `-n <count>` defaults to 20; `-n 0` prints every match, and a truncated run reports the full total on stderr.
 
 The pattern is a case-insensitive literal. `--regex` reads it as an Oniguruma regex instead; an invalid pattern is a fatal error. A pattern starting with `-` needs `--` in front of it.
 
@@ -96,7 +107,7 @@ Unlike `render`, every branch of the session is searched, not only the active on
 Output is TSV with no header:
 
 ```
-<mtime as UTC ISO8601 seconds>	<session id>	<hits>	<title or "-">	<cwd>	<path>	<lineage root id or "-">	<snippet>
+<mtime as UTC ISO8601 seconds>	<session id>	<hits>	<title or "-">	<cwd>	<path>	<lineage root id or "-">	<origin>	<snippet>
 ```
 
 `<hits>` counts matching messages. `<snippet>` is the match in context, prefixed with the role it came from, preferring the earliest user match and falling back to developer, title, assistant, then anything else; `--width <chars>` sizes it (default 140) and `--no-snippet` drops the column. Control characters inside a snippet become spaces, so a row is always one line.
