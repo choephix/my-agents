@@ -2,9 +2,11 @@ import { openExternalUrl } from "@getpaseo/plugin/client";
 import { copyText, Icon, Markdown, Modal, useToast } from "@getpaseo/plugin/client/ui";
 import { type ReactNode, useState } from "react";
 import { Pressable, Text, View } from "react-native";
+import { TextInput } from "@getpaseo/plugin/client/react-native";
 import type { Desk, DeskCard, DeskPerson, PrState } from "../shared/desk";
 import { Inline, prInfo, prsIn, prStyle, prUrl } from "./inline";
 import { type CardState, MONO, type Palette, TYPE } from "./palette";
+import { refresh, writeMemo } from "./store";
 
 export interface CardScene {
   desk: Desk;
@@ -245,6 +247,28 @@ function CardModal({ card, scene, open, onOpenChange }: { card: DeskCard; scene:
     ...card.sessions.map((person) => ({ person, role: "Session" })),
     ...card.watchers.map((person) => ({ person, role: "Watcher" })),
   ];
+  const writable = card.kind === "inbox" && !card.settled;
+  const [reply, setReply] = useState(card.answers[0]?.reply ?? "");
+  const [answerId, setAnswerId] = useState(card.answers[0]?.label);
+  const [answerOpen, setAnswerOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [actionMessage, setActionMessage] = useState("");
+  const act = async (input: Parameters<typeof writeMemo>[0]) => {
+    setBusy(true);
+    setActionMessage("");
+    try {
+      const result = await writeMemo(input);
+      if (!result.ok) throw new Error(result.error || "Write failed");
+      await refresh();
+      if (result.sendError) setActionMessage(`Recorded, but sending failed: ${result.sendError}`);
+      else setActionMessage(result.watcherErrors?.length ? `Sent; watcher notice failed: ${result.watcherErrors.join("; ")}` : "Saved");
+      if (input.action === "answer" || input.action === "settle") setAnswerOpen(false);
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <Modal
@@ -261,6 +285,28 @@ function CardModal({ card, scene, open, onOpenChange }: { card: DeskCard; scene:
         {rest ? <Markdown>{rest}</Markdown> : null}
         <Blocks card={card} desk={desk} c={c} size={MODAL.body} />
         {card.kind === "inbox" && card.status === "unreadable" ? <Text style={{ ...MODAL.body, color: c.danger }}>The front matter can't be read.</Text> : null}
+        {writable ? (
+          <Section label="Actions" c={c}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              <Pressable disabled={busy} onPress={() => void act({ action: "star", name: card.name })} accessibilityRole="button" style={{ borderWidth: 1, borderColor: c.border, paddingHorizontal: 10, paddingVertical: 6 }}>
+                <Text style={{ ...MODAL.body, color: c.fg }}>{card.starred ? "★ Unstar" : "☆ Star"}</Text>
+              </Pressable>
+              <Pressable disabled={busy} onPress={() => void act({ action: "settle", name: card.name, outcome: "taken up" })} accessibilityRole="button" style={{ borderWidth: 1, borderColor: c.border, paddingHorizontal: 10, paddingVertical: 6 }}>
+                <Text style={{ ...MODAL.body, color: c.fg }}>Settle</Text>
+              </Pressable>
+              {card.asker?.agentId && scene.openAgent ? <Pressable disabled={busy} onPress={() => inner.openAgent?.(card.asker!.agentId!)} accessibilityRole="button" style={{ borderWidth: 1, borderColor: c.border, paddingHorizontal: 10, paddingVertical: 6 }}><Text style={{ ...MODAL.body, color: c.fg }}>Open tab</Text></Pressable> : null}
+            </View>
+            {card.answers.length ? (
+              <View style={{ gap: 8 }}>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  {card.answers.map((answer) => <Pressable key={answer.label} onPress={() => { setAnswerId(answer.label); setReply(answer.reply); setAnswerOpen(true); }} accessibilityRole="button" style={{ borderWidth: 1, borderColor: c.ok, paddingHorizontal: 10, paddingVertical: 6 }}><Text style={{ ...MODAL.body, color: c.ok }}>{answer.label}</Text></Pressable>)}
+                </View>
+                {answerOpen ? <View style={{ gap: 8 }}><TextInput value={reply} onChangeText={setReply} multiline placeholder="Reply to the asking agent" placeholderTextColor={c.faint} style={{ minHeight: 90, borderWidth: 1, borderColor: c.border, color: c.fg, padding: 8, textAlignVertical: "top" }} /><Pressable disabled={busy || !reply.trim()} onPress={() => void act({ action: "answer", name: card.name, reply, answerId })} accessibilityRole="button" style={{ alignSelf: "flex-start", backgroundColor: c.ok, paddingHorizontal: 12, paddingVertical: 7 }}><Text style={{ ...MODAL.body, color: c.s0 }}>{busy ? "Sending…" : "Send"}</Text></Pressable></View> : null}
+              </View>
+            ) : null}
+            {actionMessage ? <Text style={{ ...MODAL.label, color: c.muted }}>{actionMessage}</Text> : null}
+          </Section>
+        ) : null}
 
         {card.prs.length ? (
           <Section label="Pull requests" c={c}>

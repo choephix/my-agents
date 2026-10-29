@@ -1,12 +1,13 @@
 import type { PluginScreenProps, PluginSidebarItemProps } from "@getpaseo/plugin/client";
+import { useSettings } from "@getpaseo/plugin/client";
 import { Icon, ScrollView, SidebarRow } from "@getpaseo/plugin/client/ui";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Dimensions, Pressable, RefreshControl, Text, View } from "react-native";
 import { type Desk, type DeskCard, type Kind, type Priority, PRIORITIES } from "../shared/desk";
+import { preferences } from "../shared/preferences";
 import { age, Card, type CardScene } from "./card";
 import { type Palette, paletteOf, TYPE } from "./palette";
-import { refresh, useDesk } from "./store";
-
+import { refresh, setToken, useDesk } from "./store";
 export const SCREEN_ID = "desk";
 
 const PRIORITY_RANK: Record<Priority, number> = { blocking: 0, revisit: 1, whenever: 2 };
@@ -144,6 +145,10 @@ function Tab({ label, count, active, onPress, c }: { label: string; count: numbe
 export function DeskScreen({ theme, layout, navigation }: PluginScreenProps) {
   const c = useMemo(() => paletteOf(theme), [theme]);
   const { desk, error, loading, at } = useDesk();
+  const settings = useSettings(preferences);
+  useEffect(() => {
+    if (settings.status === "ready") setToken(settings.values.token);
+  }, [settings]);
   const [view, setView] = useState<Kind>(lastView);
   const [priority, setPriority] = useState<Priority | null>(lastPriority);
   const [folded, setFolded] = useState(() => new Set(lastFolded));

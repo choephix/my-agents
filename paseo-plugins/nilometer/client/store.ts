@@ -1,8 +1,8 @@
-import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { useEffect, useSyncExternalStore } from "react";
 import { AppState } from "react-native";
+import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { type Desk, deskRead } from "../shared/desk";
-
+import { inboxWrite } from "../shared/preferences";
 // One copy of the desk for the screen and the sidebar row. Read when a surface mounts and when the app comes back
 // to the foreground (AppState maps to page visibility on web); no timer.
 
@@ -22,6 +22,14 @@ const listeners = new Set<() => void>();
 /** A surface mounting this soon after a read reuses it. */
 const FRESH_MS = 3_000;
 
+let token = "";
+export type MemoWrite = { action: "settle" | "answer" | "star"; name: string; outcome?: string; reply?: string; answerId?: string };
+export type MemoWriteResult = { ok: boolean; name: string; starred?: boolean; settled?: boolean; sendError?: string | null; watcherErrors?: string[]; error?: string };
+export function setToken(value: string): void { token = value; }
+export function writeMemo(input: MemoWrite): Promise<MemoWriteResult> {
+  if (!client) return Promise.resolve({ ok: false, name: input.name, error: "Plugin is not connected." });
+  return client.rpc(inboxWrite, { ...input, token });
+}
 export function setClient(next: PluginClientContext | null): void {
   client = next;
   if (!next) state = { desk: null, error: null, loading: false, at: 0 };
