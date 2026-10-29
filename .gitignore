@@ -6,3 +6,6 @@ skills/unorganised/moshi-notification/
 # Plugin screenshots are local test evidence and show private sessions.
 # Public listing images go in a separate, reviewed folder.
 paseo-plugins/*/screenshots/
+
+# Effort plans and notes are private working files; this repo is public.
+.scratch/
