@@ -115,6 +115,8 @@ const GUTTER_BAR_PX = 2;
  * has its colors back long before it shows.
  */
 const NEAR_PX = 1500;
+/** A block whose text keeps growing (a diff being streamed) is re-colored at most this often. */
+const STREAM_MS = 100;
 
 // Token kinds per line kind. Kinds that never occur there (signs on context lines, header/hunk
 // on changed lines) get no highlight: every `::highlight` rule costs style time on each element.
@@ -149,6 +151,8 @@ interface Block {
   size: string;
   /** Whether `ranges` are in the page's highlights: only while the block is on or near screen. */
   shown: boolean;
+  /** When the block was last colored (`Date.now()`). */
+  at: number;
 }
 
 /** Starts coloring diff code blocks. Returns cleanup; a no-op off the web. */
@@ -300,9 +304,13 @@ export function startDiffHighlighting(): () => void {
     const text = code?.textContent ?? "";
     if (!code || !pre.isConnected || !isDiffBlock(pre.getAttribute(LANGUAGE), text)) return clear(pre);
     const existing = blocks.get(pre);
-    // Same text over the same nodes: nothing to redo. Replaced text nodes (a re-render with the
-    // same text) leave the old ranges pointing nowhere, so those blocks are redone.
-    if (existing && existing.code === code && existing.text === text && existing.nodes.every((node) => node.isConnected)) return;
+    // Same nodes: the colors so far still sit on the right text. Replaced text nodes (a re-render
+    // with the same text) leave the old ranges pointing nowhere, so those blocks are redone now.
+    const intact = existing && existing.code === code && existing.nodes.every((node) => node.isConnected);
+    if (intact && existing.text === text) return;
+    // Grown over the same nodes, shortly after the last coloring: a diff being streamed. It is
+    // redone once the interval is up, with the text it has then, so it ends fully colored.
+    if (intact && Date.now() - existing.at < STREAM_MS) return later(pre, existing.at + STREAM_MS - Date.now());
     // Re-processing keeps the block observed: a fresh observation would report its size once more
     // and repaint rows that are painted below anyway.
     const shown = existing ? existing.shown : true;
@@ -319,7 +327,7 @@ export function startDiffHighlighting(): () => void {
       offset += textNode.data.length;
     }
     const quiet = pre.closest(QUIET) !== null;
-    const block: Block = { code, text, model: parseDiff(text), ranges: [], nodes, starts, quiet, size: "", shown: false };
+    const block: Block = { code, text, model: parseDiff(text), ranges: [], nodes, starts, quiet, size: "", shown: false, at: Date.now() };
     const mark = (name: string, start: number, end: number) => {
       const from = highlights.has(name) && locate(block, start);
       const to = from && locate(block, end);
@@ -348,6 +356,18 @@ export function startDiffHighlighting(): () => void {
     for (const [pre, block] of blocks) paintRows(pre, block);
   };
 
+  let streamTimer: ReturnType<typeof setTimeout> | undefined;
+  const pendingStream = new Set<DomElement>();
+  const later = (pre: DomElement, delay: number) => {
+    pendingStream.add(pre);
+    streamTimer ??= setTimeout(() => {
+      streamTimer = undefined;
+      const due = [...pendingStream];
+      pendingStream.clear();
+      for (const pre of due) process(pre);
+    }, delay);
+  };
+
   let resizeFrame: number | undefined;
   const pendingResize = new Set<DomElement>();
   const resizes = new ResizeObserver((entries) => {
@@ -358,6 +378,8 @@ export function startDiffHighlighting(): () => void {
       const size = entry.borderBoxSize?.[0];
       // Reports of the size the rows were painted for (every fresh observation sends one) change nothing.
       if (size && block?.size === `${size.inlineSize}x${size.blockSize}`) continue;
+      // A streaming block waiting for its next coloring (see `later`) gets its rows painted then.
+      if (pendingStream.has(entry.target)) continue;
       pendingResize.add(entry.target);
     }
     if (pendingResize.size === 0) return;
@@ -443,6 +465,7 @@ export function startDiffHighlighting(): () => void {
     mutations.disconnect();
     resizes.disconnect();
     if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
+    if (streamTimer !== undefined) clearTimeout(streamTimer);
     if (mutationFrame !== undefined) cancelAnimationFrame(mutationFrame);
     for (const pre of [...blocks.keys()]) clear(pre);
     for (const name of highlights.keys()) CSS?.highlights?.delete(`${PREFIX}-${name}`);

@@ -76,7 +76,7 @@ const settle = () => vi.advanceTimersByTimeAsync(20);
 
 let stop: (() => void) | undefined;
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+  vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
   localStorage.clear();
   document.body.innerHTML = "";
   document.head.innerHTML = `<style id="unistyles-web">
@@ -248,7 +248,8 @@ describe("blocks far off screen", () => {
     const code = pre.querySelector('[data-paseo-markdown-tag="code"]')!;
     code.append(Object.assign(document.createElement("span"), { textContent: "\n" }));
     code.append(Object.assign(document.createElement("span"), { textContent: "+const b = 3;" }));
-    await settle();
+    // Grown right after it was colored, like a streaming block: redone once the interval is up.
+    await vi.advanceTimersByTimeAsync(100);
     expect(rangeCount()).toBe(0);
 
     moveTo(pre, 300);

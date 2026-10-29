@@ -40,11 +40,19 @@ says no more than the row color.
 
 Paseo keeps rendering every message itself. The plugin only paints colors over the text it already
 shows, so the copy button, selection, Find and copy as Markdown work as before (copying gives the raw
-diff), and blocks color while the reply streams, at most once per frame. Measured 2026-10-20 in
-headless Chromium on a shared VM (a desktop is likely 2–4× faster):
+diff), and blocks color while the reply streams. A diff that is still streaming is re-colored at most
+10 times a second, so its newest lines can stay plain for up to 0.1 s; at most 0.1 s after it stops
+growing it has all its colors. A finished diff (one you open, scroll to or switch back to) is colored
+in the frame it appears. Measured 2026-10-20 in headless Chromium on a shared VM (a desktop is
+likely 2–4× faster):
 
-- Streaming a 361-line diff: 0.34–0.46 s of plugin work in total (was 0.68–0.70 s), the last frames
-  4–5 ms (were 8–10 ms). Each frame re-colors once; no second repaint after it.
+- Streaming a 361-line diff, before the 10-a-second limit: 0.34–0.46 s of plugin work in total (was
+  0.68–0.70 s), the last frames 4–5 ms (were 8–10 ms). Each frame re-colored once; no second repaint
+  after it.
+- Streaming a ~50-line diff (2026-10-29, the real web app on a GPU, alternate builds): re-coloring
+  it costs 1.3–2.3 ms/s over the 10 s after the reply starts (was 2.6–10.3 ms/s, three of five runs
+  5.6–6.7, at once per frame). Screenshot of one such diff right after it ended, fully colored:
+  `screenshots/streamed-end-paseo-dark.webp`.
 - Coming back to diff blocks after none were on screen (switching chats, scrolling history): 13 ms
   (was 0.86 s, a page-wide restyle twice per visit).
 - All 664 distinct diff blocks in Stefan's transcripts parse in 44 ms together; the slowest one in
