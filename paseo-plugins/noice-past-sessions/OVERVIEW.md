@@ -214,6 +214,11 @@ with 96 worktrees and
 3–18 ms after. Restore: 308 ms through the CLI, 178 ms on the first direct call (most of it
 loading the client once).
 
+The caches keep every session seen and are never trimmed, so each entry is kept small: the first
+500 characters of the first prompt (only its first line is shown) and the 400-character reply
+preview copied out of its message, which V8 would otherwise keep alive whole. Every OMP session on
+the machine at once (4,821 on 2026-10-29) took 33.4 MB of heap before (20.5 MB of heads, 12.9 MB of
+tail summaries), 9.7 MB after (6.3 + 3.4).
 
 ## Limits
 

@@ -2,9 +2,12 @@ import { statSync } from "node:fs";
 import { open, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { isSameOrInside, ompDirNames, subtreeDirMatcher, type PathRoots } from "./slug";
+import { detached } from "./preview";
 
 /** Bytes read from the start of a session file. The rest of the file is never read. */
 export const HEAD_BYTES = 64 * 1024;
+/** First-prompt characters kept per session: enough for its first line, the only part shown. */
+const PROMPT_MAX = 500;
 
 export interface SessionHead {
   sessionId: string;
@@ -94,7 +97,10 @@ export function parseSessionHead(chunk: string): SessionHead | null {
         break;
       case "message": {
         const message = entry.message as Record<string, unknown> | undefined;
-        if (!firstPrompt && message?.role === "user") firstPrompt = messageText(message.content);
+        if (!firstPrompt && message?.role === "user") {
+          const text = messageText(message.content);
+          firstPrompt = text && detached(text.slice(0, PROMPT_MAX));
+        }
         break;
       }
     }
