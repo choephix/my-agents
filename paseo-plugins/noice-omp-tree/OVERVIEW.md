@@ -100,7 +100,9 @@ apply without a reload. `/tree` works whatever is off.
   with gaps, so the user rows and reply footers on screen are lined up in order with the path's user
   messages and reply texts (longest common subsequence; the newer copy wins after `/prose`).
   Nothing lines up → toast, no move. The strip is placed on each scan and when its chat's scroll area
-  or composer changes size (`ResizeObserver`); nothing runs per frame.
+  or composer changes size (`ResizeObserver`); nothing runs per frame. Nodes added inside a reply
+  (a streaming reply adds them many times a second) start no scan; a scan lines the chat up once
+  for all its footers.
 - The client store polls (chat list every 5 s, shown chats' state every 2 s) but notifies its
   subscribers only when a poll changed something; an unchanged state keeps its object.
 - Timeline transformer: Paseo's replayed `[branch_summary]` row becomes the summary row;

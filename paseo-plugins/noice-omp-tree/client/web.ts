@@ -184,8 +184,8 @@ function turnOf(scroll: Element, node: Element, state: TreeState): Turn | null {
 }
 
 /** Whether a footer belongs to the newest turn (continuing from it would change nothing). */
-function isNewest(scroll: Element, trigger: Element, state: TreeState): boolean {
-  const turn = turnOf(scroll, trigger, state);
+function isNewest(scroll: Element, trigger: Element, state: TreeState, map = alignment(scroll, state)): boolean {
+  const turn = map.get(trigger);
   if (turn) return turn === state.turns.at(-1);
   const items = [...scroll.querySelectorAll('[data-testid="user-message"],[data-testid="assistant-fork-menu-trigger"]')];
   return items.at(-1) === trigger;
@@ -232,6 +232,8 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
       scroll.querySelectorAll(`.stp-ib[${ATTR}]`).forEach(node => node.remove());
       return;
     }
+    // One alignment for all footers: each lookup lists the chat's message nodes again.
+    const map = alignment(scroll, state);
     for (const trigger of scroll.querySelectorAll('[data-testid="assistant-fork-menu-trigger"]')) {
       const wrap = trigger.parentElement;
       if (!wrap?.parentElement) continue;
@@ -240,7 +242,7 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
         button = iconButton("assistant", Number(trigger.querySelector("svg")?.getAttribute("width")) || 14);
         wrap.after(button);
       }
-      (button as HTMLButtonElement).hidden = isNewest(scroll, trigger, state);
+      (button as HTMLButtonElement).hidden = isNewest(scroll, trigger, state, map);
     }
     for (const row of scroll.querySelectorAll('[data-testid="user-message-trailing-row"]')) {
       if (row.querySelector(".stp-ib")) continue;
@@ -556,8 +558,12 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
   }
 
   const observer = new MutationObserver(mutations => {
-    // Ignore our own nodes, or every scan would trigger the next.
-    if (mutations.every(m => [...m.addedNodes, ...m.removedNodes].every(node => node instanceof Element && node.hasAttribute(ATTR)))) return;
+    // Not for our own nodes, or every scan would trigger the next, nor for nodes inside a reply:
+    // a streaming reply adds them many times a second, the buttons sit outside it, and its first
+    // words are read for alignment once its turn's fork button arrives.
+    if (mutations.every(m =>
+      (m.target as Element).closest('[data-testid="assistant-message"]') ||
+      [...m.addedNodes, ...m.removedNodes].every(node => node instanceof Element && node.hasAttribute(ATTR)))) return;
     queueScan();
   });
   observer.observe(document.body, { childList: true, subtree: true });
