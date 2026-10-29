@@ -80,6 +80,9 @@ apply without a reload. `/tree` works whatever is off.
   `$PASEO_HOME/omp-session-tree/list-facts.json`, keyed by file size and mtime, so a plugin restart
   parses only chats whose file changed. Bump `FACTS_VERSION` in `index.server.ts` when what
   `branches()` or `offerIn` report changes.
+- A changed session file is parsed only past the previous read when the bytes before that point are
+  unchanged (OMP appends); otherwise whole. Trees are kept (10 min after last use) for chats something
+  opened and for chats written to in the last minute, so polls of a running chat parse only what it appended.
 - Summarize on going back = the goto request carries `summarize`: one `navigateTree(target,
   {summarize: true})` → `branch_summary` at the branch point, marker op `summarize`.
 - "Summarize them" later = in one request: back to the left branch, then `navigateTree(fork,

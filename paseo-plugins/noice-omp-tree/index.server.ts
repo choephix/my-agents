@@ -19,7 +19,7 @@ import { copyBranch, removeCopy } from "./server/branch-copy";
 const UNSUPPORTED: TreeState = { supported: false, ready: false, busy: false, turns: [], branches: [], offer: null, op: null, last: null };
 const NOT_LOADED = "This chat's OMP setup does not load the session-tree extension. Add it to ~/.paseo/omp-overlay.yml (see the plugin's OVERVIEW.md).";
 
-/** A session file's derived value, re-read only when the file's size or mtime changed; concurrent polls share one read. */
+/** A session file's derived value, re-read only when the file's size or mtime changed (`read` gets the previous value); concurrent polls share one read. */
 interface Cached<T> {
   size: number;
   mtimeMs: number;
@@ -27,11 +27,11 @@ interface Cached<T> {
   value: Promise<T>;
 }
 
-async function cachedRead<T>(cache: Map<string, Cached<T>>, file: string, read: (info: Stats) => Promise<T>): Promise<T> {
+async function cachedRead<T>(cache: Map<string, Cached<T>>, file: string, read: (info: Stats, previous?: Promise<T>) => Promise<T>): Promise<T> {
   const info = await stat(file);
   let entry = cache.get(file);
   if (!entry || entry.size !== info.size || entry.mtimeMs !== info.mtimeMs) {
-    const value = read(info);
+    const value = read(info, entry?.value);
     entry = { size: info.size, mtimeMs: info.mtimeMs, usedAt: 0, value };
     cache.set(file, entry);
     value.catch(() => cache.get(file)?.value === value && cache.delete(file));
@@ -42,18 +42,22 @@ async function cachedRead<T>(cache: Map<string, Cached<T>>, file: string, read: 
 
 /** Session files parse one at a time: a cold chat list would otherwise hold every file (~700 MB) in memory at once. */
 let parsing: Promise<void> = Promise.resolve();
-function parseTree(file: string): Promise<SessionTree> {
-  const tree = parsing.then(async () => new SessionTree(await readEntries(file)));
+function parseTree(file: string, previous?: Promise<SessionTree>): Promise<SessionTree> {
+  const tree = parsing.then(async () => {
+    // OMP appends to its session file: parse only what came after the previous tree's read.
+    const read = await readEntries(file, await previous?.catch(() => undefined));
+    return new SessionTree(read.entries, read.mark);
+  });
   parsing = tree.then(() => undefined, () => undefined); // Holds no tree.
   return tree;
 }
 
-/** Full parsed trees, only of chats something opened (state, moves); dropped after TREE_IDLE_MS unused. */
+/** Full parsed trees, only of chats something opened (state, moves) or being written to; dropped after TREE_IDLE_MS unused. */
 const trees = new Map<string, Cached<SessionTree>>();
 const TREE_IDLE_MS = 10 * 60_000;
 
 function loadTree(file: string): Promise<SessionTree> {
-  return cachedRead(trees, file, () => parseTree(file));
+  return cachedRead(trees, file, (_info, previous) => parseTree(file, previous));
 }
 
 interface Offer {
@@ -275,10 +279,8 @@ export default function contribute(server: PluginServerContext) {
         if (!agent.workspaceId) return undefined;
         const facts = await cachedRead(listFacts, file, async info => {
           factsDirty = true;
-          const open = trees.get(file);
-          const tree = open && open.size === info.size && open.mtimeMs === info.mtimeMs
-            ? await open.value
-            : await parseTree(file);
+          // A chat written to right now changes again soon: keep its tree, so that only what it appends is parsed.
+          const tree = trees.has(file) || Date.now() - info.mtimeMs < 60_000 ? await loadTree(file) : await parseTree(file);
           return { branches: tree.branches().length, offer: offerIn(tree) };
         }).catch(() => undefined);
         if (!facts) return undefined;

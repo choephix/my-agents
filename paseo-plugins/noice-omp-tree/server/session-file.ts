@@ -1,4 +1,4 @@
-import { open } from "node:fs/promises";
+import { type FileHandle, open } from "node:fs/promises";
 import type { Branch, Turn } from "../shared/tree";
 
 /**
@@ -62,24 +62,41 @@ function time(entry: Entry | undefined): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-/** The file up to its last newline: a writer may be mid-line at the end. */
-async function readComplete(file: string): Promise<Buffer> {
+/** Where a read stopped (past the last complete line), with the bytes just before it to tell an append from a rewrite. */
+export interface ReadMark {
+  end: number;
+  tail: Buffer;
+}
+const TAIL_BYTES = 256;
+
+async function readAt(handle: FileHandle, position: number, length: number): Promise<Buffer> {
+  const bytes = Buffer.alloc(length);
+  let offset = 0;
+  while (offset < length) {
+    const { bytesRead } = await handle.read(bytes, offset, length - offset, position + offset);
+    if (!bytesRead) break;
+    offset += bytesRead;
+  }
+  return bytes.subarray(0, offset);
+}
+
+/**
+ * The file's complete lines (a writer may be mid-line at the end). After an earlier read whose tail is
+ * unchanged, only what was appended since (`start` > 0); a rewritten file is read whole.
+ */
+async function readComplete(file: string, after?: ReadMark): Promise<{ bytes: Buffer; start: number; mark: ReadMark }> {
   const handle = await open(file, "r");
-  let bytes: Buffer;
   try {
     const { size } = await handle.stat();
-    bytes = Buffer.alloc(size);
-    let offset = 0;
-    while (offset < size) {
-      const { bytesRead } = await handle.read(bytes, offset, size - offset, offset);
-      if (!bytesRead) break;
-      offset += bytesRead;
-    }
-    bytes = bytes.subarray(0, offset);
+    let start = 0;
+    if (after && after.end <= size && (await readAt(handle, after.end - after.tail.length, after.tail.length)).equals(after.tail)) start = after.end;
+    let bytes = await readAt(handle, start, size - start);
+    bytes = bytes.subarray(0, bytes.lastIndexOf(10) + 1);
+    const tail = Buffer.from((start ? Buffer.concat([after!.tail, bytes]) : bytes).subarray(-TAIL_BYTES));
+    return { bytes, start, mark: { end: start + bytes.length, tail } };
   } finally {
     await handle.close();
   }
-  return bytes.subarray(0, bytes.lastIndexOf(10) + 1);
 }
 
 /** Decodes one line at a time, so the whole file never exists as one string. */
@@ -94,11 +111,14 @@ function* linesOf(bytes: Buffer): Generator<string> {
 
 /** Raw lines, for copying a branch into a new file. */
 export async function readLines(file: string): Promise<string[]> {
-  return [...linesOf(await readComplete(file))];
+  return [...linesOf((await readComplete(file)).bytes)];
 }
 
-export async function readEntries(file: string): Promise<Entry[]> {
-  return entriesOf(linesOf(await readComplete(file)));
+/** Entries of the file; given the previous read of it, parses only the lines appended since. */
+export async function readEntries(file: string, previous?: { entries: Entry[]; mark?: ReadMark }): Promise<{ entries: Entry[]; mark: ReadMark }> {
+  const { bytes, start, mark } = await readComplete(file, previous?.mark);
+  const added = entriesOf(linesOf(bytes));
+  return { entries: start && previous ? [...previous.entries, ...added] : added, mark };
 }
 
 export function entriesOf(lines: Iterable<string>): Entry[] {
@@ -158,7 +178,8 @@ export class SessionTree {
   #turns: Turn[] | undefined;
   #branches: Branch[] | undefined;
 
-  constructor(readonly entries: Entry[]) {
+  /** `mark`: where the read of the file stopped, so the next read can continue there. */
+  constructor(readonly entries: Entry[], readonly mark?: ReadMark) {
     entries.forEach((entry, index) => {
       this.byId.set(entry.id, entry);
       this.order.set(entry.id, index);
