@@ -78,7 +78,7 @@ declare const CSS: { highlights?: { set(name: string, highlight: HighlightSet): 
 declare const Highlight: { new (): HighlightSet } | undefined;
 declare const StaticRange: { new (init: { startContainer: DomText; startOffset: number; endContainer: DomText; endOffset: number }): StaticDomRange };
 declare const localStorage: { getItem(key: string): string | null };
-declare function getComputedStyle(element: DomElement): { color: string; lineHeight: string };
+declare function getComputedStyle(element: DomElement): { lineHeight: string; getPropertyValue(name: string): string };
 declare function requestAnimationFrame(callback: () => void): number;
 declare function cancelAnimationFrame(handle: number): void;
 declare class MutationObserver {
@@ -124,13 +124,17 @@ const CHANGED_KINDS: Record<Side, TokenKind[]> = { add: [...SYNTAX_KINDS, "addSi
 
 // Highlight names and priorities, all below Paseo's own highlights (chat Find, priority 0). Bottom
 // to top: plain text on added/removed lines (`text-add`), syntax tokens (`keyword` on context lines,
-// `keyword-add` / `keyword-del` on changed lines, tinted toward the line color), word marks.
+// `keyword-add` / `keyword-del` on changed lines, tinted toward the line color), word marks
+// (`addEdit`, or `quiet-addEdit` in quiet blocks).
 const HIGHLIGHTS: Array<[name: string, priority: number]> = [
   ...SIDES.map((side): [string, number] => [`text-${side}`, -3]),
   ...CONTEXT_KINDS.map((kind): [string, number] => [kind, -2]),
   ...SIDES.flatMap((side) => CHANGED_KINDS[side].map((kind): [string, number] => [`${kind}-${side}`, -2])),
-  ...EDIT_KINDS.map((kind): [string, number] => [kind, -1]),
+  ...EDIT_KINDS.flatMap((kind): Array<[string, number]> => [[kind, -1], [`quiet-${kind}`, -1]]),
 ];
+
+/** Diffs quoted in a message or written in your own: soft word marks and no deeper shade. */
+const QUIET = 'blockquote, [data-testid="user-message"]';
 
 interface Block {
   code: DomElement;
@@ -139,6 +143,8 @@ interface Block {
   ranges: Array<[string, StaticDomRange]>;
   nodes: DomText[];
   starts: number[];
+  /** Inside a quote or a user message: see `QUIET`. */
+  quiet: boolean;
   /** Border-box size the rows were last painted for; resize reports of this size are no-ops. */
   size: string;
   /** Whether `ranges` are in the page's highlights: only while the block is on or near screen. */
@@ -168,9 +174,11 @@ export function startDiffHighlighting(): () => void {
   /** Paseo's stored settings as last read: a different string may mean another (syntax) theme. */
   let settingsSeen: string | null = null;
 
-  // Called only with a real code block: a placeholder palette while no diff block is on screen
-  // would rewrite the stylesheet twice per visit, and each rewrite restyles the whole page.
-  const syncPalette = (sample: DomElement): boolean => {
+  // Paseo's theme (Unistyles on web) puts its scheme and colors on <html> as CSS variables, so
+  // every block gets the same palette whatever its own text color: a quote's text is translucent,
+  // and a user message is drawn by another plugin. Reading them forces a style update, so this
+  // runs only while diff blocks are on screen and on a sign of a theme switch.
+  const syncPalette = (): boolean => {
     let syntaxTheme = "one";
     settingsSeen = localStorage.getItem(SETTINGS_KEY);
     try {
@@ -180,9 +188,9 @@ export function startDiffHighlighting(): () => void {
     } catch {
       // Unreadable settings: Paseo's default syntax theme.
     }
-    // The block's text color is the theme's foreground, so light text means a dark theme.
-    const foreground = getComputedStyle(sample).color;
-    const scheme: Scheme = luminance(foreground) > 0.5 ? "dark" : "light";
+    const root = getComputedStyle(document.documentElement);
+    const scheme: Scheme = root.getPropertyValue("--color-scheme").trim() === "light" ? "light" : "dark";
+    const foreground = root.getPropertyValue("--colors-foreground").trim();
     const key = `${syntaxTheme}|${scheme}|${foreground}`;
     if (key === paletteKey) return false;
     paletteKey = key;
@@ -194,7 +202,10 @@ export function startDiffHighlighting(): () => void {
         rule(`text-${side}`, `color: ${tint(foreground, palette.lines[side])};`),
         ...CHANGED_KINDS[side].map((kind) => rule(`${kind}-${side}`, `color: ${palette.changedTokens[side][kind]};`)),
       ]),
-      ...EDIT_KINDS.map((kind) => rule(kind, `background-color: ${palette.edits[kind]}; color: ${palette.editText};`)),
+      ...EDIT_KINDS.flatMap((kind) => [
+        rule(kind, `background-color: ${palette.edits[kind]}; color: ${palette.editText};`),
+        rule(`quiet-${kind}`, `background-color: ${palette.quietEdits[kind]};`),
+      ]),
     ].join("\n");
     return true;
   };
@@ -266,12 +277,13 @@ export function startDiffHighlighting(): () => void {
     }
     // Top to bottom: gutter bars, row bands, then the shade. The shade sits over the theme's own
     // block background, so the block deepens toward black (light themes: white) but keeps the
-    // theme's hue; it always covers the whole block, also while a streaming block grows.
+    // theme's hue; it always covers the whole block, also while a streaming block grows. Quiet
+    // blocks keep the background they are given.
     const px = (n: number) => `${Math.round(n * 100) / 100}px`;
     const layers = [
       ...rows.flatMap((r) => (r.bar ? [{ color: r.bar, size: `${GUTTER_BAR_PX}px ${px(r.bottom - r.top)}`, at: `0 ${px(r.top)}` }] : [])),
       ...rows.map((r) => ({ color: r.color, size: `100% ${px(r.bottom - r.top)}`, at: `0 ${px(r.top)}` })),
-      { color: palette.shade, size: "100% 100%", at: "0 0" },
+      ...(block.quiet ? [] : [{ color: palette.shade, size: "100% 100%", at: "0 0" }]),
     ];
     // Important, so theme plugins that restyle code blocks (Chat Polish sets `background` with
     // !important) don't hide the rows; inline !important wins over any stylesheet.
@@ -306,7 +318,8 @@ export function startDiffHighlighting(): () => void {
       starts.push(offset);
       offset += textNode.data.length;
     }
-    const block: Block = { code, text, model: parseDiff(text), ranges: [], nodes, starts, size: "", shown: false };
+    const quiet = pre.closest(QUIET) !== null;
+    const block: Block = { code, text, model: parseDiff(text), ranges: [], nodes, starts, quiet, size: "", shown: false };
     const mark = (name: string, start: number, end: number) => {
       const from = highlights.has(name) && locate(block, start);
       const to = from && locate(block, end);
@@ -322,11 +335,11 @@ export function startDiffHighlighting(): () => void {
       mark(kind === "add" || kind === "del" ? `${span.kind}-${kind}` : span.kind, span.start, span.end);
     }
     for (const line of lines) if ((line.kind === "add" || line.kind === "del") && line.end > line.start + 1) mark(`text-${line.kind}`, line.start + 1, line.end);
-    for (const edit of block.model.edits) mark(edit.kind, edit.start, edit.end);
+    for (const edit of block.model.edits) mark(quiet ? `quiet-${edit.kind}` : edit.kind, edit.start, edit.end);
     if (shown) show(block);
     blocks.set(pre, block);
     if (!existing) resizes.observe(pre);
-    if (syncPalette(code)) repaintAll();
+    if (syncPalette()) repaintAll();
     else paintRows(pre, block);
     place(pre, block);
   };
@@ -397,14 +410,10 @@ export function startDiffHighlighting(): () => void {
   mutations.observe(document.body, { childList: true, characterData: true, subtree: true });
 
   // Theme and syntax-theme switches restyle without touching the blocks, so they are caught
-  // here. Each re-read of the palette reads the block's computed color, a forced style update, so
-  // it only runs on a sign of a switch, never on a timer.
+  // here. Each re-read of the palette reads computed style, a forced style update, so it only
+  // runs on a sign of a switch, never on a timer, and not while no diff block is on screen.
   const resync = () => {
-    for (const [pre, block] of blocks) {
-      if (!pre.isConnected) continue;
-      if (syncPalette(block.code)) repaintAll();
-      return;
-    }
+    if (blocks.size > 0 && syncPalette()) repaintAll();
   };
   // Paseo stores theme and syntax theme in its settings. Comparing the stored string reads no style.
   const resyncIfSettingsChanged = () => {
@@ -455,10 +464,4 @@ function locate(block: Block, offset: number): [DomText, number] | undefined {
   const node = nodes[lo]!;
   if (node.nodeType !== TEXT_NODE) return undefined;
   return [node, Math.min(offset - starts[lo]!, node.data.length)];
-}
-
-/** Relative luminance (0 dark … 1 light) of a computed `rgb()`/`rgba()` color. */
-function luminance(color: string): number {
-  const [r = 0, g = 0, b = 0] = (color.match(/[\d.]+/g) ?? []).map(Number);
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 }

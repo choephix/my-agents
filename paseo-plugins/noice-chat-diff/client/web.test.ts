@@ -44,11 +44,13 @@ const scrollChat = () => document.body.dispatchEvent(new Event("scroll"));
 const LIGHT_TEXT = "rgb(20, 20, 20)";
 const DARK_TEXT = "rgb(240, 240, 240)";
 
-// Paseo's theme: Unistyles swaps a class on <html>; colors come from its stylesheet in <head>.
+// Paseo's theme: Unistyles swaps a class on <html>; each theme's scheme and colors are CSS
+// variables on :root in its stylesheet in <head>.
 const themeSheet = () => document.head.querySelector<HTMLStyleElement>("#unistyles-web")!;
+const themeVars = (scheme: "light" | "dark") => `--color-scheme: ${scheme}; --colors-foreground: ${scheme === "light" ? LIGHT_TEXT : DARK_TEXT};`;
 
 /** A chat code block with Paseo's markers: one span per line, newlines in spans of their own. */
-function addDiffBlock(lines: string[]): HTMLElement {
+function addDiffBlock(lines: string[], parent: HTMLElement = document.body): HTMLElement {
   const pre = document.createElement("div");
   pre.setAttribute("data-paseo-markdown-tag", "pre");
   pre.setAttribute("data-paseo-markdown-language", "diff");
@@ -59,7 +61,7 @@ function addDiffBlock(lines: string[]): HTMLElement {
     code.append(Object.assign(document.createElement("span"), { textContent: line }));
   });
   pre.append(code);
-  document.body.append(pre);
+  parent.append(pre);
   return pre;
 }
 const DIFF = ["@@ -1 +1 @@", "-const a = 1;", "+const a = 2;", " return a;"];
@@ -78,8 +80,8 @@ beforeEach(() => {
   localStorage.clear();
   document.body.innerHTML = "";
   document.head.innerHTML = `<style id="unistyles-web">
-    :root.light [data-paseo-markdown-tag="code"] { color: ${LIGHT_TEXT}; }
-    :root.dark [data-paseo-markdown-tag="code"] { color: ${DARK_TEXT}; }
+    :root.light { ${themeVars("light")} }
+    :root.dark { ${themeVars("dark")} }
   </style>`;
   document.documentElement.className = "light";
 });
@@ -99,6 +101,17 @@ describe("theme and syntax theme switches", () => {
 
     document.documentElement.className = "dark";
     await Promise.resolve();
+    expect(ruleColor("keyword")).toBe(diffPalette("one", "dark").tokens.keyword);
+    expect(ruleColor("text-add")).toContain(DARK_TEXT);
+  });
+
+  test("a diff quoted in your own message gets the theme's palette, though its text is translucent", () => {
+    document.documentElement.className = "dark";
+    const quote = document.body.appendChild(document.createElement("blockquote"));
+    const pre = addDiffBlock(DIFF, quote);
+    // What Chromium reports for a quote's text drawn at 80% (`color-mix(…, transparent)`).
+    pre.querySelector<HTMLElement>('[data-paseo-markdown-tag="code"]')!.style.color = "color(srgb 0.94 0.94 0.94 / 0.8)";
+    stop = startDiffHighlighting();
     expect(ruleColor("keyword")).toBe(diffPalette("one", "dark").tokens.keyword);
     expect(ruleColor("text-add")).toContain(DARK_TEXT);
   });
@@ -126,7 +139,7 @@ describe("theme and syntax theme switches", () => {
     addDiffBlock(DIFF);
     stop = startDiffHighlighting();
     // A theme plugin updated in place: same theme name, so no class change, and no settings change.
-    themeSheet().textContent = `[data-paseo-markdown-tag="code"] { color: ${DARK_TEXT}; }`;
+    themeSheet().textContent = `:root { ${themeVars("dark")} }`;
     await settle();
     window.dispatchEvent(new Event("focus"));
     expect(ruleColor("keyword")).toBe(diffPalette("one", "dark").tokens.keyword);
@@ -135,10 +148,26 @@ describe("theme and syntax theme switches", () => {
   test("the system light/dark switch recolors blocks in Paseo's automatic theme", async () => {
     addDiffBlock(DIFF);
     stop = startDiffHighlighting();
-    themeSheet().textContent = `[data-paseo-markdown-tag="code"] { color: ${DARK_TEXT}; }`;
+    themeSheet().textContent = `:root { ${themeVars("dark")} }`;
     await settle();
     for (const listener of schemeListeners) listener();
     expect(ruleColor("keyword")).toBe(diffPalette("one", "dark").tokens.keyword);
+  });
+});
+
+describe("quiet blocks", () => {
+  const marks = (name: string) => registry.get(`noice-chat-diff-${name}`)?.size ?? 0;
+
+  test("changed words in a quote or your own message get a soft band; elsewhere they stay reverse video", () => {
+    const quote = document.body.appendChild(document.createElement("blockquote"));
+    const message = document.body.appendChild(document.createElement("div"));
+    message.setAttribute("data-testid", "user-message");
+    addDiffBlock(DIFF, quote);
+    addDiffBlock(DIFF, message);
+    addDiffBlock(DIFF);
+    stop = startDiffHighlighting();
+    expect([marks("quiet-delEdit"), marks("quiet-addEdit")]).toEqual([2, 2]);
+    expect([marks("delEdit"), marks("addEdit")]).toEqual([1, 1]);
   });
 });
 

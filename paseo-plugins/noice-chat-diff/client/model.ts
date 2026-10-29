@@ -311,15 +311,17 @@ export function parseDiff(text: string): DiffModel {
   });
 
   // A diff that names its files colors each file by extension (unknown extensions stay plain);
-  // a headerless mock diff is sniffed once from its code.
+  // a headerless mock diff is sniffed once from its code. A headerless diff of Markdown or plain
+  // text (every line a heading, a rule or prose) gets no syntax colors, like a `.md` file.
   const named = rows.some((line, i) => kinds[i] === "header" && headerPath(line) !== undefined);
   const highlightSyntax = text.length <= MAX_SYNTAX_CHARS;
   const code = highlightSyntax && !named ? rows.filter((_, i) => kinds[i] !== "header" && kinds[i] !== "hunk").map((l) => l.slice(1)) : [];
   let lang: Lang | undefined = highlightSyntax && !named ? LANGS[sniffLang(code.join("\n"))] : undefined;
+  if (lang && isTextBlock(lang, code)) lang = undefined;
   let oldState: TokenState = {};
   let newState: TokenState = {};
   const tokenize = (body: string, at: number, state: TokenState) => {
-    if (lang && (state.blockEnd || !isProse(lang, body))) tokenizeLine(lang, body, at, state, spans);
+    if (lang && (state.blockEnd || !isProse(lang, body, PROSE_LINE_WORDS))) tokenizeLine(lang, body, at, state, spans);
   };
 
   const lines: DiffLine[] = [];
@@ -366,14 +368,49 @@ export function parseDiff(text: string): DiffModel {
   return { lines, spans, edits: wordEdits(text, lines) };
 }
 
+/** Ordinary words a line needs, among code, to read as prose; fewer are too easily a statement. */
+const PROSE_LINE_WORDS = 6;
+const HEADING = /^#{1,6}\s+\S/;
+
+/** Whether every line of a headerless diff is Markdown or plain text, so none of it gets code colors. */
+function isTextBlock(lang: Lang, lines: string[]): boolean {
+  let text = false;
+  for (const line of lines) {
+    const body = line.trim();
+    if (!body) continue;
+    // Headings and rules are text whatever their length, also where `#` starts a comment.
+    if (!HEADING.test(body) && !/^(-{3,}|\*{3,})$/.test(body) && !isProse(lang, body, 2)) return false;
+    text = true;
+  }
+  return text;
+}
+
+/**
+ * The words of a Markdown line: quote and list markers, heading hashes, link targets and bold
+ * markers go; inline code becomes one word, so `diffPalette()` in a sentence leaves it prose.
+ */
+function unmark(text: string): string {
+  return text
+    .replace(/^(?:>\s?)+/, "")
+    .replace(/^(?:#{1,6}\s+|(?:[-+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?)/, "")
+    .replace(/`[^`]+`/g, "code")
+    .replace(/\[([^\]]+)\]\([^)\s]+\)/g, "$1")
+    .replace(/\*\*|__/g, "");
+}
+
 /**
  * Whether a line reads as prose (a sentence in a prompt, docs or a message) rather than code, so
- * code colors would only paint English words like `from` and `in` as keywords. Comments keep their
- * comment color.
+ * code colors would only paint English words like `from` and `in` as keywords. Markdown syntax is
+ * looked through (see `unmark`), and a line that has some is text however many keywords it holds.
+ * Comments keep their comment color.
  */
-function isProse(lang: Lang, body: string): boolean {
-  const text = body.trim();
-  if (/[;{}=<>|&]|\($/.test(text) || /^(\/[/*]|\*|--)/.test(text) || lang.lineComments.some((c) => text.startsWith(c))) return false;
+function isProse(lang: Lang, body: string, minWords: number): boolean {
+  const raw = body.trim();
+  if (/^(\/[/*]|\*|--)/.test(raw) || lang.lineComments.some((c) => raw.startsWith(c))) return false;
+  if (HEADING.test(raw)) return true;
+  const text = unmark(raw);
+  // Code symbols, a call, or a `key: value` line (YAML, a list of settings).
+  if (/[;{}=<>|&]|\($|\w\(/.test(text) || /^[\w.-]+:(\s|$)/.test(text)) return false;
   let plain = 0;
   let plainChars = 0;
   let keywords = 0;
@@ -384,7 +421,8 @@ function isProse(lang: Lang, body: string): boolean {
     if (lang.keywords[word] === true || lang.literals[word] === true) keywords++;
   }
   // Mostly ordinary words, few of them keywords: `return x if y is not None else z` is code.
-  return plain >= 6 && plainChars >= text.replace(/\s/g, "").length * 0.7 && keywords * 3 < plain;
+  const fewKeywords = text !== raw || keywords * 3 < plain;
+  return plain >= minWords && plainChars >= text.replace(/\s/g, "").length * 0.7 && fewKeywords;
 }
 
 /** Words, whitespace runs and single symbols: the units a changed range is made of. */

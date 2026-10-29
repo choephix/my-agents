@@ -47,6 +47,13 @@ describe("parseDiff", () => {
     const colored = model.spans.filter((span) => span.kind !== "addSign" && span.kind !== "delSign").map((span) => `${span.kind}:${text.slice(span.start, span.end)}`);
     expect(colored).toEqual(["keyword:const", "operator:=", "keyword:await", "function:next", "comment:// when the build is done, in this order"]);
   });
+
+  it("gives a Markdown diff no code colors, inline code and quote markers included, but keeps YAML keys", () => {
+    const markdown = "-- Use `diffPalette()` from `palette.ts` in `web.ts` for **all** blocks.\n+- Use `diffPalette()` with the scheme for **every** block.\n ## Fix direction\n-> Take the theme from Paseo itself, not from the block.\n+> Take the theme from Paseo itself (its scheme), not from a color.";
+    expect(parseDiff(markdown).spans.filter((span) => span.kind !== "addSign" && span.kind !== "delSign")).toEqual([]);
+    const yaml = "- name: web\n+ name: api\n  image: node";
+    expect(parseDiff(yaml).spans.filter((span) => span.kind === "property").map((span) => yaml.slice(span.start, span.end))).toEqual(["name", "name", "image"]);
+  });
 });
 
 describe("word edits", () => {

@@ -11,13 +11,25 @@ over the theme's own block background, so the theme's hue stays (a purple block 
 purple). Other code blocks keep the theme's color. Screenshots: `screenshots/style-11-paseo-dark.webp`,
 `-t3-dark.webp`, `-paseo-light.webp` (fixtures `fixtures/chat-fixture.md` and `fixtures/prose.diff`).
 
+Diffs inside a quote (`>`) and diffs in your own messages (drawn by `noice-chat-message-polish`)
+are quieter: changed words get a soft 25% band in the line color and keep their text color, and
+the block keeps the background it is given, without the deeper layer. Rows, gutter bars and syntax
+colors are the same. Screenshots: `screenshots/quote-before-*.webp` and `quote-after-*.webp`
+(dark and light, your message and the agent's reply).
+
+Light or dark colors follow Paseo's own theme (its light/dark scheme and text color, read from the
+CSS variables Paseo sets on the page), the same for every block, never a guess from one block's
+colors.
+
 Blocks fenced as `diff` or `patch` are always colored. Unlabeled blocks are colored only when they
 look like a diff: git headers (`diff --git`, `---`/`+++`, `@@ -1,3`) or every line starting with
 `+`, `-` or a space, with at least one of each. Blocks labeled with another language are left alone.
 The code language comes from the file names in the diff headers; mock diffs without headers get a
 best guess. Lines that read as prose (a prompt, docs, a message) get no syntax colors, so words like
-`from` and `in` aren't painted as keywords; neither do Markdown and text files. Comments keep their
-comment color.
+`from` and `in` aren't painted as keywords; neither do Markdown and text files. Markdown is read
+through: list and quote markers, headings, links, bold and inline code don't stop a line from being
+prose, and a headerless diff whose every line is Markdown or text gets no syntax colors at all.
+Comments keep their comment color; `key: value` lines stay code (YAML).
 
 Changed words: each removed line is paired with the most similar of the added lines after it (they
 must share at least half their text), and a word-by-word diff of the pair marks every changed
@@ -37,8 +49,8 @@ headless Chromium on a shared VM (a desktop is likely 2–4× faster):
   (was 0.86 s, a page-wide restyle twice per visit).
 - All 664 distinct diff blocks in Stefan's transcripts parse in 44 ms together; the slowest one in
   under 1 ms.
-- 41 page-wide highlight styles (were 49: the 8 that could never match are gone); every one costs
-  style time on each element of the chat.
+- 43 page-wide highlight styles (were 49: the 8 that could never match are gone, 2 for quiet word
+  marks were added); every one costs style time on each element of the chat.
 - Theme and syntax-theme switches recolor diff blocks at once, picked up from Paseo's own theme
   change (the class on the page root, its theme stylesheet), window focus and the system light/dark
   switch. The plugin used to check every 1.5 s, forcing a style update each time; idle, it now
@@ -56,10 +68,11 @@ Limits:
 
 - Paseo 0.11.4 or later, in the web app and the desktop app. The iOS and Android apps show diffs as
   before.
-- It relies on markers Paseo puts on chat code blocks for its own copy feature. They are not a public
-  plugin API; tested on Paseo 0.12.0 (2026-10-20). If a later update drops them, the coloring stops;
-  the chat itself keeps working.
-- Green/red are fixed neon colors (one pair for light, one for dark themes), not the theme's own
-  status colors.
+- It relies on markers Paseo puts on chat code blocks for its own copy feature, and on its
+  `user-message` test id and `<blockquote>` to find quiet blocks. They are not a public plugin API;
+  tested on Paseo 0.13.0 (2026-10-29). If a later update drops them, the coloring stops (or quiet
+  blocks get the full style); the chat itself keeps working.
+- Green/red are fixed neon colors (one pair for light, one for dark themes, picked by the theme's
+  light/dark scheme), not the theme's own status colors.
 - The syntax coloring is a lightweight tokenizer, close to but simpler than Paseo's own highlighter.
 - No line numbers: they would have to be added as text and would end up in copies.

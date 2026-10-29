@@ -92,6 +92,8 @@ export interface DiffPalette {
   /** Changed words: solid line color with white text (reverse video). */
   edits: Record<EditKind, string>;
   editText: string;
+  /** Changed words in quoted diffs and in your own messages: a soft band, the text keeps its color. */
+  quietEdits: Record<EditKind, string>;
   /** Full-width row bands; kinds without one keep the block's own surface. */
   rows: Partial<Record<LineKind, string>>;
   /** Gutter bar at the left edge of added and removed rows. */
@@ -135,6 +137,7 @@ export function diffPalette(syntaxTheme: string, scheme: Scheme): DiffPalette {
     lines: line,
     edits: { addEdit: mark(line.add), delEdit: mark(line.del) },
     editText: "#ffffff",
+    quietEdits: { addEdit: withAlpha(line.add, 0.25), delEdit: withAlpha(line.del, 0.25) },
     rows: {
       add: withAlpha(line.add, 0.06),
       del: withAlpha(line.del, 0.06),
