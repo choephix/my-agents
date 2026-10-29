@@ -16,6 +16,10 @@ function setup(agents: AgentFacts[]) {
     send: async (id, text) => void sent.push([id, text]),
     markReported: async id => void reported.push(id),
     link: async id => `link/${id}`,
+    writeRow: async () => undefined,
+    timelineEpoch: async () => undefined,
+    markRow: async () => {},
+    follow: () => () => {},
   };
   const watcher = new TangentWatcher(port, () => 10_000);
   return { watcher, sent, reported, byId };

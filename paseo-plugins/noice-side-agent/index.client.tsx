@@ -2,10 +2,10 @@ import { useEffect } from "react";
 import { Platform, Text } from "react-native";
 import type { PluginAgentCommandContext, PluginClientContext, PluginScreenProps } from "@getpaseo/plugin/client";
 import { capturePane, prepareRightPane } from "./client/web";
-import { createSide, createTangent } from "./shared/preferences";
-import { parseTangentReports, TANGENT_REPORT_START } from "./shared/report";
+import { createSide, createTangent, tangentRowShown } from "./shared/preferences";
+import { parseTangentReports, TANGENT_REPORT_START, TANGENT_ROW_KIND } from "./shared/report";
 import { ContextSettings } from "./client/settings";
-import { createTangentRow, ReportRowData } from "./client/tangent-row";
+import { createTangentRows, ReportRowData, TangentRowData } from "./client/tangent-row";
 
 // Slash callbacks and timeline rows have openScreen, not navigation. A registered screen
 // supplies the public host navigation on native as well as web, without private imports.
@@ -66,7 +66,8 @@ export default function contribute(client: PluginClientContext) {
   });
   // Paseo echoes the `/follow-up <report>` send the moment it is queued, mid-reply. OMP records
   // the report again when it actually delivers it after the reply; show only that one.
-  // A delivered report (or several, joined for a non-OMP parent) becomes one row per tangent.
+  // A delivered report (or several, joined for a non-OMP parent) becomes one row per tangent,
+  // which draws nothing while the tangent's own row (written by the server) is still in the chat.
   const followUpEcho = `/follow-up ${TANGENT_REPORT_START}`;
   const reports = client.addTimelineTransformer({
     id: "tangent-reports",
@@ -79,11 +80,11 @@ export default function contribute(client: PluginClientContext) {
       return { items: parsed.map(data => ({ type: "plugin" as const, kind: "tangent-report", version: 1, id: `report-${data.agentId}`, data })) };
     },
   });
-  const reportRow = client.addTimelineRenderer({
-    kind: "tangent-report",
-    version: 1,
-    schema: ReportRowData,
-    Component: createTangentRow((serverId, agentId) => client.openScreen({ screenId: "open", params: { serverId, agentId } })),
-  });
-  return () => { reportRow(); reports(); tangent(); slash(); settings(); screen(); };
+  const rows = createTangentRows(
+    (serverId, agentId) => client.openScreen({ screenId: "open", params: { serverId, agentId } }),
+    async (parentId, childId) => (await client.rpc(tangentRowShown, { parentId, childId })).shown,
+  );
+  const reportRow = client.addTimelineRenderer({ kind: "tangent-report", version: 1, schema: ReportRowData, Component: rows.ReportMessageRow });
+  const tangentRow = client.addTimelineRenderer({ kind: TANGENT_ROW_KIND, version: 1, schema: TangentRowData, Component: rows.TangentRow });
+  return () => { tangentRow(); reportRow(); reports(); tangent(); slash(); settings(); screen(); };
 }

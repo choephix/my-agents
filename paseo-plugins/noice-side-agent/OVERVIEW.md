@@ -169,18 +169,50 @@ Delivery never interrupts the parent:
   with `---`), because a second send would interrupt the turn the first started.
 - A parent that is archived or gone gets nothing; the server logs the drop.
 
-In the parent chat the report is not drawn as a user bubble but as a compact row
-in the style of the `/tan` row (`noice-omp-slash-aliases`): a muted dashed box with
-`tangent`, the title (without its `Tangent: ` prefix), the status (`done in 1m 50s`,
-`failed after 12s` in red, `stopped after 17s`, `archived after 3s`) and, for
-finished and failed ones, the first line of the answer or error. Click it to open
-the full answer as Markdown (Paseo's own renderer), with **Open the tangent**
-(opens the child's tab in the app through the plugin's `open` screen, on the host
-named in the link) and **Copy result**. Only the display changes; the parent model
-receives the plain report text. A message of several joined reports becomes one
-row per tangent. The match is exact: a message is drawn this way only if all of
-it parses as reports in the format above, with links to `/h/<server>/agent/<id>`;
-anything else keeps its normal bubble.
+In the parent chat each tangent is **one row** in the style of the `/tan` row
+(`noice-omp-slash-aliases`): a muted dashed box with `tangent` and the title
+(without its `Tangent: ` prefix).
+
+- **While it runs**, the row sits where `/tangent` was sent: `running 0:42`
+  (counted in the app, once a second) and a muted peek of the child's newest tool
+  call, its name and what it works on (`bash · sleep 120`, `read · src/app.ts`).
+  One click opens the tangent's tab.
+- **When it ends**, the same row, in the same place, shows the status
+  (`done in 1m 50s`, `failed after 12s` in red, `stopped after 17s`, `archived
+  after 3s`) and, for finished and failed ones, the first line of the answer or
+  error. Click it to open the full answer as Markdown (Paseo's own renderer),
+  with **Open the tangent** (opens the child's tab through the plugin's `open`
+  screen, on the host named in the link) and **Copy result**. An answer over
+  20,000 characters is cut in the row with a note; the report message and the
+  tangent keep all of it.
+
+The server writes this row into the parent's timeline as a plugin item
+(`tangent-<child id>`, kind `tangent-row`), first when the child is launched,
+again on each tool call it starts (from a subscription to the child's
+timeline), and once more with the finished report just before sending it.
+The report message itself then draws nothing; the parent model still receives
+the plain report text. Each write records the parent timeline's epoch on the
+child (`side-agent.tangent-row` label); a report message draws nothing only when
+that epoch is still the parent's current one, which the app asks the server
+(`tangent-row-shown` RPC) once per report row it mounts.
+
+Plugin rows live in the daemon's memory, not in the provider's history, so:
+
+- **Daemon restart while a tangent runs:** its running row is gone and is not
+  put back. When the tangent ends, the finished row is written at the end of
+  the parent chat (where the report arrives), and the report draws nothing.
+- **Daemon restart after a tangent ended**, and reports from before this row
+  existed: the row is gone, the label's epoch is stale, so the report message
+  is drawn as the finished row in the report's place, from its text (exact
+  match: only a message that entirely parses as reports in the format above,
+  with links to `/h/<server>/agent/<id>`; several joined reports become one row
+  each; anything else keeps its normal bubble).
+- **Plugin reload while a tangent runs:** the row stays and keeps counting, but
+  its tool-call peek stops at the last step; when the tangent ends, the row
+  becomes the report as usual. A tangent that ends during the reload itself is
+  reported before the plugin has its Paseo API (it gets one from its first RPC
+  or lifecycle event): its row keeps saying running, and the report is drawn
+  as its own row.
 
 The parent runs a new turn on the report, like any message. Each tangent is
 reported once. Its state lives in child labels (`side-agent.tangent`:
@@ -211,13 +243,17 @@ command for this one to shadow.
 - Failed full launches archive the imported child and remove their copy when
   cleanup succeeds. The live tests archived their agents before explicitly
   deleting all test-created full-memory copies and sidecar directories.
-- The server part registers settings, the `/side` and `/tangent` RPC handlers,
-  and two lifecycle listeners (`agent.turn_ended`, `agent.archived`) that watch
-  tangents. It uses short-lived installed SDK connections for native
+- The server part registers settings, the `/side`, `/tangent` and
+  `tangent-row-shown` RPC handlers, and two lifecycle listeners
+  (`agent.turn_ended`, `agent.archived`) that watch tangents. It uses
+  short-lived installed SDK connections for native
   fork/import/config/label/timeline RPCs, authenticated to the published
   **loopback TCP** daemon under `PASEO_HOME` (or `~/.paseo`). Socket-only or
   unpublished endpoints are not supported and fail clearly. Local credentials
-  are never sent to remote hosts.
+  are never sent to remote hosts. Tangent rows (append, the parent's timeline
+  epoch, one live subscription per running tangent, closed when it ends) go
+  through the plugin's own Paseo API, because the daemon accepts appends only
+  from plugin sessions.
 - `node_modules` is an ignored symlink to the already-installed neighboring
   `noice-chat-quote/node_modules` (Paseo SDK 0.13.0, needed for the host
   `Markdown` component); no npm install was run. `npm run typecheck`

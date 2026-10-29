@@ -1,8 +1,9 @@
 import { setTimeout as sleep } from "node:timers/promises";
+import type { PaseoApi } from "@getpaseo/client";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { createSide, createTangent, preferences } from "./shared/preferences";
+import { createSide, createTangent, preferences, tangentRowShown } from "./shared/preferences";
 import { childTitle, launchChild } from "./server/launch";
-import { daemonPort, TangentWatcher, TANGENT_LABEL, TANGENT_PARENT_LABEL, TANGENT_STARTED_LABEL } from "./server/tangents";
+import { daemonPort, TangentWatcher, TANGENT_LABEL, TANGENT_PARENT_LABEL, TANGENT_ROW_LABEL, TANGENT_STARTED_LABEL } from "./server/tangents";
 
 export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(preferences);
@@ -23,9 +24,14 @@ export default function contribute(server: PluginServerContext) {
     return { agentId: child.agentId, mode: child.mode };
   });
 
-  const tangents = new TangentWatcher(daemonPort);
+  // The plugin's own Paseo API, from the first handler or hook call: only it may append timeline rows.
+  let api: PaseoApi | undefined;
+  const use = (paseo: PaseoApi) => { api ??= paseo; };
+  const port = daemonPort(() => api);
+  const tangents = new TangentWatcher(port);
   const report = (what: string) => (error: unknown) => console.error(`noice-side-agent: ${what} failed.`, error);
   server.handle(createTangent, async ({ parentId, task }, { paseo }) => {
+    use(paseo);
     const startedAt = Date.now();
     const child = await launchChild(paseo, parentId, parent => {
       // Full memory where it exists (OMP); Paseo's fork context everywhere else.
@@ -45,11 +51,19 @@ export default function contribute(server: PluginServerContext) {
     return { agentId: child.agentId, mode: child.mode, title: child.title };
   });
 
-  const offTurn = server.on("agent.turn_ended", async ({ agent, outcome }) => {
+  server.handle(tangentRowShown, async ({ parentId, childId }, { paseo }) => {
+    use(paseo);
+    const [child, epoch] = await Promise.all([port.agent(childId), port.timelineEpoch(parentId)]);
+    return { shown: !!epoch && child?.labels[TANGENT_ROW_LABEL] === epoch };
+  });
+
+  const offTurn = server.on("agent.turn_ended", async ({ agent, outcome }, { paseo }) => {
+    use(paseo);
     await tangents.turnEnded(agent.id, outcome.kind === "failed" ? { kind: "failed", message: outcome.error.message } : { kind: outcome.kind })
       .catch(report(`tangent report for ${agent.id}`));
   });
-  const offArchive = server.on("agent.archived", async ({ agent }) => {
+  const offArchive = server.on("agent.archived", async ({ agent }, { paseo }) => {
+    use(paseo);
     await tangents.archived(agent.id).catch(report(`tangent archive handling for ${agent.id}`));
   });
   // After a daemon restart this process can start before the daemon accepts connections.

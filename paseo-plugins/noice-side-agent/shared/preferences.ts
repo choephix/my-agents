@@ -20,3 +20,10 @@ export const createTangent = defineRpc({
   input: z.object({ parentId: z.string().min(1), task: z.string().trim().min(1) }),
   output: z.object({ agentId: z.string(), mode: modeSchema, title: z.string() }),
 });
+
+/** Whether the parent's timeline still holds the tangent's own row (so its report message draws nothing). */
+export const tangentRowShown = defineRpc({
+  name: "tangent-row-shown",
+  input: z.object({ parentId: z.string().min(1), childId: z.string().min(1) }),
+  output: z.object({ shown: z.boolean() }),
+});

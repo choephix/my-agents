@@ -61,6 +61,20 @@ export type ParsedReport = {
   serverId: string;
 };
 
+/** A running tangent's row in its parent's timeline. `step`: its newest tool call, or empty. */
+export type RunningRow = {
+  status: "running";
+  title: string;
+  startedAt: number;
+  step: string;
+  agentId: string;
+  serverId: string;
+};
+
+/** The row the server keeps in the parent's timeline: running, then the report it became. */
+export type TangentRow = RunningRow | ParsedReport;
+export const TANGENT_ROW_KIND = "tangent-row";
+
 /** One `formatTangentReport` text, whole. The title is one line (`childTitle` collapses whitespace). */
 const REPORT =
   /^Tangent "([^\n]*)" (?:finished \(([^()\n]+)\):\n\n([\s\S]*)|failed after ([^:\n]+): ([\s\S]*)|was stopped after ([^,\n]+), before it finished\.|was archived after ([^,\n]+), before it finished\.)\n\nOpen the tangent: (\S+)$/;
@@ -69,12 +83,18 @@ const ROUTE = /\/h\/([^/\s]+)\/agent\/([^/?#\s]+)$/;
 /** Where one report ends: its link line, then the next report or the end of the message. */
 const REPORT_END = /\n\nOpen the tangent: \S+(?=\n\n---\n\nTangent "|$)/g;
 
+/** The server and agent a tangent link opens. */
+export function linkIds(link: string): { serverId: string; agentId: string } | undefined {
+  const route = ROUTE.exec(link);
+  return route ? { serverId: decodeURIComponent(route[1]), agentId: decodeURIComponent(route[2]) } : undefined;
+}
+
 function parseReport(text: string): ParsedReport | undefined {
   const match = REPORT.exec(text);
-  const route = match && ROUTE.exec(match[8]);
+  const route = match && linkIds(match[8]);
   if (!match || !route) return undefined;
   const [, title, doneTook, reply, failTook, error, stopTook, archiveTook, link] = match;
-  const ids = { link, serverId: decodeURIComponent(route[1]), agentId: decodeURIComponent(route[2]) };
+  const ids = { link, ...route };
   if (doneTook !== undefined) return { title, status: "done", took: doneTook, body: reply, ...ids };
   if (failTook !== undefined) return { title, status: "failed", took: failTook, body: error, ...ids };
   if (stopTook !== undefined) return { title, status: "stopped", took: stopTook, body: "", ...ids };
