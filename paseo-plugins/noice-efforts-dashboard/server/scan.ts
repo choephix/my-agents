@@ -1,5 +1,5 @@
 import { readdirSync, statSync } from "node:fs";
-import { open, readdir, readFile, realpath } from "node:fs/promises";
+import { open, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { Counts, EffortSummary, TicketState } from "../shared/rpc";
 import {
@@ -69,9 +69,9 @@ export const TEXTS_CAP = { entries: 400, bytes: 32 * 1024 * 1024 };
 const texts = new Lru<string, CachedText>(TEXTS_CAP.entries, TEXTS_CAP.bytes);
 
 /**
- * File text, cached by mtime and size; capped at 512 KB. Stats are synchronous throughout the scan:
- * on a local disk a `statSync` costs microseconds, while ~1,100 `stat` promises per overview cost
- * ~17 ms of the plugin process's time.
+ * File text, cached by mtime and size; capped at 512 KB. Stats and directory reads are synchronous
+ * throughout the scan: on a local disk a `statSync` costs microseconds, while ~1,100 `stat` promises
+ * per overview cost ~17 ms of the plugin process's time.
  */
 export async function readText(file: string): Promise<{ text: string; mtimeMs: number; truncated: boolean }> {
   const info = statSync(file);
@@ -188,7 +188,7 @@ export interface EffortScan {
 async function listFolder(dir: string): Promise<{ name: string; mtimeMs: number }[]> {
   let entries;
   try {
-    entries = await readdir(dir, { withFileTypes: true });
+    entries = readdirSync(dir, { withFileTypes: true });
   } catch {
     return [];
   }
@@ -209,7 +209,7 @@ export async function scanEffort(root: string, slug: string): Promise<EffortScan
   const dir = path.join(root, slug);
   let entries;
   try {
-    entries = await readdir(dir, { withFileTypes: true });
+    entries = readdirSync(dir, { withFileTypes: true });
   } catch {
     return null;
   }
@@ -286,7 +286,7 @@ export function scanRoot(root: string): Promise<EffortScan[]> {
 async function scanRootNow(root: string): Promise<EffortScan[]> {
   let entries;
   try {
-    entries = await readdir(root, { withFileTypes: true });
+    entries = readdirSync(root, { withFileTypes: true });
   } catch {
     return [];
   }

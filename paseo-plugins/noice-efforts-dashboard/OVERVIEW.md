@@ -109,9 +109,11 @@ effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<s
 
 ## Speed (measured live 2026-10-20)
 - Server: overview 34 → 13 ms, one detail poll 32 → 10.5 ms, a larger effort ~70 → 16 ms,
-  search 18 → 5 ms. File stats are synchronous (the scan and `.artifacts/` walk), overlapping callers
-  share one pending root scan, and `git diff` results are reused while a file's `git status` v2
-  record (HEAD/index blob hashes) and mtime/size stay the same.
+  search 18 → 5 ms. File stats and directory reads are synchronous (the scan and `.artifacts/`
+  walk), overlapping callers share one pending root scan, and `git diff` results are reused while
+  a file's `git status` v2 record (HEAD/index blob hashes) and mtime/size stay the same.
+- 2026-10-29, 7 roots (~3,600 stats per overview): synchronous directory reads took an overview
+  from 31 to 21 ms of plugin CPU (wall 23 → 19 ms). What remains is mostly the stats.
 - Polls send the etag of what they hold (`since`); an unchanged overview or detail comes back as
   `{ unchanged: true }` (55 B) and the client keeps the same object, so nothing re-renders. Idle
   relay traffic with the tab open: ~115 KB → ~1.4 KB per 5 s; 0 React commits per idle poll.
