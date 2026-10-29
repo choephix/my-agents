@@ -1,8 +1,26 @@
-# Personal style overrides
+# Tweaks (`noice-tweaks`)
 
-Stefan's own visual tweaks to Paseo, all in one file (`client/overrides.ts`) instead of spread
-across Paseo or several plugins. Web and desktop apps only. Nothing to configure: the tweaks apply
-while the plugin is enabled.
+Stefan's own visual tweaks to Paseo in one plugin instead of spread across Paseo or several
+plugins (formerly `style-overrides`, renamed and given switches 2026-10-29). Web and desktop apps
+only.
+
+## Switches
+
+**Settings → Plugins → Tweaks → Tweaks** (or Command Center ⌘K / Ctrl+K → "Configure tweaks"),
+one switch per tweak, all on by default. Saved on the host (`~/.paseo/plugin-settings/noice-tweaks/tweaks.json`).
+
+| Setting id | Label |
+| --- | --- |
+| `compactSidebar` | Compact sidebar rows |
+| `fileWrap` | Wrap long lines in the file pane |
+| `linkColours` | Link colours by kind |
+
+A tweak that is off is never started: no `<style>`, no hook, no timer. Turning a switch off removes
+its `<style data-plugin="noice-tweaks-<name>">` at once; turning it on adds it back; other open
+windows follow when the daemon announces the save. Each start and stop is fenced, so one tweak
+failing never stops the others. The browser remembers the switches last applied
+(`localStorage` `paseo-plugin:noice-tweaks:switches`), so a page load styles the sidebar before
+the daemon's settings arrive instead of jumping; the daemon's values win once read.
 
 ## Current tweaks
 
@@ -68,10 +86,13 @@ differently.
 
 ## Adding, changing or removing a tweak (for agents)
 
-All CSS lives in the `overrides` string in `client/overrides.ts`: one block per tweak, each starting
-with a `/* ── Name ── */` header, the date, and Stefan's own words. `client/web.ts` (injects one
-`<style data-plugin="style-overrides">` and removes it on disable) and `index.client.ts` never need
-editing.
+Each tweak is its own module in `client/` (`compact-sidebar.ts`, `file-wrap.ts`,
+`link-colours.ts`): a header comment with the date and Stefan's own words, the `css`, and a
+`start()` that injects it and returns the function that removes it. A tweak that needs more than
+CSS (an observer, a timer, a listener) sets it up in `start()` and undoes all of it in the
+returned function. A new tweak also needs its switch: a boolean in `shared/preferences.ts`
+(default `true` unless Stefan says otherwise), an entry in `FEATURES` (`client/web.ts`) and in
+`SWITCHES` (`client/settings.tsx`). Removing a tweak removes all three and its module.
 
 1. **Find a stable selector.** Inspect the live web app in a browser. Use `data-testid`
    (prefix match `[data-testid^="…-"]` for per-item IDs) or `aria-*` attributes. Confirm in the
@@ -81,25 +102,26 @@ editing.
    tag/role selectors.
 2. **Measure before.** Record heights/paddings/margins with `getComputedStyle` and take a
    screenshot.
-3. **Edit.** New tweak: append a new block. Revision: edit its block in place and keep the date of
-   the original request plus a short note. Removal: delete the whole block. Rules:
+3. **Edit.** New tweak: add a module and its switch (above). Revision: edit its CSS in place and
+   keep the date of the original request plus a short note. Removal: delete the module and its switch. Rules:
    - Use `!important`: React Native Web's atomic classes have the same specificity.
    - Prefer `min-height` to `height`, so content that wraps or grows is not clipped.
    - Wrap layout changes in `@media (min-width: 720px) { … }` unless Stefan wants the change on
      the narrow/phone web layout too. Below 720px Paseo enlarges touch targets.
    - Change only what was asked; keep Paseo's colors, fonts and spacing elsewhere.
-4. **Apply:** `flock /tmp/paseo-plugin.lock paseo plugin reload style-overrides`. Do not restart
+4. **Apply:** `flock /tmp/paseo-plugin.lock paseo plugin reload noice-tweaks`. Do not restart
    the daemon. An open app picks it up live; refresh only if it does not.
 5. **Verify live**, then replace this plugin's screenshots for that tweak: hover and selected
    states, menus, collapsed/expanded and any other grouping/mode the element appears in, and a
    window narrower than 720px. Headless Chromium reports no hover-capable pointer, so Paseo
    ignores Puppeteer's mouse hover. To show a hover state, dispatch `pointerenter` (with
    `pointerType: "mouse"`) on the row and its ancestors.
-6. **Document:** update "Current tweaks" above (what changed, in pixels; screenshots). Commit only
-   this directory.
+6. **Document:** update "Current tweaks" above (what changed, in pixels; screenshots) and the
+   switches table. `npm run typecheck` and `npm test` from this folder (`node_modules` is an
+   ignored symlink to `../noice-chat-turn-status/node_modules`). Commit only this directory.
 
-Disable everything: `flock /tmp/paseo-plugin.lock paseo plugin disable style-overrides` (the
-style element is removed live). Enable again: `… plugin enable style-overrides`.
+Disable everything: `flock /tmp/paseo-plugin.lock paseo plugin disable noice-tweaks` (every
+style element is removed live). Enable again: `… plugin enable noice-tweaks`.
 
 ## Limits
 

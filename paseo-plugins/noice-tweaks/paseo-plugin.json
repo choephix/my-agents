@@ -1,6 +1,7 @@
 {
-  "id": "style-overrides",
-  "name": "Personal style overrides",
+  "id": "noice-tweaks",
+  "name": "Tweaks",
+  "description": "Compact sidebar rows, line wrap in the file pane and link colours by kind, each behind its own switch.",
   "media": [
     "screenshots/sidebar-before.webp",
     "screenshots/sidebar-after.webp",
