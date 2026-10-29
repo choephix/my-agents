@@ -74,8 +74,8 @@ const layout = () => {
 };
 /** Agent ids of the dots in `row` with a playing pulse, and each pulse's start time. */
 const pulses = (row: Element) => Object.fromEntries(animations
-  .filter((animation) => !animation.cancelled && animation.playState === "running" && row.contains(animation.dot))
-  .map((animation) => [animation.dot.getAttribute("data-agent"), animation.startTime]));
+  .filter((animation) => !animation.cancelled && animation.playState === "running" && animation.options.iterations === Infinity && row.contains(animation.dot))
+  .map((animation) => [animation.dot.closest("[data-agent]")!.getAttribute("data-agent"), animation.startTime]));
 
 const dotsIn = (row: Element) => [...row.querySelectorAll("[data-tab-dots] > i")].map((dot) => dot.getAttribute("data-agent"));
 const tip = () => document.querySelector<HTMLElement>("[data-tab-dots-tip]")!;
@@ -370,7 +370,7 @@ describe("running pulse", () => {
     // Paseo unmounts the row; a live animation would keep the detached dot alive and ticking.
     rowA.remove();
     await frames();
-    expect(animations.find(({ dot }) => dot.getAttribute("data-agent") === "a1")!.cancelled).toBe(true);
+    expect(animations.find(({ dot }) => dot.closest("[data-agent]")?.getAttribute("data-agent") === "a1")!.cancelled).toBe(true);
 
     dots.setAgents(agentsOf(running("b1", "wks_b"), unread("b2", "wks_b")));
     await frames();

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ShowMode } from "../shared/preferences";
+import type { DotOrder, ShowMode } from "../shared/preferences";
 
 /** The part of an `agents.list` agent the dots need; unknown fields pass through. */
 const AgentSchema = z.object({
@@ -151,11 +151,12 @@ export function orderTabs(roots: readonly AgentInfo[], layoutIds: readonly strin
 }
 
 /**
- * Dots for one row in tab order. When more tabs qualify than `max`, tabs waiting on the user
- * (permission, unread result, unread error) are kept first, then running ones, then read ones;
- * the rest count into `more`.
+ * Dots for one row, in tab order or, with `order` "waiting", tabs waiting on the user first
+ * (permission, unread result, unread error), then running ones, then read ones, each group in tab
+ * order. When more tabs qualify than `max`, the same ranking picks which ones stay; the rest count
+ * into `more`.
  */
-export function rowDots(tabs: readonly AgentInfo[], show: ShowMode, max: number): RowDots {
+export function rowDots(tabs: readonly AgentInfo[], show: ShowMode, max: number, order: DotOrder): RowDots {
   const candidates = tabs.flatMap((agent, index) => {
     const state = dotState(agent);
     const wanted = wantsYou(agent, state);
@@ -163,9 +164,11 @@ export function rowDots(tabs: readonly AgentInfo[], show: ShowMode, max: number)
     const rank = wanted ? 0 : state === "running" ? 1 : 2;
     return visible ? [{ agent, state, index, rank }] : [];
   });
+  const byRank = (a: { rank: number; index: number }, b: { rank: number; index: number }) => a.rank - b.rank || a.index - b.index;
   const kept = candidates.length <= max
-    ? candidates
-    : [...candidates].sort((a, b) => a.rank - b.rank || a.index - b.index).slice(0, max).sort((a, b) => a.index - b.index);
+    ? [...candidates]
+    : [...candidates].sort(byRank).slice(0, max).sort((a, b) => a.index - b.index);
+  if (order === "waiting") kept.sort(byRank);
   return {
     dots: kept.map(({ agent, state }) => ({ agentId: agent.id, title: agent.title ?? "New agent", state })),
     more: candidates.length - kept.length,

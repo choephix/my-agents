@@ -51,7 +51,7 @@ const LABEL: Record<DotState, string> = {
   finished: "Finished",
   read: "Read",
 };
-const MAX_DOTS = { regular: 5, small: 8 } as const;
+const MAX_DOTS = 8;
 
 type Colors = PluginHostProps["theme"]["colors"];
 function dotColor(colors: Colors, state: DotState): string {
@@ -213,9 +213,8 @@ export function contributePhone(client: PluginClientContext): () => void {
     // Prefetch the "project · workspace" names the sheet will show on tap.
     useEffect(() => { if (entries.length > 0 && places.get().size === 0) loadPlaces(); }, [entries.length > 0]);
     if (entries.length === 0) return null;
-    const max = MAX_DOTS[values.size];
     const size = values.size === "small" ? 4 : 5;
-    const more = entries.length - max;
+    const more = entries.length - MAX_DOTS;
     return (
       <SidebarRow
         icon="Inbox"
@@ -224,7 +223,7 @@ export function contributePhone(client: PluginClientContext): () => void {
         onPress={() => openPopover(Sheet)}
         trailing={
           <View style={{ flexDirection: "row", alignItems: "center", gap: size === 4 ? 2 : 3 }}>
-            {entries.slice(0, max).map((entry) => <Dot key={entry.agentId} colors={theme.colors} state={entry.state} size={size} />)}
+            {entries.slice(0, MAX_DOTS).map((entry) => <Dot key={entry.agentId} colors={theme.colors} state={entry.state} size={size} />)}
             {more > 0 ? <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, marginLeft: 1 }}>+{more}</Text> : null}
           </View>
         }

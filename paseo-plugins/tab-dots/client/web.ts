@@ -27,10 +27,12 @@ interface El {
   appendChild(node: El): void;
   remove(): void;
   getBoundingClientRect(): Rect;
-  animate(keyframes: readonly PulseKeyframe[], options: { duration: number; iterations: number }): PulseAnimation;
+  animate(keyframes: readonly (PulseKeyframe | HoldKeyframe)[], options: AnimateOptions): PulseAnimation;
   style: { left: string; top: string };
 }
 interface PulseKeyframe { offset: number; opacity: number; transform: string; easing?: string }
+interface HoldKeyframe { offset: number; transform: string }
+interface AnimateOptions { duration: number; iterations?: number; easing?: string; fill?: "forwards" }
 interface PulseAnimation { startTime: number | null; readonly playState: string; pause(): void; cancel(): void }
 interface MediaQueryLike {
   readonly matches: boolean;
@@ -86,7 +88,14 @@ const LAYOUT_KEY = "workspace-layout-state";
 const DOTS = "data-tab-dots";
 const REPLACE = "data-tab-dots-replace";
 const ALIGN = "data-tab-dots-align";
-const MAX_DOTS = { regular: 5, small: 8 } as const;
+const MAX_DOTS = 8;
+/** Coloured dot and gap per size, in px. Each tab gets an equal slot of dot + gap. */
+const SIZE_PX = { regular: { dot: 5, gap: 3 }, small: { dot: 4, gap: 2 } } as const;
+const READ_PX = 3;
+/** A hovered dot grows ×1.6; a hovered read dot grows to the same size as a hovered coloured one. */
+const HOVER_SCALE = 1.6;
+const HOVER_MS = 120;
+const readHoverScale = (size: keyof typeof SIZE_PX) => +(HOVER_SCALE * SIZE_PX[size].dot / READ_PX).toFixed(3);
 
 const PULSE_MS = 1800;
 const WAVE_STEP_MS = 200;
@@ -130,23 +139,37 @@ const LABEL: Record<DotState, string> = {
 
 // Colours are Paseo's statusDot* tokens (app `styles/theme.ts`), dark and light.
 const CSS = `
-[${DOTS}] { display: inline-flex; align-items: center; flex: none; gap: 3px; height: 20px;
+[${DOTS}] { display: inline-flex; align-items: center; flex: none; height: 20px; margin: 0 -${SIZE_PX.regular.gap / 2}px;
   --td-ok: #35c264; --td-err: #f7796d; --td-warn: #db932e; --td-run: #5caaf6; }
 [${DOTS}][data-tone="light"] { --td-ok: #299f51; --td-err: #f12e2f; --td-warn: #b37824; --td-run: #268ae0; }
-[${DOTS}][data-size="small"] { gap: 2px; }
-[${DOTS}] > i { display: block; flex: none; width: 5px; height: 5px; border-radius: 50%; position: relative; cursor: pointer; transition: transform .12s; }
-/* A bigger invisible hit area: the full row height, and half of each gap. */
-[${DOTS}] > i::before { content: ""; position: absolute; inset: -8px -2px; }
-[${DOTS}] > i:hover { transform: scale(1.6); }
-[${DOTS}][data-size="small"] > i { width: 4px; height: 4px; }
-[${DOTS}] > i[data-state="finished"], [data-tab-dots-tip] i[data-state="finished"] { background: var(--td-ok); }
-[${DOTS}] > i[data-state="error"], [data-tab-dots-tip] i[data-state="error"] { background: var(--td-err); }
-[${DOTS}] > i[data-state="permission"], [data-tab-dots-tip] i[data-state="permission"] { background: var(--td-warn); }
-[${DOTS}] > i[data-state="running"], [data-tab-dots-tip] i[data-state="running"] { background: var(--td-run); }
+[${DOTS}][data-size="small"] { margin: 0 -${SIZE_PX.small.gap / 2}px; }
+/* Each tab gets an equal slot (dot + gap, full row height): its hit area, which never scales. The
+   dot inside takes no pointer events, so a hovered dot that grows never takes its neighbours' room.
+   The outer <b> does the hover growth, the inner <b> carries the colour and the pulse, so both can
+   run at once. */
+[${DOTS}] > i { display: flex; align-items: center; justify-content: center; flex: none; height: 20px; cursor: pointer;
+  width: ${SIZE_PX.regular.dot + SIZE_PX.regular.gap}px; }
+[${DOTS}][data-size="small"] > i { width: ${SIZE_PX.small.dot + SIZE_PX.small.gap}px; }
+[${DOTS}] > i > b { display: block; flex: none; width: ${SIZE_PX.regular.dot}px; height: ${SIZE_PX.regular.dot}px; pointer-events: none; transition: transform ${HOVER_MS}ms; }
+[${DOTS}][data-size="small"] > i > b { width: ${SIZE_PX.small.dot}px; height: ${SIZE_PX.small.dot}px; }
+[${DOTS}] > i > b > b { display: block; width: 100%; height: 100%; border-radius: 50%; transition: opacity ${HOVER_MS}ms; }
+[${DOTS}] > i:hover > b { transform: scale(${HOVER_SCALE}); }
+/* Read dots: small and faded; hovered, they grow to a hovered coloured dot's size and brighten a touch. */
+[${DOTS}] > i[data-state="read"] > b { width: ${READ_PX}px; height: ${READ_PX}px; }
+[${DOTS}] > i[data-state="read"]:hover > b { transform: scale(${readHoverScale("regular")}); }
+[${DOTS}][data-size="small"] > i[data-state="read"]:hover > b { transform: scale(${readHoverScale("small")}); }
+[${DOTS}] > i[data-state="read"] > b > b { background: currentColor; opacity: .3; }
+[${DOTS}] > i[data-state="read"]:hover > b > b { opacity: .35; }
+[${DOTS}] > i[data-state="finished"] > b > b, [data-tab-dots-tip] i[data-state="finished"] { background: var(--td-ok); }
+[${DOTS}] > i[data-state="error"] > b > b, [data-tab-dots-tip] i[data-state="error"] { background: var(--td-err); }
+[${DOTS}] > i[data-state="permission"] > b > b, [data-tab-dots-tip] i[data-state="permission"] { background: var(--td-warn); }
+[${DOTS}] > i[data-state="running"] > b > b, [data-tab-dots-tip] i[data-state="running"] { background: var(--td-run); }
 /* Row dots pulse through Web Animations (PULSE_KEYFRAMES); the tooltip's swatch lives only while hovered. */
 [data-tab-dots-tip] i[data-state="running"] { animation: tab-dots-pulse ${PULSE_MS}ms ease-in-out infinite; }
-[${DOTS}] > i[data-state="read"], [data-tab-dots-tip] i[data-state="read"] { background: currentColor; opacity: .35; }
-[${DOTS}] > span { font-size: 11px; line-height: 20px; opacity: .7; margin-left: 1px; font-variant-numeric: tabular-nums; }
+[data-tab-dots-tip] i[data-state="read"] { background: currentColor; opacity: .35; }
+[${DOTS}] > span { font-size: 8px; line-height: 20px; opacity: .5; font-variant-numeric: tabular-nums;
+  margin: 0 ${SIZE_PX.regular.gap / 2}px 0 ${SIZE_PX.regular.gap / 2 + 1}px; }
+[${DOTS}][data-size="small"] > span { margin: 0 ${SIZE_PX.small.gap / 2}px 0 ${SIZE_PX.small.gap / 2 + 1}px; }
 @keyframes tab-dots-pulse { ${PULSE_KEYFRAMES.map(({ offset, opacity, transform }) => `${offset * 100}% { opacity: ${opacity}; transform: ${transform}; }`).join(" ")} }
 @media (prefers-reduced-motion: reduce) { [data-tab-dots-tip] i { animation: none !important; } }
 [data-tab-dots-tip][data-still] i { animation: none; }
@@ -225,9 +248,11 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
   let hovered: El | null = null;
   // The dot whose tooltip is showing.
   let shownDot: El | null = null;
-  // Running row dots and their pulse. A Web Animation outlives its element's removal (and would
-  // keep it alive), so each is cancelled once its dot leaves the page.
-  const pulses = new Map<El, { animation: PulseAnimation; index: number }>();
+  // Running row dots: their pulse and the inner <b> it plays on. A Web Animation outlives its
+  // element's removal (and would keep it alive), so each is cancelled once its dot leaves the page.
+  const pulses = new Map<El, { animation: PulseAnimation; index: number; layer: El }>();
+  // The pulsing dot under the pointer, and the animation holding its pulse layer at full scale.
+  let held: { dot: El; animation: PulseAnimation } | null = null;
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   // A Web Animation on an element that isn't rendered (Paseo's collapsed sidebar is
   // `display: none`) leaves the compositor and is ticked on the main thread every frame, where a
@@ -246,12 +271,33 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
     }
   });
   const dropDetachedPulses = () => {
+    if (held && !held.dot.isConnected) {
+      held.animation.cancel();
+      held = null;
+    }
     for (const [dot, { animation }] of pulses) {
       if (dot.isConnected) continue;
       animation.cancel();
       sized.unobserve(dot);
       pulses.delete(dot);
     }
+  };
+  /**
+   * A hovered running dot matches a hovered coloured dot's size while its colour keeps pulsing:
+   * the outer <b> grows ×1.6 like any dot, and an overlay holds the pulse layer's scale at 1.
+   * Keyframes missing one end take it from the pulse underneath, so holding eases from wherever
+   * the beat is, and letting go eases back into the live beat. Releases the previous dot.
+   */
+  const holdPulse = (dot: El | null) => {
+    if (held?.dot === dot) return;
+    if (held) {
+      held.animation.cancel();
+      pulses.get(held.dot)?.layer.animate([{ offset: 0, transform: "scale(1)" }], { duration: HOVER_MS, easing: "ease-out" });
+      held = null;
+    }
+    const pulse = dot && pulses.get(dot);
+    if (!dot || !pulse) return;
+    held = { dot, animation: pulse.layer.animate([{ offset: 1, transform: "scale(1)" }], { duration: HOVER_MS, easing: "ease-out", fill: "forwards" }) };
   };
 
   const style = document.createElement("style");
@@ -264,6 +310,7 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
   const hideTip = () => {
     if (!shownDot) return;
     shownDot = null;
+    holdPulse(null);
     tip.setAttribute("style", "display:none");
   };
 
@@ -281,7 +328,7 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
     const key = keyOf(row);
     const titleRow = findTitleRow(row);
     const tabs = orderTabs(roots.get(key.slice(key.lastIndexOf(":") + 1)) ?? [], layout.get(key));
-    const { dots, more } = rowDots(tabs, preferences.show, MAX_DOTS[preferences.size]);
+    const { dots, more } = rowDots(tabs, preferences.show, MAX_DOTS, preferences.order);
     const existing = row.querySelector(`[${DOTS}]`);
     if (!titleRow || dots.length === 0) return { row, titleRow: null, dots, more, color: "", tone: "dark", signature: "", existing };
     const { color, tone } = inkOf(titleRow.firstElementChild as El);
@@ -317,10 +364,14 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
       element.setAttribute("data-state", dot.state);
       element.setAttribute("data-title", dot.title);
       element.setAttribute("data-agent", dot.agentId);
+      const grow = document.createElement("b");
+      const layer = document.createElement("b");
+      grow.appendChild(layer);
+      element.appendChild(grow);
       if (dot.state === "running" && preferences.animate && !reducedMotion.matches) {
-        const animation = element.animate(PULSE_KEYFRAMES, { duration: PULSE_MS, iterations: Infinity });
+        const animation = layer.animate(PULSE_KEYFRAMES, { duration: PULSE_MS, iterations: Infinity });
         animation.pause();
-        pulses.set(element, { animation, index });
+        pulses.set(element, { animation, index, layer });
         sized.observe(element);
       }
       container.appendChild(element);
@@ -433,6 +484,7 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
     }
     shownDot = dot;
     hovered = dot.parentElement;
+    holdPulse(dot);
     const state = (dot.getAttribute("data-state") ?? "read") as DotState;
     const container = dot.parentElement;
     tip.setAttribute("data-tone", container?.getAttribute("data-tone") ?? "dark");
@@ -455,10 +507,12 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
       `display:flex;color:${container ? window.getComputedStyle(container).color : "inherit"};`
         + `background:${light ? "#ffffff" : "#232027"};border:1px solid rgba(127,127,127,.25)`,
     );
+    // Placed from the dot's centre: the slot is the full row height.
     const box = dot.getBoundingClientRect();
     const width = tip.getBoundingClientRect().width;
-    tip.style.left = `${Math.max(4, Math.min(box.left - 10, window.innerWidth - width - 4))}px`;
-    tip.style.top = `${box.bottom + 8}px`;
+    const middle = { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 };
+    tip.style.left = `${Math.max(4, Math.min(middle.x - 12.5, window.innerWidth - width - 4))}px`;
+    tip.style.top = `${middle.y + 10.5}px`;
   };
   const onOut = (event: PointerLike) => {
     if (!hovered || !event.target || !hovered.contains(event.target) || hovered.contains(event.relatedTarget)) return;
@@ -540,6 +594,7 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
       document.removeEventListener("mouseover", onOver);
       document.removeEventListener("mouseout", onOut);
       document.querySelectorAll(ROWS).forEach((row) => { if (isMine(row)) clearRow(row); });
+      held?.animation.cancel();
       for (const { animation } of pulses.values()) animation.cancel();
       pulses.clear();
       tip.remove();
