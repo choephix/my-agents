@@ -14,7 +14,7 @@ Hover a dot to see the tab's title and state; click it to open that tab. A hover
 
 ## On phones
 
-The phone apps can't put dots on each row, so they get one **Unread** row at the top of the sidebar instead, with one dot per tab waiting on you across all workspaces. It is hidden when nothing is unread. Tap it for a sheet listing those tabs (title, project and workspace, state, how long ago; the times refresh every 30 seconds while the list is open); tap a tab to open it. "Open as a screen" shows the same list full screen. With "Unread and running" or "Every tab", running tabs are listed too; read tabs never are. Web and desktop never show this row. Agent updates that change nothing in the row or list (sub-agents, read tabs) don't redraw it.
+The phone apps can't put dots on each row, so they get one **Unread** row at the top of the sidebar instead, with one dot per tab waiting on you across all workspaces. It is hidden when nothing is unread. Tap it for a sheet listing those tabs (title, project and workspace, state, how long ago; the times refresh every 30 seconds while the list is open); tap a tab to open it. "Open as a screen" shows the same list full screen. With "Unread and running" or "Every tab", running tabs are listed too; read tabs never are. Web and desktop never show this row. Agent updates that change nothing in the row or list (sub-agents, read tabs) don't redraw it. Turned off, phones don't receive agent updates either.
 
 ## Settings
 
@@ -34,10 +34,11 @@ Settings are stored on the host, so every window and phone connected to it uses 
 Measured on Paseo 0.12.0 in the web app (40 sidebar rows, about 100 agents, 10 of them running):
 
 - Clicking an unread dot: the dot is gone in 6–21 ms. The time until the tab shows has not been measured since the click switched to Paseo's own navigation (the old 0.35–0.5 s was for the previous method).
-- ⌘K "Toggle tab dots": 50–100 ms from the click until all dots change.
+- ⌘K "Toggle tab dots": 50–100 ms from the click until all dots change. Re-measured on 2026-10-29 (web app 0.14.0 connected through the relay): off in 58 ms, on in 323 ms, since turning it on now starts a fresh agent listing.
 - Settings switches: 3–11 ms.
 - Drawing every row that has dots: under 2 ms.
-- Streaming chats, terminals and other page changes outside the sidebar cost the plugin nothing; it redraws only when rows appear or agents change something a dot shows.
+- Streaming chats, terminals and other page changes outside the sidebar cost the plugin almost nothing; it redraws only when rows appear or agents change something a dot shows. Traced on 2026-10-29 (39 rows, a reply streaming): the whole plugin took 0.17 ms per second, its page-wide change watcher 0.02 ms of that; idle, 0 ms.
+- Turned off, the plugin runs nothing: no agent subscription, no layout polling, no page watcher, no listeners. Only a settings read when the window regains focus remains, so turning it on in another window shows here. Before this change, "off" still cost 0.05–0.19 ms per second.
 - With several hosts connected, each host's copy draws only that host's rows.
 - Running dots pulse on the GPU compositor alone. As a CSS animation each pulse woke the page once per beat (React listens for the animation's iteration event, so the browser has to stop and fire it), and each of those wake-ups restyled and repainted the whole app; the dots now play the same pulse as a Web Animation, which has no such event. The look and the left-to-right wave are unchanged. Measured in a test setup with 5 running dots: page frames drawn by the main thread went from about 7 to 2.6 per second. Dots in a hidden sidebar don't pulse (nobody sees them), so they cost nothing there either.
 

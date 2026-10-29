@@ -82,7 +82,9 @@ type Agents = ReadonlyMap<string, AgentInfo>;
 /** Workspace id → "project · workspace" (just one when they match). */
 type Places = ReadonlyMap<string, string>;
 
-function useEntries(agents: Store<Agents>, values: Preferences): ListEntry[] {
+/** The list to show; keeps the agent subscription (`retain`) alive only while the plugin is on. */
+function useEntries(agents: Store<Agents>, values: Preferences, retain: () => () => void): ListEntry[] {
+  useEffect(() => (values.enabled ? retain() : undefined), [values.enabled]);
   const current = useSyncExternalStore(agents.subscribe, agents.get);
   return useMemo(() => (values.enabled ? unreadList(current, values.show) : []), [current, values.enabled, values.show]);
 }
@@ -148,12 +150,24 @@ export function contributePhone(client: PluginClientContext): () => void {
   const places = createStore<Places>(new Map());
   // Most updates (sub-agents, usage and timestamps of read tabs) change nothing on screen: skip them.
   let shownKey = "";
-  const stopAgents = watchAgents(client.paseo.agents, (next) => {
-    const key = unreadListKey(next);
-    if (key === shownKey) return;
-    shownKey = key;
-    agents.set(new Map(next));
-  });
+  // One subscription shared by the row, the sheet and the screen while any of them shows the list.
+  let users = 0;
+  let stopAgents = () => {};
+  const retainAgents = () => {
+    users += 1;
+    if (users === 1) {
+      stopAgents = watchAgents(client.paseo.agents, (next) => {
+        const key = unreadListKey(next);
+        if (key === shownKey) return;
+        shownKey = key;
+        agents.set(new Map(next));
+      });
+    }
+    return () => {
+      users -= 1;
+      if (users === 0) stopAgents();
+    };
+  };
   // Plugin state hooks (`useWorkspace`) only run inside workspace panels, so names come from a
   // listing, refreshed whenever the sheet or the screen opens.
   const loadPlaces = () => {
@@ -176,7 +190,7 @@ export function contributePhone(client: PluginClientContext): () => void {
 
   function Sheet({ theme, close, openScreen }: PluginPopoverProps) {
     const values = usePreferences();
-    const entries = useEntries(agents, values);
+    const entries = useEntries(agents, values, retainAgents);
     const names = usePlaces();
     const open = (params: Record<string, string>) => { close(); openScreen({ screenId: "unread", params }); };
     return (
@@ -192,7 +206,7 @@ export function contributePhone(client: PluginClientContext): () => void {
 
   function UnreadScreen({ theme, params, navigation }: PluginScreenProps) {
     const values = usePreferences();
-    const entries = useEntries(agents, values);
+    const entries = useEntries(agents, values, retainAgents);
     const names = usePlaces();
     const pending = params.agentId && params.nonce ? `${params.agentId}:${params.nonce}` : null;
     useEffect(() => {
@@ -209,7 +223,7 @@ export function contributePhone(client: PluginClientContext): () => void {
 
   function SidebarItem({ theme, openPopover, currentScreen }: PluginSidebarItemProps) {
     const values = usePreferences();
-    const entries = useEntries(agents, values);
+    const entries = useEntries(agents, values, retainAgents);
     // Prefetch the "project · workspace" names the sheet will show on tap.
     useEffect(() => { if (entries.length > 0 && places.get().size === 0) loadPlaces(); }, [entries.length > 0]);
     if (entries.length === 0) return null;

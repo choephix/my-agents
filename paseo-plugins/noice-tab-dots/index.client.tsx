@@ -5,8 +5,8 @@ import { watchAgents } from "./client/agents";
 import { createOpenTabScreen, OPEN_TAB_SCREEN } from "./client/open-tab";
 import { contributePhone } from "./client/phone";
 import { createSettingsScreen } from "./client/settings";
-import { startTabDots } from "./client/web";
-import { DEFAULTS, preferences, type Preferences } from "./shared/preferences";
+import { type OpenTab, startTabDots, type TabDots } from "./client/web";
+import { preferences, type Preferences } from "./shared/preferences";
 
 // Sanctioned web global for re-reading settings saved in another window.
 declare const window: {
@@ -33,15 +33,27 @@ export default function contribute(client: PluginClientContext) {
   const settings = settingsRpc(preferences.id);
   // A dot click opens its tab through this screen: Paseo's own navigation, no page-wide reset.
   const opener = client.addScreen({ id: OPEN_TAB_SCREEN, title: "Opening tab", Component: createOpenTabScreen() });
-  // Hidden until settings load, so a disabled plugin never flashes dots.
-  const dots = startTabDots({ ...DEFAULTS, enabled: false }, ({ serverId, agentId }) =>
-    client.openScreen({ screenId: OPEN_TAB_SCREEN, params: { serverId, agentId, nonce: String(Date.now()) } }));
+  const openTab: OpenTab = ({ serverId, agentId }) =>
+    client.openScreen({ screenId: OPEN_TAB_SCREEN, params: { serverId, agentId, nonce: String(Date.now()) } });
+  // The dots and the agent subscription run only while the plugin is on; none until settings
+  // first load, so a disabled plugin never flashes dots or watches the page.
+  let dots: TabDots | null = null;
+  let stopAgents = () => {};
   let edits = 0;
   // What the dots show now; null until settings first load.
   let current: Preferences | null = null;
   const show = (values: Preferences) => {
     current = values;
-    dots.setPreferences(values);
+    if (!values.enabled) {
+      stopAgents();
+      dots?.dispose();
+      dots = null;
+    } else if (dots) dots.setPreferences(values);
+    else {
+      const started = startTabDots(values, openTab);
+      dots = started;
+      stopAgents = watchAgents(client.paseo.agents, started.setAgents);
+    }
   };
   const load = async (): Promise<{ revision: string; values: Preferences } | undefined> => {
     const result = await client.rpc(settings.read, {});
@@ -62,7 +74,6 @@ export default function contribute(client: PluginClientContext) {
   };
   refresh();
   window.addEventListener("focus", refresh);
-  const stopAgents = watchAgents(client.paseo.agents, dots.setAgents);
 
   /** Saves `enabled` on top of the host's latest values; one retry when another window saved first. */
   const saveEnabled = async (enabled: boolean): Promise<Preferences | undefined> => {
@@ -117,7 +128,7 @@ export default function contribute(client: PluginClientContext) {
     screen();
     stopAgents();
     window.removeEventListener("focus", refresh);
-    dots.dispose();
+    dots?.dispose();
     opener();
   };
 }

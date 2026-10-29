@@ -395,8 +395,7 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
       serverId = claimed.slice(0, claimed.lastIndexOf(":"));
     }
     const mine = rows.filter(isMine);
-    if (preferences.enabled) mine.map(planRow).forEach(applyRow);
-    else mine.forEach(clearRow);
+    mine.map(planRow).forEach(applyRow);
     if (shownDot && !shownDot.isConnected) hideTip();
     dropDetachedPulses();
   };
