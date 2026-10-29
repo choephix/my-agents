@@ -30,9 +30,12 @@
       return null;
     }
   }
+  // Page data only when <html data-mock-data> says it exists: a fetch of a missing
+  // file logs a 404 in the console, so mocks without it go straight to kit/acme.json.
   async function load(pageBase, kitBase, withLive) {
-    const acme = (await getJson(new URL("data.acme.json", pageBase))) || (await getJson(new URL("acme.json", kitBase)));
-    const live = withLive ? await getJson(new URL("data.live.json", pageBase)) : null;
+    const own = document.documentElement.hasAttribute("data-mock-data");
+    const acme = (own && (await getJson(new URL("data.acme.json", pageBase)))) || (await getJson(new URL("acme.json", kitBase)));
+    const live = own && withLive ? await getJson(new URL("data.live.json", pageBase)) : null;
     return { acme: acme && derive(acme), live: live && derive(live) };
   }
 
@@ -76,6 +79,8 @@
   }
   const empty = (v) => v == null || v === false || v === "";
 
+  // Template copies per rendered root (one per frame), filled during a render.
+  const clonesByRoot = new WeakMap();
   let clones = [];
   function bindStatic(node, scope, root) {
     const q = (sel) => [...(node.matches?.(sel) ? [node] : []), ...node.querySelectorAll(sel)];
@@ -117,11 +122,13 @@
     }
   }
   // Static bindings outside templates are re-set on every render, so they need
-  // no undo; template copies are removed and rebuilt.
+  // no undo; template copies are removed and rebuilt. Each root (frame) keeps
+  // its own copies, so rendering one frame never touches another.
   function render(root, data) {
-    clones.forEach((c) => c.remove());
+    (clonesByRoot.get(root) || []).forEach((c) => c.remove());
     clones = [];
     if (data) bind(root, data, data);
+    clonesByRoot.set(root, clones);
   }
 
   window.KitData = { load, render };

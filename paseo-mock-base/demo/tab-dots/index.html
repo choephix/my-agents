@@ -1,0 +1,231 @@
+<!doctype html>
+<!--
+  DEMO workshop: the tab-dots look (coloured status dots per tab on Paseo's
+  sidebar rows), rebuilt on the kit. It shows the shell features a fine-tuning
+  workshop needs. Search for "DEMO:" to see each one.
+
+  REGION      data-region="sidebar" on the sidebar + data-regions="sidebar"
+              → the frame shows just the sidebar, at its real size
+  SCALE       data-scales="1 2 3" → 1:1, 2× and 3×, scrolling instead of shrinking
+  KNOBS       window.MockDesign.knobs → controls in the shell, values in the hash
+  PRESETS     window.MockDesign.presets → named bundles; "Today" is the baseline
+  REFERENCE   data-reference="today" → the Today frame left of the candidate
+  SHELL       data-shell="sidebar" → the controls in the shell sidebar
+
+  Today's values come from tab-dots client/web.ts (CSS, PULSE_KEYFRAMES, MAX_DOTS).
+-->
+<html lang="en" data-mock-data data-mock-title="Tab dots · look"
+      data-themes="dark zinc midnight pureBlack light"
+      data-viewports="desktop"
+      data-regions="sidebar"
+      data-scales="1 2 3"
+      data-shell="sidebar"
+      data-reference="today"
+      data-states="show: all=Every tab | unread=Unread tabs | running=Unread + running tabs; position: edge=Dots at the right edge | steady=Dots stay put | left=Dots after the title; time: replaced=Dots replace the time | kept=Time kept">
+<head>
+<meta charset="utf-8">
+<title>tab-dots · look workshop</title>
+<link rel="stylesheet" href="/pages/paseo-base/kit/paseo.css">
+<script src="/pages/paseo-base/kit/dev.js" defer></script>
+<style>
+  /* Row end: the time's spot; on hover it holds the row menu (Paseo swaps the time for "…"). */
+  .td-end { flex: none; display: flex; align-items: center; justify-content: flex-end; min-width: 18px; height: 20px; }
+  .row-menu { display: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: none;
+    color: var(--c-foreground-muted); align-items: center; justify-content: center; cursor: pointer; }
+  .row-menu:hover { background: var(--c-surface1); color: var(--c-foreground); }
+  .sb-ws:hover .row-menu { display: inline-flex; }
+  .sb-ws:hover .time { display: none; }
+
+  /* DEMO: the plugin's own settings are situation axes (data-state-<axis> on the
+     frame), so the reference and the candidate always share them. */
+  [data-state-time="replaced"] .sb-ws.has-dots .time { display: none; }
+  [data-state-time="replaced"][data-state-position="edge"] .sb-ws.has-dots:not(:hover) .td-end { display: none; }
+  [data-state-position="left"] .sb-ws.has-dots .sb-ws-title { flex: 0 1 auto; }
+  [data-state-position="left"] .sb-ws.has-dots .td { margin-right: auto; }
+
+  /* DEMO: knobs reach CSS as custom properties on each frame (css: "--td-…" in
+     MockDesign), so every frame draws its own design from one stylesheet. */
+  .td { display: inline-flex; align-items: center; flex: none; height: 20px; margin: 0 calc(var(--td-gap) / -2); }
+  /* Each <i> is a fixed hit slot that never scales; the visible dot is its ::after. */
+  .td > i { display: block; flex: none; position: relative; width: calc(var(--td-size) + var(--td-gap)); height: 20px; cursor: pointer; }
+  .td > i::after { content: ""; position: absolute; left: 50%; top: 50%; width: var(--td-size); height: var(--td-size);
+    margin: calc(var(--td-size) / -2) 0 0 calc(var(--td-size) / -2); border-radius: 50%; opacity: var(--td-opacity);
+    pointer-events: none; transition: transform .12s, opacity .12s; }
+  .td > i[data-s="read"]::after { width: var(--td-read-size); height: var(--td-read-size);
+    margin: calc(var(--td-read-size) / -2) 0 0 calc(var(--td-read-size) / -2);
+    background: var(--td-read-color); opacity: var(--td-read-opacity); }
+  .td > i:hover::after { transform: scale(1.6); }
+  .td > i[data-s="read"]:hover::after { transform: scale(var(--td-read-hover)); opacity: min(1, calc(var(--td-read-opacity) + var(--td-read-lift))); }
+  .td > i[data-s="finished"]::after { background: var(--c-status-dot-success); }
+  .td > i[data-s="error"]::after { background: var(--c-status-dot-danger); }
+  .td > i[data-s="permission"]::after { background: var(--c-status-dot-warning); }
+  .td > i[data-s="running"]::after { background: var(--c-status-dot-running); }
+  .td > .more { font-size: var(--td-more-size); line-height: 20px; opacity: var(--td-more-opacity);
+    margin: 0 calc(var(--td-gap) / 2) 0 calc(var(--td-gap) / 2 + 1px); font-variant-numeric: tabular-nums; }
+
+  /* Running pulse: the design under review, so it runs; the "Pulse" knob stops it. */
+  .td > i.pulse::after { animation: td-pulse var(--td-period) infinite; animation-delay: var(--d); }
+  @keyframes td-pulse {
+    0%, 60%, 100% { opacity: calc(var(--td-pulse-rest) * var(--td-opacity)); transform: scale(var(--td-pulse-scale)); animation-timing-function: ease-in-out; }
+    20% { opacity: var(--td-opacity); transform: scale(1); animation-timing-function: ease-in-out; }
+  }
+  /* DEMO: a choice knob also lands as data-knob-<key> on the frame, for selectors.
+     "hold": hovering eases the size to the coloured dot's hover size while the opacity keeps beating. */
+  @property --td-k { syntax: "<number>"; inherits: false; initial-value: 1; }
+  @property --td-h { syntax: "<number>"; inherits: false; initial-value: 0; }
+  [data-knob-runhover="hold"] .td > i.pulse::after { animation-name: td-pulse-hold;
+    transform: scale(calc(var(--td-k) * (1 - var(--td-h)) + 1.6 * var(--td-h))); transition: --td-h .12s; }
+  [data-knob-runhover="hold"] .td > i.pulse:hover::after { --td-h: 1; }
+  @keyframes td-pulse-hold {
+    0%, 60%, 100% { opacity: calc(var(--td-pulse-rest) * var(--td-opacity)); --td-k: var(--td-pulse-scale); animation-timing-function: ease-in-out; }
+    20% { opacity: var(--td-opacity); --td-k: 1; animation-timing-function: ease-in-out; }
+  }
+</style>
+<script>
+  // DEMO: the design's knobs and presets, read once by the kit. Each knob is a
+  // control in the shell (bars or sidebar), a value in the hash, a custom
+  // property on every frame (css) and a line in Copy values.
+  const TODAY = {
+    readSize: 5, readOpacity: 0.35, readTint: "shade", readShade: 0, readHover: "x1.6", readLift: 0,
+    size: 5, opacity: 1, gap: 3, order: "tab",
+    max: 5, more: "plus", moreSize: 11, moreOpacity: 0.7,
+    animate: true, pulseRest: 0.3, pulseScale: 0.6, period: 1800, step: 200, runHover: "pulse",
+  };
+  const PINPOINTS = { ...TODAY, readSize: 1.5, readOpacity: 0.25, max: 8, moreSize: 10, moreOpacity: 0.5,
+    readHover: "match", readLift: 0.15, runHover: "hold" };
+  const start = (key) => PINPOINTS[key];
+  window.MockDesign = {
+    knobs: [
+      { heading: "Read dots (gray)" },
+      { key: "readSize", label: "Size", type: "range", min: 0.5, max: 6, step: 0.25, unit: "px", value: start("readSize"), css: "--td-read-size" },
+      { key: "readOpacity", label: "Opacity", type: "range", min: 0.02, max: 1, step: 0.01, value: start("readOpacity"), css: "--td-read-opacity" },
+      { key: "readTint", label: "Colour", options: { shade: "Title colour, shaded", custom: "Custom" }, value: start("readTint") },
+      { key: "readShade", label: "Shade", hint: "− toward extra muted · 0 the title colour · + toward the foreground", type: "range", min: -100, max: 100, step: 25, unit: "%", value: start("readShade"),
+        enabled: (k) => k.readTint === "shade" },
+      { key: "readColor", label: "Custom colour", type: "color", value: "#8a8a96", enabled: (k) => k.readTint === "custom" },
+      { key: "readHover", label: "On hover", options: { "x1.6": "×1.6 (today)", match: "Coloured hover size" }, value: start("readHover") },
+      { key: "readLift", label: "Hover lift", hint: "Extra opacity on hover", type: "range", min: 0, max: 0.5, step: 0.01, value: start("readLift"), css: "--td-read-lift" },
+      { heading: "Coloured dots" },
+      { key: "size", label: "Size", type: "range", min: 2, max: 9, step: 0.25, unit: "px", value: start("size"), css: "--td-size" },
+      { key: "opacity", label: "Opacity", type: "range", min: 0.2, max: 1, step: 0.01, value: start("opacity"), css: "--td-opacity" },
+      { key: "gap", label: "Space around", type: "range", min: 0, max: 8, step: 0.25, unit: "px", value: start("gap"), css: "--td-gap" },
+      { key: "order", label: "Order", options: { tab: "Tab order", waiting: "Waiting first" }, value: start("order") },
+      { heading: "Too many tabs" },
+      { key: "max", label: "Max dots", type: "number", min: 1, max: 20, step: 1, value: start("max") },
+      { key: "more", label: "Rest shown as", options: { plus: "+9", bare: "9", dots: "…", none: "Nothing" }, value: start("more") },
+      { key: "moreSize", label: "Text size", type: "range", min: 8, max: 13, step: 0.5, unit: "px", value: start("moreSize"), css: "--td-more-size" },
+      { key: "moreOpacity", label: "Text opacity", type: "range", min: 0.1, max: 1, step: 0.05, value: start("moreOpacity"), css: "--td-more-opacity" },
+      { heading: "Running pulse" },
+      { key: "animate", label: "Pulse", type: "toggle", value: start("animate") },
+      { key: "pulseRest", label: "Rest opacity", type: "range", min: 0.05, max: 1, step: 0.05, value: start("pulseRest"), css: "--td-pulse-rest" },
+      { key: "pulseScale", label: "Rest size", type: "range", min: 0.2, max: 1, step: 0.05, unit: "×", value: start("pulseScale"), css: "--td-pulse-scale" },
+      { key: "runHover", label: "On hover", options: { pulse: "Keeps pulsing", hold: "Coloured hover size" }, value: start("runHover") },
+      { key: "period", label: "Beat", type: "range", min: 600, max: 4000, step: 100, unit: "ms", value: start("period"), css: "--td-period" },
+      { key: "step", label: "Wave step", type: "range", min: 0, max: 600, step: 25, unit: "ms", value: start("step") },
+    ],
+    // DEMO: "today" is the baseline: the shipped look, shown in the reference frame.
+    presets: [
+      { id: "today", label: "Today · Regular", note: "The shipped look (5 px, up to 5 dots)", knobs: TODAY },
+      { id: "small", label: "Today · Small", note: "The shipped Small size (4 px, up to 8 dots)", knobs: { ...TODAY, readSize: 4, size: 4, gap: 2, max: 8 } },
+      { id: "pinpoints", label: "Pinpoints", note: "Tiny faded read dots: a starting point", knobs: PINPOINTS },
+    ],
+  };
+</script>
+</head>
+<body>
+
+<div class="app" data-section="sidebar" data-title="Sidebar">
+
+  <!-- DEMO: data-region marks a part of the screen a frame can show alone. -->
+  <aside class="sidebar" data-region="sidebar">
+    <nav class="sb-nav">
+      <div class="sb-row"><i data-icon="plus"></i>New workspace</div>
+      <div class="sb-row"><i data-icon="history"></i>History</div>
+      <div class="sb-row"><i data-icon="search"></i>Search</div>
+      <div class="sb-row"><i data-icon="calendar-clock"></i>Schedules</div>
+    </nav>
+    <div class="sb-scroll">
+      <div class="sb-section-header">Workspaces <button class="icon-btn"><i data-icon="settings-2" data-size="14"></i></button></div>
+      <template data-each="projectGroups">
+        <div class="sb-project"><span class="proj-icon" data-attrs="style=projStyle" data-text="initial"></span><span data-text="name"></span></div>
+        <template data-each="items">
+          <!-- DEMO: data-mod = this mock's change; Base (b) hides it. The script fills .td per frame. -->
+          <div class="sb-ws" data-pick="ws" data-class="is-selected=selected" data-attrs="data-tabs=tabs"><span data-attrs="class=dotClass"></span><span class="sb-ws-title" data-text="title"></span><span class="td" data-mod></span><span class="td-end"><span class="sb-ws-meta time" data-text="meta"></span><button class="row-menu"><i data-icon="ellipsis" data-size="14"></i></button></span></div>
+        </template>
+      </template>
+    </div>
+    <div class="sb-footer">
+      <button class="icon-btn"><i data-icon="folder-plus"></i></button>
+      <button class="icon-btn"><i data-icon="circle-gauge"></i></button>
+      <button class="icon-btn"><i data-icon="server"></i></button>
+      <span class="spacer"></span>
+      <button class="icon-btn"><i data-icon="circle-question-mark"></i></button>
+      <button class="icon-btn"><i data-icon="settings"></i></button>
+    </div>
+  </aside>
+  <main class="main"></main>
+
+</div>
+
+<script>
+  // ---------------------------------------------------------------- dots (tab-dots model.ts rowDots)
+  const WANTED = ["permission", "finished", "error"];
+  const LABEL = { permission: "Waiting for permission", error: "Error", running: "Running", finished: "Finished · unread", read: "Read" };
+  function parseTabs(s) {
+    return (s || "").split("|").filter(Boolean).map((part) => {
+      const i = part.indexOf(":");
+      return { s: part.slice(0, i), t: part.slice(i + 1) };
+    });
+  }
+  function rowDots(list, k, show) {
+    const cands = list.flatMap((tab, index) => {
+      const wanted = WANTED.includes(tab.s);
+      const visible = show === "all" || wanted || (show === "running" && tab.s === "running");
+      return visible ? [{ ...tab, index, rank: wanted ? 0 : tab.s === "running" ? 1 : 2 }] : [];
+    });
+    const byRank = (a, b) => a.rank - b.rank || a.index - b.index;
+    const kept = cands.length <= k.max ? [...cands] : [...cands].sort(byRank).slice(0, k.max).sort((a, b) => a.index - b.index);
+    if (k.order === "waiting") kept.sort(byRank);
+    return { dots: kept, more: cands.length - kept.length };
+  }
+  // Read dots are gray: the row's title colour (0), mixed toward extra muted (−) or the foreground (+).
+  function shade(n) {
+    return n == 0 ? "currentColor" : `color-mix(in oklab, currentColor, var(${n < 0 ? "--c-foreground-extra-muted" : "--c-foreground"}) ${Math.abs(n)}%)`;
+  }
+
+  // DEMO: MockKit.onFrame runs for every frame (reference and candidate) with
+  // that frame's own design; the situation (MockKit.state.states) is shared.
+  document.addEventListener("mockready", () => {
+    MockKit.onFrame((f) => {
+      const k = f.knobs;
+      const show = MockKit.state.states.show;
+      // Values CSS can't derive from the knobs' custom properties.
+      f.el.style.setProperty("--td-read-color", k.readTint === "custom" ? k.readColor : shade(k.readShade));
+      f.el.style.setProperty("--td-read-hover", k.readHover === "match" ? String((1.6 * k.size) / k.readSize) : "1.6");
+      for (const row of f.el.querySelectorAll(".sb-ws")) {
+        const td = row.querySelector(".td");
+        const { dots, more } = f.base ? { dots: [], more: 0 } : rowDots(parseTabs(row.dataset.tabs), k, show);
+        row.classList.toggle("has-dots", dots.length > 0);
+        td.replaceChildren(...dots.map((d, i) => {
+          const dot = document.createElement("i");
+          dot.dataset.s = d.s;
+          dot.title = `${d.t} · ${LABEL[d.s]}`;
+          if (d.s === "running" && k.animate) {
+            // Same wave as web.ts waveStart(): dot i trails dot i-1 by one step, at most one beat back.
+            dot.className = "pulse";
+            dot.style.setProperty("--d", `${((i * k.step) % k.period) - k.period}ms`);
+          }
+          return dot;
+        }));
+        if (more > 0 && k.more !== "none") {
+          const m = document.createElement("span");
+          m.className = "more";
+          m.textContent = { plus: "+" + more, bare: String(more), dots: "…" }[k.more];
+          td.append(m);
+        }
+      }
+    });
+  });
+</script>
+</body>
+</html>

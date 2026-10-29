@@ -1,0 +1,28 @@
+/* Paseo mock kit: the backdrop, i.e. what is NOT the app. Dot grid by default;
+ * #...?canvas=checker|plain for the others (the hash key keeps its old name so
+ * existing links still work).
+ *
+ * dev.css imports this, so every page on the kit's shell gets it whatever it
+ * turns off. A page that doesn't load dev.js at all links this file and puts
+ * class="kit-backdrop" on <body> (or on its own stage element). */
+:root {
+  --kit-bg: #1b1c21;
+  --kit-dot: rgba(255, 255, 255, 0.07);
+}
+html.kit body,
+.kit-backdrop {
+  background-color: var(--kit-bg);
+  background-image: radial-gradient(var(--kit-dot) 1px, transparent 1.2px);
+  background-size: 16px 16px;
+}
+html.kit[data-canvas="checker"] body,
+html[data-canvas="checker"] .kit-backdrop {
+  background-image:
+    conic-gradient(rgba(255, 255, 255, 0.035) 25%, transparent 0 50%, rgba(255, 255, 255, 0.035) 0 75%, transparent 0);
+  background-size: 20px 20px;
+}
+html.kit[data-canvas="plain"] body,
+html[data-canvas="plain"] .kit-backdrop {
+  background-image: none;
+  background-color: #26272e;
+}

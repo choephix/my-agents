@@ -1,13 +1,16 @@
 <!doctype html>
 <!--
-  DEMO mock: shows every kit mechanism on a made-up "turn cost" plugin.
+  DEMO mock: shows the kit's mechanisms on a made-up "turn cost" plugin.
   It is a copy of ../starter/ with only the design delta added. Search for
-  "DEMO:" comments to see each mechanism.
+  "DEMO:" comments to see each mechanism. Knobs, presets, a region at 1:1 and
+  a reference preset are in ./tab-dots/.
 
-  DESIGN bar  ← data-variants on the section + data-variant="B" on elements
+  DESIGN      ← data-variants on the section + data-variant="B" on elements
+  REFERENCE   ← data-reference on <html>: Base or a variant beside the candidate (key c)
   SITUATION   ← theme/viewport (built in) + data-states / data-when (app state)
+  REGION      ← data-region on the starter's parts (key r), scale (key z)
 -->
-<html lang="en" data-mock-title="Turn cost (demo)" data-states="session: normal | empty | crashed; sidebar: shown=Sidebar shown | hidden=Sidebar hidden; grouping: status=By status | project=By project; panel: closed | open; drawer: closed | open">
+<html lang="en" data-mock-data data-mock-title="Turn cost (demo)" data-reference data-states="session: normal | empty | crashed; sidebar: shown=Sidebar shown | hidden=Sidebar hidden; grouping: status=By status | project=By project; panel: closed | open; drawer: closed | open">
 <head>
 <meta charset="utf-8">
 <title>Paseo mock kit demo</title>
@@ -31,7 +34,7 @@
      data-variants="A: Footer text — quietest; every turn | B: Composer pill — running total; click cycles the period | C: Tab badge — desktop only; phones have no tab row">
 
   <!-- ============================== LEFT SIDEBAR (desktop + small desktop) -->
-  <aside class="sidebar" data-viewport="wide" data-when="sidebar: shown">
+  <aside class="sidebar" data-viewport="wide" data-when="sidebar: shown" data-region="sidebar">
     <nav class="sb-nav">
       <div class="sb-row"><i data-icon="plus"></i>New workspace</div>
       <div class="sb-row"><i data-icon="history"></i>History</div>
@@ -75,7 +78,7 @@
     </div>
   </aside>
 
-  <main class="main">
+  <main class="main" data-region="main" data-region-label="Main column">
     <!-- ============================== DESKTOP HEADER + TABS -->
     <header class="ws-header" data-viewport="wide">
       <button class="icon-btn" data-toggle="sidebar"><i data-icon="panel-left"></i></button>
@@ -153,7 +156,7 @@
     </div>
 
     <!-- ============================== COMPOSER -->
-    <div class="composer-dock">
+    <div class="composer-dock" data-region="composer">
       <!-- SLOT composer-pills: plugin pills above the composer (use .pill) -->
       <div class="pills slot" data-slot="composer-pills"><!-- DEMO: kit cycle button inside the mock (same width for every value) --><button class="pill" data-variant="B" data-note="2" data-cycle="$0.08 this turn | $1.42 this chat | $9.70 today"></button></div>
       <div class="composer">
@@ -176,7 +179,7 @@
   </main>
 
   <!-- ============================== RIGHT EXPLORER PANEL (situation: panel = open) -->
-  <aside class="right-panel" data-viewport="wide" data-when="panel: open">
+  <aside class="right-panel" data-viewport="wide" data-when="panel: open" data-region="panel" data-region-label="Explorer panel">
     <div class="rp-tabs">
       <div class="tab" data-pick="rp-tabs"><i data-icon="files"></i><span class="tab-label">Files</span></div>
       <div class="tab is-active" data-pick="rp-tabs"><i data-icon="file-diff"></i><span class="tab-label">Changes</span></div>
@@ -193,7 +196,7 @@
 
   <!-- ============================== PHONE DRAWER (situation: drawer = open) -->
   <div class="drawer-overlay" data-viewport="phone" data-when="drawer: open" data-set="drawer: closed"></div>
-  <div class="drawer" data-viewport="phone" data-when="drawer: open">
+  <div class="drawer" data-viewport="phone" data-when="drawer: open" data-region="drawer" data-region-label="Phone drawer">
     <nav class="sb-nav">
       <div class="sb-row" style="justify-content:space-between"><span style="display:flex;gap:8px;align-items:center"><i data-icon="plus"></i>New workspace</span><span data-set="drawer: closed" style="display:inline-flex"><i data-icon="x"></i></span></div>
       <div class="sb-row"><i data-icon="history"></i>History</div>

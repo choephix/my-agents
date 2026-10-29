@@ -7,6 +7,7 @@
 // out-dir ~/www/webshare/images, prefix = the mock's folder name.
 // Files: <prefix>-<section>-<variant>-<viewport>[-<theme>].png
 // Also the regression check for base changes: export the demo, eyeball it.
+// A region in the URL's hash (#...?region=sidebar) exports just that region.
 
 import { chromium } from "playwright"; // local devDependency: npm install in the kit folder
 import { mkdirSync } from "node:fs";
@@ -48,7 +49,7 @@ for (const sec of kit.sections) {
         await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
         const name = [prefix, sec.id, variant, vp, themes.length > 1 ? theme : null].filter(Boolean).join("-").toLowerCase();
         const file = join(outDir, `${name}.png`);
-        await page.locator(".mock-frame").screenshot({ path: file });
+        await page.locator(".kit-frame-clip").screenshot({ path: file });
         written.push(file);
       }
     }

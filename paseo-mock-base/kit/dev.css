@@ -1,11 +1,11 @@
-/* Paseo mock kit: everything OUTSIDE the mock (canvas, toolbars, frame label).
- * Deliberately not Paseo-looking: monospace, glass panels. Amber = design
- * (pops out); violet = situation (part of the workbench, like the canvas).
- * Paseo's own look lives in tokens.css + paseo.css. */
+/* Paseo mock kit: the shell, i.e. everything OUTSIDE the frames (backdrop,
+ * shell bars or shell sidebar, frame labels). Deliberately not Paseo-looking:
+ * monospace, glass panels. Amber = design (pops out); violet = situation
+ * (part of the shell, like the backdrop). Paseo's own look lives in
+ * tokens.css + paseo.css. */
+@import url("backdrop.css");
 
 :root {
-  --kit-bg: #1b1c21;
-  --kit-dot: rgba(255, 255, 255, 0.07);
   --kit-panel: rgba(30, 31, 38, 0.86);
   --kit-line: rgba(255, 255, 255, 0.09);
   --kit-text: #c8c9d2;
@@ -13,6 +13,7 @@
   --kit-design: #f0b955;
   --kit-situation: #b9a2ff;
   --kit-font: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  --kit-sidebar-w: 320px;
 }
 
 html.kit,
@@ -21,41 +22,84 @@ html.kit body {
   height: 100%;
   overflow: hidden;
 }
-
-/* ---- canvas: what is NOT the app. Dot grid by default; #…?canvas=checker|plain */
 html.kit body {
-  background-color: var(--kit-bg);
-  background-image: radial-gradient(var(--kit-dot) 1px, transparent 1.2px);
-  background-size: 16px 16px;
   font-family: var(--kit-font);
 }
-html.kit[data-canvas="checker"] body {
-  background-image:
-    conic-gradient(rgba(255, 255, 255, 0.035) 25%, transparent 0 50%, rgba(255, 255, 255, 0.035) 0 75%, transparent 0);
-  background-size: 20px 20px;
-}
-html.kit[data-canvas="plain"] body {
-  background-image: none;
-  background-color: #26272e;
-}
 
-/* ---- frame */
+/* ---- stage: the scrolling area that holds the frames */
 .kit-stage {
   position: fixed;
+  top: 0;
+  bottom: 0;
   left: 0;
   right: 0;
+  overflow: auto;
+}
+.kit-stage-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
+}
+.kit-frames {
+  display: flex;
+  align-items: flex-start;
+}
+/* Situation line over the frames (region, size, scale): shared by all of them. */
+.kit-frame-label {
+  font: 11px/16px var(--kit-font);
+  color: var(--kit-dim);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+/* ---- frames: one per compared design; references left, the candidate right */
+.kit-frame-holder {
+  position: relative;
+  flex: none;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
 }
-.kit-frame-label {
+/* The frame's design name. Never sizes its frame (a long name ellipses), so a
+ * changing name never moves anything. */
+.kit-frame-name {
+  width: 0;
+  min-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
   font: 11px/16px var(--kit-font);
-  color: var(--kit-dim);
   letter-spacing: 0.02em;
+  color: var(--kit-design);
 }
-.kit-frame-holder {
+.kit-frame-name::before {
+  content: "Candidate · ";
+  color: var(--kit-dim);
+}
+.kit-frame-holder[data-role="reference"] .kit-frame-name {
+  color: color-mix(in srgb, var(--kit-design) 65%, var(--kit-text));
+}
+.kit-frame-holder[data-role="reference"] .kit-frame-name::before {
+  content: "Reference · ";
+}
+/* The clip shows the frame's region: the whole screen, or one part of it at
+ * the same size it has inside the screen. */
+.kit-frame-clip {
   position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.10),
+    0 24px 60px rgba(0, 0, 0, 0.45);
+}
+.kit-frame-clip.kit-phone {
+  border-radius: 28px;
 }
 .mock-frame {
   position: absolute;
@@ -63,21 +107,13 @@ html.kit[data-canvas="plain"] body {
   left: 0;
   transform-origin: 0 0;
   overflow: hidden;
-  border-radius: 10px;
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.10),
-    0 24px 60px rgba(0, 0, 0, 0.45);
-}
-.mock-frame[data-vp="phone"] {
-  border-radius: 28px;
 }
 html.kit-export,
 html.kit-export body {
   margin: 0;
   background: transparent;
 }
-html.kit-export .mock-frame {
-  position: relative;
+html.kit-export .kit-frame-clip {
   border-radius: 0;
   box-shadow: none;
 }
@@ -90,7 +126,7 @@ html.kit-export .mock-frame {
   visibility: hidden;
 }
 
-/* ---- toolbars */
+/* ---- shell bars (and, moved into the shell sidebar, the same controls) */
 .kit-bar {
   position: fixed;
   left: 0;
@@ -262,8 +298,228 @@ html.kit-export .mock-frame {
  * without variants it keeps its slot but shows nothing, so nothing below moves. */
 .kit-design-2 { top: 54px; }
 .kit-design-2.kit-vacant { visibility: hidden; }
-/* Third top bar (MockKit.addDesignControl): knobs within the chosen design. */
+/* Third top bar: references, presets, knobs, Copy values, MockKit.addDesignControl
+ * nodes. Fine-tuning within the chosen design. */
 .kit-design-3 { top: 94px; }
+.kit-compare,
+.kit-presets,
+.kit-knobs,
+.kit-extras {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+:is(.kit-compare, .kit-presets, .kit-knobs, .kit-extras, .kit-cycle-btn)[hidden] { display: none; }
+.kit-sb-label {
+  color: var(--kit-dim);
+  font-size: 11px;
+}
+/* Knob group button (shell bars): opens its knobs in a popover */
+.kit-pop-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.kit-pop-btn em { font-style: normal; font-size: 9px; opacity: 0.6; }
+.kit-pop-btn.kit-on,
+.kit-copy-btn.kit-on { background: color-mix(in srgb, var(--kit-accent) 22%, transparent); }
+.kit-copy-btn { cursor: pointer; }
+
+/* ---- knobs (window.MockDesign): one row each, label | control | number */
+.kit-knob-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.kit-knob {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) 54px;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  font: 11px/16px var(--kit-font);
+  color: var(--kit-text);
+}
+.kit-knob-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kit-knob-unit { color: var(--kit-dim); }
+.kit-knob.kit-changed .kit-knob-label { color: var(--kit-design); }
+.kit-knob.kit-knob-off { opacity: 0.4; }
+.kit-knob-number .kit-knob-num { grid-column: 3; }
+.kit-knob-choice .kit-seg,
+.kit-knob-swatch { grid-column: 2 / 4; }
+.kit-knob-toggle input { justify-self: start; margin: 0; accent-color: var(--kit-design); }
+.kit-knob .kit-seg { justify-self: start; }
+.kit-knob .kit-seg-btn { padding: 1px 7px; font-size: 11px; }
+.kit-knob-range {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--kit-design);
+}
+.kit-knob input[type="number"],
+.kit-knob-hex {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 1px 4px;
+  border: 1px solid var(--kit-line);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--kit-text);
+  font: 11px/18px var(--kit-font);
+}
+.kit-knob-swatch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.kit-knob-swatch input[type="color"] {
+  width: 30px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--kit-line);
+  border-radius: 5px;
+  background: none;
+}
+.kit-knob-hex { width: 84px; }
+.kit-knob input:disabled { cursor: default; }
+.kit-knob-head {
+  margin: 12px 0 4px;
+  font: 700 10px/16px var(--kit-font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--kit-dim);
+}
+.kit-knob-head:first-child { margin-top: 0; }
+
+/* ---- popover: a knob group (shell bars) or Copy values */
+.kit-pop {
+  position: fixed;
+  z-index: 20;
+  box-sizing: border-box;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 10px 12px;
+  background: var(--kit-panel);
+  backdrop-filter: blur(12px);
+  border: 1px solid color-mix(in srgb, var(--kit-design) 30%, transparent);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  font: 12px/18px var(--kit-font);
+  color: var(--kit-text);
+  --kit-accent: var(--kit-design);
+}
+.kit-pop[hidden] { display: none; }
+.kit-pop .kit-knob-group { width: 320px; }
+.kit-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 340px;
+}
+.kit-copy-status { color: var(--kit-dim); font-size: 11px; }
+.kit-copy-status.kit-copy-failed { color: var(--kit-design); }
+.kit-copy-text {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--kit-line);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--kit-text);
+  font: 11px/16px var(--kit-font);
+  resize: vertical;
+}
+
+/* ---- shell sidebar: the same controls as the shell bars, in one panel on
+ * the right; design (amber) above situation (violet). The design group
+ * scrolls; the situation group stays in view at the bottom. */
+.kit-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  box-sizing: border-box;
+  width: var(--kit-sidebar-w);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 10px 14px 14px;
+  background: var(--kit-panel);
+  backdrop-filter: blur(12px);
+  border-left: 1px solid var(--kit-line);
+  box-shadow: -8px 0 28px rgba(0, 0, 0, 0.25);
+  font: 12px/18px var(--kit-font);
+  color: var(--kit-text);
+}
+.kit-sidebar[hidden] { display: none; }
+.kit-sb-head {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+}
+.kit-sb-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.kit-sb-design {
+  --kit-accent: var(--kit-design);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* the scrollbar sits on the panel's edge, not over the controls */
+  margin-right: -14px;
+  padding-right: 14px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+.kit-sb-situation {
+  --kit-accent: var(--kit-situation);
+  flex: none;
+  max-height: 40%;
+  overflow-y: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--kit-line);
+}
+.kit-sb-group > * { flex: none; }
+.kit-sb-title {
+  font: 700 10px/16px var(--kit-font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--kit-accent);
+}
+.kit-sidebar :is(.kit-bar, .kit-caption) {
+  position: static;
+  margin: 0;
+  width: auto;
+  max-width: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.kit-sidebar .kit-caption {
+  text-align: left;
+  white-space: normal;
+}
+.kit-sidebar .kit-design-3 {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+.kit-sidebar .kit-design-3 > * { align-self: stretch; }
+.kit-sidebar .kit-design-3 > .kit-copy-btn { align-self: flex-start; }
+.kit-sidebar .kit-compare { align-self: flex-start; }
+.kit-sidebar .kit-knobs { display: block; }
+.kit-sidebar .kit-knobs[hidden] { display: none; }
+.kit-sidebar .kit-knob-group + .kit-knob-head { margin-top: 12px; }
 
 /* kit/data.js: data-if="path" hides the element while the value is empty */
 .kit-data-off { display: none !important; }
@@ -288,6 +544,8 @@ html.kit-export .mock-frame {
   opacity: 0.7;
 }
 .kit-seg-btn:disabled { opacity: 0.35; cursor: default; background: transparent; }
+/* The shell layout switch is about the shell, not the design: neutral, not amber. */
+.kit-review .kit-shell-toggle { --kit-accent: var(--kit-text); }
 /* Base on: the variant choice doesn't apply, so it fades */
 html.kit-base-on :is(.kit-design-2, .kit-design-3, .kit-caption) { opacity: 0.35; }
 

@@ -116,3 +116,6 @@ if (plugin.live) Object.assign(live, await plugin.live(live, { home, paseoHome, 
 writeFileSync(join(mockDir, "data.acme.json"), JSON.stringify(acme, null, 2) + "\n");
 writeFileSync(join(mockDir, "data.live.json"), JSON.stringify(live, null, 2) + "\n");
 console.log(`wrote data.acme.json and data.live.json in ${mockDir} (${live.workspaces.length} live workspaces)`);
+const page = join(mockDir, "index.html");
+if (existsSync(page) && !/<html[^>]*\sdata-mock-data[\s>=]/.test(readFileSync(page, "utf8")))
+  console.log("index.html lacks data-mock-data on <html>: the kit won't load these files until it has it");

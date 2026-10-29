@@ -9,6 +9,7 @@
   external link). Replace its content with the design; delete unused rows.
   Situation axes: host (what Paseo shows instead of the plugin screen),
   menu (the select's dropdown), page (phone only: settings list vs. screen).
+  Regions (data-region): parts a frame can show alone, at their real size.
 -->
 <html lang="en" data-states="host: connected=Host connected | offline=Host offline | outdated=Host outdated | missing=Screen unavailable; menu: closed=Menu closed | open=Menu open; page: screen=Plugin screen | list=Settings list">
 <head>
@@ -25,7 +26,7 @@
 <div class="settings" data-section="settings" data-title="Settings">
 
   <!-- ============================== SETTINGS SIDEBAR (desktop + small desktop) -->
-  <aside class="st-sidebar" data-viewport="wide">
+  <aside class="st-sidebar" data-viewport="wide" data-region="nav" data-region-label="Settings list">
     <div class="st-back"><i data-icon="arrow-left" data-size="16"></i>Back</div>
     <div class="st-group">
       <div class="st-group-label">App</div>
@@ -100,7 +101,7 @@
   </div>
 
   <!-- ============================== DETAIL PANE: PageLayout + plugin screen -->
-  <main class="st-pane">
+  <main class="st-pane" data-region="pane" data-region-label="Plugin screen">
     <div class="st-page">
       <h1 class="st-title" data-viewport="wide">my-plugin · My plugin</h1>
       <button class="st-backlink"><i data-icon="arrow-left" data-size="14"></i>Back to plugins</button>

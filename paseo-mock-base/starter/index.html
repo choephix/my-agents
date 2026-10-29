@@ -6,7 +6,10 @@
 
   All names are fictional and safe for public screenshots; keep it that way.
   Plugin slots: elements with data-slot="…" mark where Paseo shows plugin UI.
-  Situation axes used here (bottom bar): panel (right explorer), drawer (phone sidebar).
+  Situation axes used here (situation controls): panel (right explorer), drawer (phone sidebar).
+  Regions (data-region): parts a frame can show alone, at their real size.
+  Fine-tuning a look: declare knobs and presets in window.MockDesign (README
+  "Knobs and presets"; worked example in ../demo/tab-dots/).
   Delete what your mock doesn't need.
 -->
 <html lang="en" data-mock-title="Starter" data-states="sidebar: shown=Sidebar shown | hidden=Sidebar hidden; grouping: status=By status | project=By project; panel: closed | open; drawer: closed | open">
@@ -24,7 +27,7 @@
 <div class="app" data-section="chat" data-title="Chat">
 
   <!-- ============================== LEFT SIDEBAR (desktop + small desktop) -->
-  <aside class="sidebar" data-viewport="wide" data-when="sidebar: shown">
+  <aside class="sidebar" data-viewport="wide" data-when="sidebar: shown" data-region="sidebar">
     <nav class="sb-nav">
       <div class="sb-row"><i data-icon="plus"></i>New workspace</div>
       <div class="sb-row"><i data-icon="history"></i>History</div>
@@ -68,7 +71,7 @@
     </div>
   </aside>
 
-  <main class="main">
+  <main class="main" data-region="main" data-region-label="Main column">
     <!-- ============================== DESKTOP HEADER + TABS -->
     <header class="ws-header" data-viewport="wide">
       <button class="icon-btn" data-toggle="sidebar"><i data-icon="panel-left"></i></button>
@@ -136,7 +139,7 @@
     </div>
 
     <!-- ============================== COMPOSER -->
-    <div class="composer-dock">
+    <div class="composer-dock" data-region="composer">
       <!-- SLOT composer-pills: plugin pills above the composer (use .pill) -->
       <div class="pills slot" data-slot="composer-pills"></div>
       <div class="composer">
@@ -159,7 +162,7 @@
   </main>
 
   <!-- ============================== RIGHT EXPLORER PANEL (situation: panel = open) -->
-  <aside class="right-panel" data-viewport="wide" data-when="panel: open">
+  <aside class="right-panel" data-viewport="wide" data-when="panel: open" data-region="panel" data-region-label="Explorer panel">
     <div class="rp-tabs">
       <div class="tab" data-pick="rp-tabs"><i data-icon="files"></i><span class="tab-label">Files</span></div>
       <div class="tab is-active" data-pick="rp-tabs"><i data-icon="file-diff"></i><span class="tab-label">Changes</span></div>
@@ -176,7 +179,7 @@
 
   <!-- ============================== PHONE DRAWER (situation: drawer = open) -->
   <div class="drawer-overlay" data-viewport="phone" data-when="drawer: open" data-set="drawer: closed"></div>
-  <div class="drawer" data-viewport="phone" data-when="drawer: open">
+  <div class="drawer" data-viewport="phone" data-when="drawer: open" data-region="drawer" data-region-label="Phone drawer">
     <nav class="sb-nav">
       <div class="sb-row" style="justify-content:space-between"><span style="display:flex;gap:8px;align-items:center"><i data-icon="plus"></i>New workspace</span><span data-set="drawer: closed" style="display:inline-flex"><i data-icon="x"></i></span></div>
       <div class="sb-row"><i data-icon="history"></i>History</div>
