@@ -3,12 +3,13 @@ one-line fold rows, Markdown renders, slash commands go quiet, and a `/skill:` m
 the agent actually got. The phone apps are unchanged.
 
 **Fold rows.** A block such as `<attachments>…</attachments>`, `<summary>`, `<context>` or
-`<paste>` becomes one 28 px monospace row that shows the tags as written, attributes included,
+`<paste>` becomes one 24 px monospace row (11 px text) that shows the tags as written, attributes included,
 with the content squeezed onto one very muted line between them and cut with an ellipsis:
-`› <file path="docs/badges.md"> # Badges Count only live a… </file>`. The tags sit left and keep
-their full text first; the preview takes what room is left. Click it (or Enter/Space) to open it
+`<file path="docs/badges.md"> # Badges Count only live a… </file>  ⌄`. The tags sit left and keep
+their full text first; the preview takes what room is left; the chevron sits at the right edge,
+pointing down. Click it (or Enter/Space) to open it
 in place: the row stays where it is as the header and shows only the opening tag, its text goes a
-step quieter, the chevron turns and goes full strength, the content continues below in the same
+step quieter, the chevron turns up and goes full strength, the content continues below in the same
 rounded shape at half the tint (raw text, at most 320 px tall, scrolls inside, long lines wrap),
 and a footer row with the closing tag ends the shape; clicking the footer folds it too. Stefan
 picked style B from a local mock page, then

@@ -259,10 +259,10 @@ function renderFold(fold: Extract<Segment, { kind: "fold" }>, startOpen: boolean
   path.setAttribute("d", CHEVRON);
   chevron.append(path);
   const head = el("div", { class: "ump-head", role: "button", tabindex: "0", "data-paseo-markdown-ignore": "true", "data-pmono": "" }, [
-    chevron,
     el("span", { class: "ump-open" }, [fold.open]),
     el("span", { class: "ump-peek" }, [fold.body.replace(/\s+/g, " ").trim().slice(0, 300)]),
     el("span", { class: "ump-shut" }, [fold.close]),
+    chevron,
   ]);
   head.title = fold.open;
   const box = el("div", { class: "ump-fold" }, [head]);
@@ -483,11 +483,12 @@ const CSS = `
    text steps down and the chevron goes full strength; the body is the same tint at half. */
 .ump-fold { border-radius: 8px; overflow: hidden; }
 .ump-fold + .ump-fold { margin-top: 4px; }
-.ump-head { display: flex; align-items: center; gap: 6px; height: 28px; box-sizing: border-box; padding: 0 10px 0 8px; background: ${MIX(7)}; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 18px; cursor: pointer; user-select: none; -webkit-user-select: none; white-space: nowrap; }
+.ump-head { display: flex; align-items: center; gap: 6px; height: 24px; box-sizing: border-box; padding: 0 8px; background: ${MIX(7)}; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 16px; cursor: pointer; user-select: none; -webkit-user-select: none; white-space: nowrap; }
 .ump-head:hover { background: ${MIX(10)}; }
 .ump-head:focus-visible { outline: 1px solid ${MIX(45)}; outline-offset: -1px; border-radius: 8px; }
-.ump-chev { width: 12px; height: 12px; flex: none; fill: none; stroke: ${MIX(52)}; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 120ms ease; }
-.ump-fold[data-open] .ump-chev { transform: rotate(90deg); stroke: currentColor; }
+/* The chevron sits at the right edge, pointing down while shut and up while open. */
+.ump-chev { width: 12px; height: 12px; flex: none; margin-left: auto; fill: none; stroke: ${MIX(52)}; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transform: rotate(90deg); transition: transform 120ms ease; }
+.ump-fold[data-open] .ump-chev { transform: rotate(-90deg); stroke: currentColor; }
 /* One clamped line instead of nowrap: long text still sizes a wide bubble, but can't force the
    bubble wider than a narrow window (nowrap text can't shrink below its full width). The clamp
    draws the ellipsis; break-all fills the line to its edge, so no gap opens before the next part. */
@@ -500,9 +501,8 @@ const CSS = `
 .ump-shut { flex: none; }
 .ump-fold[data-open] .ump-peek, .ump-fold[data-open] .ump-shut { display: none; }
 .ump-fold[data-open] .ump-open, .ump-foot { color: ${MIX(52)}; }
-.ump-foot { padding-left: 26px; }
 /* width 0 + min-width 100%: opening never widens the bubble; the body wraps to the header's width. */
-.ump-body { width: 0; min-width: 100%; box-sizing: border-box; max-height: 320px; overflow: auto; padding: 8px 12px 10px 26px; background: ${MIX(3.5)}; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.ump-body { width: 0; min-width: 100%; box-sizing: border-box; max-height: 320px; overflow: auto; padding: 6px 8px 8px; background: ${MIX(3.5)}; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 16px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 /* ---- Skills: the bubble takes a very slight tint of the theme's accent (Paseo's own CSS variables,
    plugin themes included) only when a skill loaded. */
 [data-ump-skill="loaded"], [data-ump-skill="pending"] { background-color: color-mix(in srgb, var(--colors-accent-bright, currentColor) 9%, var(--colors-surface3, transparent)) !important; }
