@@ -2,5 +2,5 @@
   "id": "noice-chat-turn-status",
   "name": "Working indicator",
   "description": "Choose the spinner, a live activity label and the elapsed-time style shown while an agent works. Web and desktop apps.",
-  "requirements": { "paseo": ">=0.12.0" }
+  "requirements": { "paseo": ">=0.13.0" }
 }

@@ -8,6 +8,6 @@
     "screenshots/sidebar-status-grouping.webp"
   ],
   "requirements": {
-    "paseo": ">=0.11.4"
+    "paseo": ">=0.13.0"
   }
 }

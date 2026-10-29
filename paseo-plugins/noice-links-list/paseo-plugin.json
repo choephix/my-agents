@@ -2,5 +2,5 @@
   "id": "noice-links-list",
   "name": "Mentioned links",
   "description": "A composer pill per chat and a links page per workspace (opened from its header) listing the web links, images and files that you and the agents mentioned.",
-  "requirements": { "paseo": ">=0.12.0" }
+  "requirements": { "paseo": ">=0.13.0" }
 }

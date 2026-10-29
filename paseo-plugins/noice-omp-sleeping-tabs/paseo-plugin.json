@@ -3,6 +3,6 @@
   "name": "Sleeping tabs",
   "description": "Shows when an idle OMP chat is asleep (its memory freed) with a Wake pill, and sets the idle time. Needs a daemon build with agent sleep support.",
   "requirements": {
-    "paseo": ">=0.12.0"
+    "paseo": ">=0.13.0"
   }
 }

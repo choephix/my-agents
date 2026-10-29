@@ -3,6 +3,6 @@
   "name": "Session tree",
   "description": "OMP's /tree in Paseo: go back to any message and continue from there as a new branch, keep the old one, summarize what you left, switch branches.",
   "requirements": {
-    "paseo": ">=0.12.0"
+    "paseo": ">=0.13.0"
   }
 }

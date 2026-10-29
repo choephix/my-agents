@@ -17,10 +17,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@getpaseo/client": "0.12.0"
+    "@getpaseo/client": "0.13.0"
   },
   "devDependencies": {
-    "@getpaseo/plugin": "0.12.0",
+    "@getpaseo/plugin": "0.13.0",
     "@types/node": "^24.0.0",
     "@types/react": "~19.2.0",
     "react": "19.1.0",

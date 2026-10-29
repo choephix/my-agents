@@ -4,6 +4,6 @@
   "description": "Switch the web sidebar between project groups using editable matching rules.",
   "media": [],
   "requirements": {
-    "paseo": ">=0.12.0"
+    "paseo": ">=0.13.0"
   }
 }
