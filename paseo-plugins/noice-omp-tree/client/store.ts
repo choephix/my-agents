@@ -79,6 +79,8 @@ export class TreeStore {
   #disposed = false;
   #chatsTimer: ReturnType<typeof setTimeout> | undefined;
   #stateTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The last chat list and settings as received, to tell whether a poll changed anything. */
+  #listed = "";
 
   constructor(transport: TreeTransport) {
     this.#transport = transport;
@@ -116,15 +118,20 @@ export class TreeStore {
     clearTimeout(this.#chatsTimer);
     try {
       const { chats, display } = await this.#transport.chats();
+      const listed = JSON.stringify([chats, display]);
+      let changed = listed !== this.#listed;
+      this.#listed = listed;
       this.#chats = new Map(chats.map(chat => [chat.agentId, chat]));
       // Chats that are gone (archived, deleted) and shown nowhere take their last state with them.
       for (const agentId of this.#states.keys()) {
         if (!this.#chats.has(agentId) && !this.#watched.has(agentId) && !this.#starting.has(agentId) && agentId !== this.#sheetAgentId) {
           this.#states.delete(agentId);
+          changed = true;
         }
       }
       this.#display = display;
-      this.#emit();
+      // An unchanged poll keeps the snapshot, so nothing that shows it renders again.
+      if (changed) this.#emit();
     } catch {
       // Host offline or plugin reloading: keep what is shown and try again.
     }
@@ -137,6 +144,10 @@ export class TreeStore {
     if (this.#disposed) return;
     clearTimeout(this.#stateTimer);
     const ids = new Set([...this.#watched.keys(), ...this.#starting.keys(), ...(this.#sheetAgentId ? [this.#sheetAgentId] : [])]);
+    // #settle can end a move without emitting (it leaves `starting`, or marks a summary as added).
+    const moves = () => JSON.stringify([[...this.#starting], [...this.#summarized]]);
+    const before = moves();
+    let changed = false;
     await Promise.all(
       [...ids].map(async agentId => {
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -148,7 +159,13 @@ export class TreeStore {
               timer = setTimeout(() => reject(new Error("timeout")), STATE_TIMEOUT_MS);
             }),
           ]);
-          this.#states.set(agentId, this.#settle(agentId, state));
+          const next = this.#settle(agentId, state);
+          const last = this.#states.get(agentId);
+          // An unchanged state keeps its object: the web layer caches its row matching per state object.
+          if (!last || JSON.stringify(last) !== JSON.stringify(next)) {
+            this.#states.set(agentId, next);
+            changed = true;
+          }
         } catch {
           // Keep the last state.
         } finally {
@@ -157,7 +174,7 @@ export class TreeStore {
       }),
     );
     if (this.#disposed) return;
-    this.#emit();
+    if (changed || moves() !== before) this.#emit();
     const fast = [...ids].some(id => this.#states.get(id)?.op || this.#starting.has(id));
     this.#stateTimer = setTimeout(() => void this.refreshStates(), fast ? FAST_MS : SLOW_STATE_MS);
   }

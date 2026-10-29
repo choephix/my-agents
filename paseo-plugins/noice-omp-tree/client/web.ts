@@ -201,6 +201,11 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
   let menu: HTMLElement | null = null;
   const docks = new Map<string, { node: HTMLElement; key: string; dim: HTMLElement | null }>();
   let frame = 0;
+  /** Strips follow their chat's scroll area and composer: placed again when either changes size, and on each scan. */
+  const resized = new ResizeObserver(() => {
+    if (!frame) frame = requestAnimationFrame(place);
+  });
+  let observed: Element[] = [];
   let scanQueued = false;
 
   /** Visible chat scrollers with their agent ids. */
@@ -484,13 +489,14 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
       dock.dim?.remove();
       docks.delete(agentId);
     }
-    if (docks.size && !frame) frame = requestAnimationFrame(place);
+    if ((docks.size || observed.length) && !frame) frame = requestAnimationFrame(place);
   }
 
-  /** Keeps strips above their composer (and dims the chat while it switches); runs only while a strip shows. */
+  /** Keeps strips above their composer (and dims the chat while it switches). */
   function place(): void {
     frame = 0;
     const byAgent = new Map(chats().map(chat => [chat.agentId, chat.scroll]));
+    const targets: Element[] = [];
     for (const [agentId, dock] of docks) {
       const scroll = byAgent.get(agentId);
       const pane = scroll?.closest('[data-testid^="workspace-pane-"]') ?? scroll?.parentElement?.parentElement;
@@ -500,6 +506,7 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
         dock.node.style.display = "none";
         continue;
       }
+      targets.push(scroll, composer);
       const box = composer.getBoundingClientRect();
       // Composer pills (Tree, links, …) sit in a row right above the composer: keep the strip above them.
       let top = box.top;
@@ -518,7 +525,12 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
         Object.assign(dock.dim.style, { left: `${area.left}px`, top: `${area.top}px`, width: `${area.width}px`, height: `${area.height}px` });
       }
     }
-    if (docks.size) frame = requestAnimationFrame(place);
+    // observe() reports a size at once, so observing the same nodes again here would loop.
+    if (targets.length !== observed.length || targets.some((node, i) => node !== observed[i])) {
+      resized.disconnect();
+      targets.forEach(node => resized.observe(node));
+      observed = targets;
+    }
   }
 
   const shownNotices = new Set<number>();
@@ -561,6 +573,7 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
 
   return () => {
     observer.disconnect();
+    resized.disconnect();
     unsubscribe();
     document.removeEventListener("click", onClick, true);
     document.removeEventListener("contextmenu", onContextMenu);

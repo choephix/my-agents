@@ -99,7 +99,10 @@ apply without a reload. `/tree` works whatever is off.
   strip, menu, toasts, Paseo's `--colors-*` CSS variables. Paseo mounts only part of a long chat,
   with gaps, so the user rows and reply footers on screen are lined up in order with the path's user
   messages and reply texts (longest common subsequence; the newer copy wins after `/prose`).
-  Nothing lines up → toast, no move.
+  Nothing lines up → toast, no move. The strip is placed on each scan and when its chat's scroll area
+  or composer changes size (`ResizeObserver`); nothing runs per frame.
+- The client store polls (chat list every 5 s, shown chats' state every 2 s) but notifies its
+  subscribers only when a poll changed something; an unchanged state keeps its object.
 - Timeline transformer: Paseo's replayed `[branch_summary]` row becomes the summary row;
   `[credential_pin]`/`[model_usage]` "Unsupported history record" rows (which appear only after a
   reload, i.e. after every move) are hidden.
