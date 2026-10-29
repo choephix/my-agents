@@ -16,7 +16,7 @@ The screen uses Paseo's own style: its tab strip, project badges and status colo
 - Tap a card to open a Paseo dialog with the full body, answers, every pull request, people, links, hashtags and the source URL. Open unsettled memos also expose Star, Settle, answer buttons and Open tab. Choosing an answer opens an editable reply; **Send** records it, sends it as Stefan's input to the asker and settles the memo.
 - Tap the asker or owner to open that agent. On an Inbox card this also copies a `Re:` pointer to the card URL so it can be pasted into the prompt. The answer action has an explicit **Open tab** button; when a tab is gone, tapping copies the command that revives it.
 
-On a phone the groups become sections in one list; pull down to read the desk again.
+When the screen is narrower than three columns (956 px of its own width, so a docked sidebar counts) or on a phone, the groups become full-width sections in one list; folding still moves a group to the pills above. Pull down to read the desk again.
 
 ## Token and writes
 

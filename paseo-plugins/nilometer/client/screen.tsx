@@ -2,7 +2,7 @@ import type { PluginScreenProps, PluginSidebarItemProps } from "@getpaseo/plugin
 import { useSettings } from "@getpaseo/plugin/client";
 import { Icon, ScrollView, SidebarRow } from "@getpaseo/plugin/client/ui";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { Dimensions, Pressable, RefreshControl, Text, View } from "react-native";
+import { Dimensions, type LayoutChangeEvent, Pressable, RefreshControl, Text, View } from "react-native";
 import { type Desk, type DeskCard, type Kind, type Priority, PRIORITIES } from "../shared/desk";
 import { preferences } from "../shared/preferences";
 import { age, Card, type CardScene } from "./card";
@@ -17,8 +17,8 @@ const VIEWS: { kind: Kind; label: string }[] = [
 ];
 const EMPTY: Record<Kind, string> = { inbox: "Nothing in your inbox.", doing: "Nothing in progress." };
 const COLUMN_WIDTH = 300;
-/** Two columns plus their gap and shell padding; below this the board becomes a vertical list. */
-const SIDE_BY_SIDE_MIN = COLUMN_WIDTH * 2 + 44;
+/** Three columns plus their gaps and shell padding, measured on the screen itself (a docked sidebar takes window width); below this the board becomes a vertical list. */
+const BOARD_MIN = COLUMN_WIDTH * 3 + 56;
 const cap = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 
 const blockingCount = (desk: Desk): number => desk.inbox.filter((card) => !card.settled && card.priority === "blocking").length;
@@ -154,18 +154,16 @@ export function DeskScreen({ theme, layout, navigation }: PluginScreenProps) {
   const [folded, setFolded] = useState(() => new Set(lastFolded));
   const [showSettled, setShowSettled] = useState(lastSettled);
   const compact = layout.compact;
-  const [narrow, setNarrow] = useState(() => Dimensions.get("window").width < SIDE_BY_SIDE_MIN);
-  useEffect(() => {
-    const subscription = Dimensions.addEventListener("change", ({ window }) => setNarrow(window.width < SIDE_BY_SIDE_MIN));
-    return () => subscription.remove();
-  }, []);
+  // The window is at least as wide as the screen, so it is a safe first guess before layout.
+  const [narrow, setNarrow] = useState(() => Dimensions.get("window").width < BOARD_MIN);
+  const onLayout = (event: LayoutChangeEvent) => setNarrow(event.nativeEvent.layout.width < BOARD_MIN);
   const vertical = compact || narrow;
   const touch = vertical || layout.platform !== "web";
   const gutter = vertical ? 12 : 16;
 
   if (!desk) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.s0, padding: gutter, gap: 10 }}>
+      <View style={{ flex: 1, backgroundColor: c.s0, padding: gutter, gap: 10 }} onLayout={onLayout}>
         <Text style={{ ...TYPE.body, color: error ? c.danger : c.muted }}>{error ? `Couldn't read the desk from Mainframe: ${error}` : "Reading the desk…"}</Text>
         {error ? (
           <Text onPress={() => void refresh()} accessibilityRole="button" style={{ ...TYPE.body, color: c.ok }}>
@@ -278,7 +276,7 @@ export function DeskScreen({ theme, layout, navigation }: PluginScreenProps) {
 
   if (vertical) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.s0 }}>
+      <View style={{ flex: 1, backgroundColor: c.s0 }} onLayout={onLayout}>
         {tabs}
         <ScrollView
           contentContainerStyle={{ paddingBottom: 24 }}
@@ -300,7 +298,7 @@ export function DeskScreen({ theme, layout, navigation }: PluginScreenProps) {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: c.s0 }}>
+    <View style={{ flex: 1, backgroundColor: c.s0 }} onLayout={onLayout}>
       {tabs}
       <View style={{ minHeight: 38 }}>{strip}</View>
       {empty}
