@@ -7,6 +7,7 @@ import { Image, Platform, Pressable, ScrollView, Text, View, useWindowDimensions
 import { z } from "zod";
 import { embedKind, readEmbedAsset, readEmbedFile } from "../shared/preferences";
 import { cardColors } from "./card-colors";
+import { checkSvg, svgDataUri, unescapeSvg } from "./svg";
 
 export const embedCardSchema = z.object({
   original: z.string(),
@@ -178,8 +179,8 @@ function CardHeader({ theme, original, href, detail, cardHovered, action }: Card
   );
 }
 
-/** Show / hide toggle for an HTML page; sits in the header row. */
-function PageToggle({ theme, open, onToggle }: { theme: PluginTheme; open: boolean; onToggle(): void }) {
+/** A small text toggle in the header row (Show page, Code). */
+function HeaderToggle({ theme, label, onToggle }: { theme: PluginTheme; label: string; onToggle(): void }) {
   const [hovered, setHovered] = useState(false);
   return (
     <Pressable
@@ -190,7 +191,7 @@ function PageToggle({ theme, open, onToggle }: { theme: PluginTheme; open: boole
       style={{ paddingHorizontal: 5, height: 20, borderRadius: 4, justifyContent: "center", backgroundColor: hovered ? theme.colors.surface2 : "transparent" }}
     >
       <Text style={{ color: hovered ? theme.colors.foreground : theme.colors.foregroundMuted, fontFamily: MONO, fontSize: 10, lineHeight: 12 }}>
-        {open ? "▾ Hide page" : "▸ Show page"}
+        {label}
       </Text>
     </Pressable>
   );
@@ -317,7 +318,7 @@ function HtmlEmbed({ data, agentId, theme, bodyHeight, cardHovered, stateKey }: 
         href={ok ? fileHref(ok.path) : null}
         detail={null}
         cardHovered={cardHovered}
-        action={web ? <PageToggle theme={theme} open={open} onToggle={toggleOpen} /> : null}
+        action={web ? <HeaderToggle theme={theme} label={open ? "▾ Hide page" : "▸ Show page"} onToggle={toggleOpen} /> : null}
       />
       {!web ? (
         <Note theme={theme}>HTML previews need the desktop or web app.</Note>
@@ -364,6 +365,87 @@ export function EmbedCard({ item, agentId, theme, layout }: PluginTimelineItemPr
     // Hover brightens the header texts. Pointer events, not a Pressable: an outer Pressable never got hover on web.
     <View onPointerEnter={() => setCardHovered(true)} onPointerLeave={() => setCardHovered(false)} style={cardStyle}>
       {kind === "image" ? <ImageEmbed {...props} /> : kind === "html" ? <HtmlEmbed {...props} /> : <TextEmbed {...props} />}
+    </View>
+  );
+}
+
+export const svgBlockSchema = z.object({ source: z.string() });
+
+/** ```svg blocks that failed to load as an image; kept so a remounted card starts as code. */
+const brokenSvgs = new Map<string, true>();
+
+/**
+ * A complete ```svg block drawn as a picture, with a Code toggle back to the source. Drawn as an
+ * image: no scripts, no external loads. Size comes from the SVG itself, so the first frame has
+ * the final height. Invalid, oversized or unloadable SVG shows the plain code block and a note.
+ */
+export function SvgBlockCard({ item, agentId, theme, layout }: PluginTimelineItemProps<z.output<typeof svgBlockSchema>>) {
+  const { source } = item.data;
+  const { height: windowHeight } = useWindowDimensions();
+  const maxHeight = Math.max(FOLDED_TEXT_HEIGHT, windowHeight - (layout.compact ? 260 : 220));
+  const background = cardColors(theme).background;
+  const [cardHovered, setCardHovered] = useState(false);
+  const [showCode, toggleCode] = useToggle(`${agentId}\nsvg\n${source}`);
+  const [broken, setBroken] = useState(() => brokenSvgs.has(source));
+  const svg = useMemo(() => unescapeSvg(source), [source]);
+  const check = useMemo(() => checkSvg(svg), [svg]);
+  const c = theme.colors;
+  const uri = useMemo(() => check.status !== "ok" ? null : svgDataUri(svg, {
+    foreground: c.foreground,
+    muted: c.foregroundMuted,
+    accent: c.accent,
+    accentForeground: c.accentForeground,
+    danger: c.statusDanger,
+    warning: c.statusWarning,
+    success: c.statusSuccess,
+    border: c.border,
+    background,
+  }), [svg, check.status, c, background]);
+  const code = `\`\`\`svg\n${source}\n\`\`\``;
+  const note = check.status === "error" ? check.message : broken ? "SVG could not be drawn, shown as code." : null;
+
+  if (check.status !== "ok" || !uri || note) {
+    return (
+      <View>
+        <Markdown>{code}</Markdown>
+        <Text style={{ color: c.foregroundMuted, fontSize: 12, marginTop: -2, marginBottom: 6 }}>{note}</Text>
+      </View>
+    );
+  }
+  // Natural size, never wider than the card (maxWidth) nor taller than the window.
+  const width = Math.min(check.width, (maxHeight * check.width) / check.height);
+  return (
+    <View
+      onPointerEnter={() => setCardHovered(true)}
+      onPointerLeave={() => setCardHovered(false)}
+      style={{ borderWidth: 1, borderColor: c.border, borderRadius: 8, backgroundColor: background, marginVertical: 5, overflow: "hidden" }}
+    >
+      <CardHeader
+        theme={theme}
+        original="svg"
+        href={null}
+        detail={showCode ? null : `${check.width}×${check.height}`}
+        cardHovered={cardHovered}
+        action={<HeaderToggle theme={theme} label={showCode ? "Picture" : "Code"} onToggle={toggleCode} />}
+      />
+      {showCode ? (
+        <View style={{ paddingHorizontal: 9 }}>
+          <Markdown>{code}</Markdown>
+        </View>
+      ) : (
+        <View style={{ paddingHorizontal: 9, paddingBottom: 9 }}>
+          <Image
+            source={{ uri }}
+            resizeMode="contain"
+            accessibilityLabel="SVG picture"
+            onError={() => {
+              remember(brokenSvgs, source, true);
+              setBroken(true);
+            }}
+            style={{ width, maxWidth: "100%", aspectRatio: check.width / check.height }}
+          />
+        </View>
+      )}
     </View>
   );
 }

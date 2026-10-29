@@ -56,4 +56,34 @@ describe("message embed parser", () => {
       "```",
     ].join("\n"));
   });
+
+  describe("```svg blocks", () => {
+    const svg = '<svg viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
+
+    it("turns a closed block into a segment between the surrounding markdown", () => {
+      expect(parseMessage(`Before\n\`\`\`svg\n${svg}\n\`\`\`\nAfter`, { svg: true })).toEqual([
+        { kind: "markdown", text: "Before\n" },
+        { kind: "svg", source: svg },
+        { kind: "markdown", text: "After" },
+      ]);
+    });
+
+    it("leaves an unclosed block, other languages and a disabled option as text", () => {
+      const unclosed = `Drawing:\n\`\`\`svg\n${svg}\n`;
+      expect(parseMessage(unclosed, { svg: true })).toEqual([{ kind: "markdown", text: unclosed }]);
+      const xml = `\`\`\`xml\n${svg}\n\`\`\``;
+      expect(parseMessage(xml, { svg: true })).toEqual([{ kind: "markdown", text: xml }]);
+      const closed = `\`\`\`svg\n${svg}\n\`\`\``;
+      expect(parseMessage(closed)).toEqual([{ kind: "markdown", text: closed }]);
+    });
+
+    it("drops the list indent from a block nested in a list item, and needs a long enough closing fence", () => {
+      const text = ["1. Mock:", "   ````svg", "   <svg viewBox=\"0 0 1 1\">", "     <g/>", "   ```", "   </svg>", "   ````", "2. Next"].join("\n");
+      expect(parseMessage(text, { svg: true })).toEqual([
+        { kind: "markdown", text: "1. Mock:\n" },
+        { kind: "svg", source: '<svg viewBox="0 0 1 1">\n  <g/>\n```\n</svg>' },
+        { kind: "markdown", text: "2. Next" },
+      ]);
+    });
+  });
 });

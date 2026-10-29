@@ -2,15 +2,14 @@ import { type PluginTimelineItem, settingsRpc } from "@getpaseo/plugin";
 import type { PluginClientContext, PluginScreenProps } from "@getpaseo/plugin/client";
 import { SettingsCard, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { useEffect } from "react";
-import { Text } from "react-native";
+import { Platform, Text } from "react-native";
 import { useSettings } from "@getpaseo/plugin/client";
-import { z } from "zod";
 import { AGENT_CARD_KIND, agentCardSchema, createAgentCard } from "./client/agent-card";
-import { EmbedCard, embedCardSchema } from "./client/card";
+import { EmbedCard, embedCardSchema, SvgBlockCard, svgBlockSchema } from "./client/card";
 import { MarkdownChunk, markdownSchema } from "./client/markdown";
-import { linkIssueRefs, parseMessage } from "./client/parse";
+import { linkIssueRefs, parseMessage, SVG_FENCE } from "./client/parse";
 import { installAgentTextStyles } from "./client/web";
-import { DEFAULTS, preferences } from "./shared/preferences";
+import { DEFAULTS, type Preferences, preferences } from "./shared/preferences";
 
 /** Timeline rows have no navigation; an agent card opens its chat through this screen. */
 function OpenAgent({ navigation, params, theme }: PluginScreenProps) {
@@ -26,19 +25,19 @@ function OpenAgent({ navigation, params, theme }: PluginScreenProps) {
 }
 
 const PLUGIN_ID = "message-embeds";
-let enabled = DEFAULTS.enabled;
+let current: Preferences = DEFAULTS;
 
-function setEnabled(value: boolean): void {
-  enabled = value;
+function apply(values: Preferences): void {
+  current = values;
 }
 
 function Settings() {
   const settings = useSettings(preferences);
   useEffect(() => {
-    if (settings.status === "ready") setEnabled(settings.values.enabled);
+    if (settings.status === "ready") apply(settings.values);
   }, [settings]);
   if (settings.status !== "ready") {
-    return <SettingsSection title="File embeds"><SettingsCard><SettingsSwitch label="Enable file embeds" value={enabled} disabled onValueChange={() => {}} /></SettingsCard></SettingsSection>;
+    return <SettingsSection title="File embeds"><SettingsCard><SettingsSwitch label="Enable file embeds" value={current.enabled} disabled onValueChange={() => {}} /></SettingsCard></SettingsSection>;
   }
   return (
     <SettingsSection title="File embeds" info="Turn Obsidian-style ![[path]] file, image and HTML previews, ![[agent link]] chat previews, and #123 GitHub links on or off in assistant messages.">
@@ -49,8 +48,20 @@ function Settings() {
           value={settings.values.enabled}
           disabled={settings.saving}
           onValueChange={(value) => {
-            setEnabled(value);
-            void settings.save({ enabled: value }, settings.revision);
+            const next = { ...settings.values, enabled: value };
+            apply(next);
+            void settings.save(next, settings.revision);
+          }}
+        />
+        <SettingsSwitch
+          label="Render SVG code blocks"
+          hint="Draws complete ```svg code blocks as pictures, with a Code toggle for the source. Needs file embeds on."
+          value={settings.values.svgBlocks}
+          disabled={settings.saving}
+          onValueChange={(value) => {
+            const next = { ...settings.values, svgBlocks: value };
+            apply(next);
+            void settings.save(next, settings.revision);
           }}
         />
       </SettingsCard>
@@ -67,7 +78,7 @@ export default function contribute(client: PluginClientContext) {
     void client.rpc(readSettings, {}).then((result) => {
       if (disposed || result.status !== "ready") return;
       revision = result.revision;
-      setEnabled(z.object({ enabled: z.boolean() }).parse(result.values).enabled);
+      apply(preferences.schema.parse(result.values));
     }).catch(() => {});
   };
   refresh();
@@ -80,13 +91,14 @@ export default function contribute(client: PluginClientContext) {
     icon: "FileCode2",
     context: "global",
     async onSelect({ rpc }) {
-      const current = await rpc(readSettings, {});
-      if (current.status !== "ready") return;
-      const next = !z.object({ enabled: z.boolean() }).parse(current.values).enabled;
-      const saved = await rpc(writeSettings, { revision: current.revision, values: { enabled: next } });
+      const read = await rpc(readSettings, {});
+      if (read.status !== "ready") return;
+      const values = preferences.schema.parse(read.values);
+      const next = { ...values, enabled: !values.enabled };
+      const saved = await rpc(writeSettings, { revision: read.revision, values: next });
       if (saved.status === "saved") {
         revision = saved.revision;
-        setEnabled(next);
+        apply(next);
       }
     },
   });
@@ -102,6 +114,7 @@ export default function contribute(client: PluginClientContext) {
   const agentTextStyles = installAgentTextStyles();
   const markdown = client.addTimelineRenderer({ kind: "message-embeds-markdown", version: 1, schema: markdownSchema, Component: MarkdownChunk });
   const card = client.addTimelineRenderer({ kind: "message-embeds-card", version: 1, schema: embedCardSchema, Component: EmbedCard });
+  const svgCard = client.addTimelineRenderer({ kind: "message-embeds-svg", version: 1, schema: svgBlockSchema, Component: SvgBlockCard });
   const agentCard = client.addTimelineRenderer({
     kind: AGENT_CARD_KIND,
     version: 1,
@@ -112,13 +125,16 @@ export default function contribute(client: PluginClientContext) {
     id: "message-embeds",
     query: { itemType: "assistant_message" },
     transform({ item, phase }) {
-      if (!enabled) return undefined;
-      // Cheap checks first; most messages have neither an embed nor a `#123`.
+      if (!current.enabled) return undefined;
+      // Only finished replies, and not on phones: while streaming, a ```svg block stays code.
+      const svg = current.svgBlocks && phase === "complete" && Platform.OS === "web";
+      // Cheap checks first; most messages have no embed, `#123` or ```svg block.
       const hasEmbed = item.text.includes("![[");
       const hasRef = /#\d\d/.test(item.text) && linkIssueRefs(item.text, () => "") !== item.text;
-      if (!hasEmbed && !hasRef) return undefined;
-      const segments = parseMessage(item.text);
-      // Unchanged text (half-typed or code-only embeds, no `#123`) keeps Paseo's own rendering.
+      const hasSvg = svg && SVG_FENCE.test(item.text);
+      if (!hasEmbed && !hasRef && !hasSvg) return undefined;
+      const segments = parseMessage(item.text, { svg });
+      // Unchanged text (half-typed or code-only embeds, unclosed ```svg, no `#123`) keeps Paseo's own rendering.
       if (!hasRef && segments.length === 1 && segments[0].kind === "markdown" && segments[0].text === item.text) return undefined;
       // No `id` on the rows: Paseo then uses `<source message id>/<index>`, unique across the chat.
       // Its chat list keys each row's measured height by id; the parser's per-message ids
@@ -128,6 +144,9 @@ export default function contribute(client: PluginClientContext) {
         items: segments.map((segment): PluginTimelineItem => {
           if (segment.kind === "agent") {
             return { type: "plugin" as const, kind: AGENT_CARD_KIND, version: 1, data: { ...segment.link, url: segment.url } };
+          }
+          if (segment.kind === "svg") {
+            return { type: "plugin" as const, kind: "message-embeds-svg", version: 1, data: { source: segment.source } };
           }
           if (segment.kind === "embed") {
             const data = {
@@ -156,6 +175,7 @@ export default function contribute(client: PluginClientContext) {
     command();
     markdown();
     card();
+    svgCard();
     agentCard();
     openAgent();
     agentTextStyles();

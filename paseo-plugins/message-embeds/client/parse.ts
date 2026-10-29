@@ -10,11 +10,15 @@ export interface Embed {
 export type Segment =
   | { kind: "markdown"; text: string }
   | { kind: "embed"; embed: Embed }
-  | { kind: "agent"; url: string; link: AgentLink };
+  | { kind: "agent"; url: string; link: AgentLink }
+  /** A complete ```svg fenced block; `source` is the code without the fence and its indent. */
+  | { kind: "svg"; source: string };
 
 const EMBED = /!\[\[([^\]\r\n]+?)\]\]/g;
 // Any indent: agents nest fences inside list items deeper than CommonMark's three spaces.
 const FENCE_START = /^\s*(`{3,}|~{3,})/;
+/** Any line opening a ```svg or ~~~svg fence; a cheap pre-check before parsing. */
+export const SVG_FENCE = /^\s*(?:`{3,}|~{3,})\s*svg(?:\s|$)/im;
 
 function parseEmbed(original: string, inner: string): Embed | null {
   const range = /^(.*?)(?:#L(\d+)(?:-L?(\d+))?)?$/.exec(inner);
@@ -88,11 +92,12 @@ export function linkIssueRefs(text: string, link: (number: string) => string): s
  * Splits assistant text into markdown, complete Obsidian-style file embeds, and agent embeds
  * (`![[https://app.paseo.sh/h/<serverId>/agent/<agentId>]]`). An agent embed becomes a card only
  * on a line of its own; inside a sentence it is written back as the plain link.
- * Fenced blocks and inline-code spans are always left untouched.
+ * Fenced blocks and inline-code spans are left untouched, except that with `svg` on, a closed
+ * ```svg block becomes its own segment; an unclosed one stays markdown.
  */
-export function parseMessage(text: string): Segment[] {
+export function parseMessage(text: string, options: { svg?: boolean } = {}): Segment[] {
   const out: Segment[] = [];
-  let inFence: { marker: string; char: string } | null = null;
+  let inFence: { marker: string; char: string; svg: { raw: string; lines: string[]; indent: number } | null } | null = null;
   let offset = 0;
 
   while (offset <= text.length) {
@@ -102,11 +107,19 @@ export function parseMessage(text: string): Segment[] {
     const line = fullLine.endsWith("\n") ? fullLine.slice(0, -1) : fullLine;
     const fence = FENCE_START.exec(line);
     if (inFence) {
-      if (fence && fence[1][0] === inFence.char && fence[1].length >= inFence.marker.length) inFence = null;
-      appendMarkdown(out, fullLine);
+      const closes = fence !== null && fence[1][0] === inFence.char && fence[1].length >= inFence.marker.length;
+      const svg = inFence.svg;
+      if (svg && closes) out.push({ kind: "svg", source: svg.lines.join("\n") });
+      else if (svg) {
+        svg.raw += fullLine;
+        // Lines of a fence indented in a list item carry the list indent; drop up to that much.
+        svg.lines.push(line.replace(new RegExp(`^ {0,${svg.indent}}`), ""));
+      } else appendMarkdown(out, fullLine);
+      if (closes) inFence = null;
     } else if (fence) {
-      inFence = { marker: fence[1], char: fence[1][0] };
-      appendMarkdown(out, fullLine);
+      const svg = options.svg === true && /^svg(?:\s|$)/i.test(line.slice(fence[0].length).trim());
+      inFence = { marker: fence[1], char: fence[1][0], svg: svg ? { raw: fullLine, lines: [], indent: fence[0].length - fence[1].length } : null };
+      if (!svg) appendMarkdown(out, fullLine);
     } else {
       const spans = inlineCodeSpans(line);
       let cursor = 0;
@@ -135,5 +148,6 @@ export function parseMessage(text: string): Segment[] {
     if (newline < 0) break;
     offset = end;
   }
+  if (inFence?.svg) appendMarkdown(out, inFence.svg.raw);
   return out;
 }

@@ -27,6 +27,19 @@ repository (its `origin` remote; GitHub forwards `/issues/123` to the PR when it
 code, code blocks, existing links and `abc#12` stay as written; folders without a GitHub remote
 keep plain text. Links appear once the reply finishes streaming.
 
+## SVG code blocks
+
+Off by default: turn on **Render SVG code blocks** in the plugin's settings (the main switch still
+turns everything off). A complete ```` ```svg ```` block in a finished reply is drawn as a picture in
+the same card style, with the size in the header and a **Code** toggle that shows the source as a
+normal code block (with its copy button) and back. While the reply streams, or if the block never
+closes, it stays code. CSS variables such as `var(--fg)`, `var(--muted)`, `var(--accent)`,
+`var(--error)`, `var(--warning)`, `var(--success)`, `var(--border)` and `var(--bg)` take the
+current Paseo theme's colours, so diagrams follow dark and light themes; an unknown variable uses
+its fallback, else the text colour. The picture is drawn as an image, so scripts and external
+files never load. An incomplete SVG, one without a size or viewBox, one over 256 KB, or one the
+browser can't draw stays a code block with a muted note. The phone app keeps the code block.
+
 ## Chat embeds
 
 `![[https://app.paseo.sh/h/<serverId>/agent/<agentId>]]` on a line of its own becomes a read-only
@@ -70,3 +83,8 @@ These verifier screenshots are saved under `screenshots/`:
 - `screenshots/html-shown.webp`
 - `screenshots/pr-links.webp`
 - `screenshots/phone-media.webp`
+- `screenshots/svg-picture.webp`
+- `screenshots/svg-code.webp`
+- `screenshots/svg-light.webp`
+- `screenshots/svg-off.webp`
+- `screenshots/svg-phone.webp`

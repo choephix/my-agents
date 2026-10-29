@@ -5,7 +5,11 @@ export const preferences = defineSettings({
   id: "message-embeds",
   scope: "host",
   version: 1,
-  schema: z.object({ enabled: z.boolean().default(true) }),
+  schema: z.object({
+    enabled: z.boolean().default(true),
+    /** ```svg code blocks drawn as pictures; off by default, and the `enabled` switch overrides it. */
+    svgBlocks: z.boolean().default(false),
+  }),
 });
 
 export type Preferences = z.output<typeof preferences.schema>;
