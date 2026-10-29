@@ -40,7 +40,10 @@ real turn. Saved per host; other open windows pick it up on focus.
   settings demos.
 - `client/settings.tsx`: the settings screen (React Native tiles with empty spans the web module fills).
 - Elements it adds carry `data-spn-own`, so their own animations never wake the page observer.
-  Disabling the plugin puts every footer back exactly as Paseo drew it.
+  Footers are picked up from the nodes Paseo adds, and a frame redraws them only when a footer
+  mounts or its own text changes (with live activity on: any change while a footer is shown); a
+  streaming reply's text alone wakes nothing. Disabling the plugin puts every footer back exactly
+  as Paseo drew it.
 
 Apply edits: `flock /tmp/paseo-plugin.lock paseo plugin reload noice-chat-turn-status`. Checks: `npm run typecheck`, `npm test`
 (`client/web.test.ts`, vitest + jsdom).

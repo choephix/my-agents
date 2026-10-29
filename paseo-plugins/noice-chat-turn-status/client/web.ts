@@ -40,6 +40,7 @@ export interface Anim {
 }
 interface TextNode { data: string }
 interface NodeLike { nodeType: number; parentElement: El | null }
+interface MutationRecordLike { type: string; target: NodeLike; addedNodes: ArrayLike<NodeLike> }
 interface Computed { color: string; backgroundColor: string; fontSize: string; fontFamily: string; fontWeight: string; lineHeight: string }
 declare const document: {
   head: El;
@@ -59,7 +60,7 @@ declare function cancelAnimationFrame(handle: number): void;
 declare function setInterval(callback: () => void, ms: number): number;
 declare function clearInterval(handle: number): void;
 declare class MutationObserver {
-  constructor(callback: (records: ArrayLike<{ target: NodeLike }>) => void);
+  constructor(callback: (records: ArrayLike<MutationRecordLike>) => void);
   observe(target: El, options: { childList: boolean; subtree: boolean; characterData: boolean }): void;
   disconnect(): void;
 }
@@ -647,27 +648,44 @@ export function startIndicator(): Indicator {
     }
   };
 
+  // Footers are found in the nodes Paseo adds, not by a page-wide query each frame.
+  const footers = new Set<El>();
   const render = () => {
     frame = 0;
     if (disposed || !preferences) return;
-    const footers = document.querySelectorAll(FOOTER);
-    for (let i = 0; i < footers.length; i++) renderFooter(footers[i]!, preferences);
+    for (const footer of footers) {
+      if (footer.isConnected) renderFooter(footer, preferences);
+      else footers.delete(footer);
+    }
   };
   function schedule() {
     if (!frame && !disposed) frame = requestAnimationFrame(render);
   }
 
+  // A footer is redrawn when it mounts or its own text changes (the elapsed time, once a second).
+  // Live activity also follows the rows of a chat that has a running turn.
   const observer = new MutationObserver((records) => {
+    let changed = false;
     for (let i = 0; i < records.length; i++) {
-      const node = records[i]!.target;
+      const record = records[i]!;
+      const node = record.target;
       const element = node.nodeType === 1 ? (node as unknown as El) : node.parentElement; // Element or Text node
-      if (!element?.closest(`[${OWN}]`)) {
-        schedule();
-        return;
+      if (!element || element.closest(`[${OWN}]`)) continue;
+      if (element.closest(FOOTER) || (footers.size > 0 && preferences?.live !== "off")) changed = true;
+      if (record.type !== "childList") continue;
+      for (let j = 0; j < record.addedNodes.length; j++) {
+        const added = record.addedNodes[j]!;
+        if (added.nodeType !== 1) continue;
+        const root = added as unknown as El;
+        const found = root.matches(FOOTER) ? [root] : Array.from(root.querySelectorAll(FOOTER));
+        for (const footer of found) footers.add(footer);
+        if (found.length > 0) changed = true;
       }
     }
+    if (changed) schedule();
   });
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  for (const footer of Array.from(document.querySelectorAll(FOOTER))) footers.add(footer);
 
   /** Puts a footer back exactly as Paseo drew it. */
   const restore = (footer: El) => {
