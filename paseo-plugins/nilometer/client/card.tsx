@@ -184,7 +184,9 @@ function shownOf(card: DeskCard) {
   const doing = card.kind === "doing";
   const face = card.title;
   const answers = card.answers.map((answer) => answer.reply).join("\n\n");
-  const { lead, rest } = splitBody(card.body);
+  const body = splitBody(card.body);
+  const lead = body.lead.trim() === face.trim() ? "" : body.lead;
+  const rest = body.rest;
   const nowLine = doing && "now" in card ? (card as DeskCard & { now?: string | null }).now ?? null : null;
   const shown = `${face}\n${answers}\n${lead}\n${card.blocks ?? ""}`;
   return { doing, face, nowLine, lead, rest: [answers, rest].filter(Boolean).join("\n\n"), shown };
