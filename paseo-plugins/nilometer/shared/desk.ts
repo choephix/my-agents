@@ -19,16 +19,18 @@ const person = z.object({
 export const PRIORITIES = ["blocking", "revisit", "whenever"] as const;
 export const KINDS = ["inbox", "doing"] as const;
 export const PR_STATES = ["merged", "ready", "open", "conflict", "closed", "draft", "unknown"] as const;
+export const MEMO_KINDS = ["revisit", "go", "ask", "notice", "parked", "musing"] as const;
 
 const cardFields = {
   name: z.string(),
   url: z.string(),
   settled: z.boolean(),
-  priority: z.enum(PRIORITIES).nullable(),
+  priority: z.string().nullable(),
   blocks: z.string().nullable(),
   body: z.string(),
   title: z.string(),
-  answers: z.array(z.string()),
+  now: z.string().nullable().optional(),
+  answers: z.array(z.object({ label: z.string(), reply: z.string() })),
   hashtags: z.array(z.string()),
   starred: z.boolean(),
   links: z.array(z.string()),
@@ -36,6 +38,7 @@ const cardFields = {
   asker: person.nullable(),
   watchers: z.array(person),
   sessions: z.array(person),
+  memoKind: z.string().nullable().optional(),
 };
 
 const inboxCard = z.object({

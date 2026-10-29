@@ -40,7 +40,9 @@ export function age(iso: string | null, now: number): string {
 export function stateOf(card: DeskCard): CardState {
   if (card.settled) return "done";
   if (card.kind === "doing") return "doing";
-  return card.priority ?? "whenever";
+  if (card.priority === "blocking") return "blocking";
+  if (card.priority === "revisit") return "revisit";
+  return "whenever";
 }
 
 /** The first paragraph of the body, when it is plain prose and short; the rest shows when the card opens. */
@@ -181,9 +183,9 @@ function refsOf(card: DeskCard, desk: Desk, shown: string, rest: string) {
 function shownOf(card: DeskCard) {
   const doing = card.kind === "doing";
   const face = card.title;
-  const answers = card.answers.join("\n\n");
+  const answers = card.answers.map((answer) => answer.reply).join("\n\n");
   const { lead, rest } = splitBody(card.body);
-  const nowLine = null;
+  const nowLine = doing && "now" in card ? (card as DeskCard & { now?: string | null }).now ?? null : null;
   const shown = `${face}\n${answers}\n${lead}\n${card.blocks ?? ""}`;
   return { doing, face, nowLine, lead, rest: [answers, rest].filter(Boolean).join("\n\n"), shown };
 }
@@ -205,10 +207,10 @@ function Answer({ card, desk, c, size }: { card: DeskCard; desk: Desk; c: Palett
         <Icon name="CornerDownRight" size={12} color={c.ok} />
       </View>
       <View style={{ flex: 1, gap: 3 }}>
-        {card.answers.map((answer, i) => (
-          <Text key={i} style={{ ...size, color: c.fg }}>
-            <Text style={{ color: c.muted }}>Answer: </Text>
-            <Inline text={answer} desk={desk} c={c} style={{ ...size, color: c.fg }} />
+        {card.answers.map((answer) => (
+          <Text key={answer.label} style={{ ...size, color: c.fg }}>
+            <Text style={{ color: c.muted }}>{answer.label}: </Text>
+            <Inline text={answer.reply} desk={desk} c={c} style={{ ...size, color: c.fg }} />
           </Text>
         ))}
       </View>

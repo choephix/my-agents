@@ -38,7 +38,7 @@ function columnsOf(desk: Desk, kind: Kind, priority: Priority | null): Column[] 
     const key = card.asker?.agentId ?? `${kind}:unassigned`;
     groups.set(key, [...(groups.get(key) ?? []), card]);
   }
-  const rankOf = (card: DeskCard) => (card.priority ? PRIORITY_RANK[card.priority] : 3);
+  const rankOf = (card: DeskCard) => (card.priority === "blocking" ? 0 : card.priority === "revisit" ? 1 : 2);
   const live = [...groups.entries()]
     .map(([key, cards]) => {
       const sorted = [...cards].sort((a, b) => rankOf(a) - rankOf(b));
