@@ -52,11 +52,12 @@ export function applyWorkspaceUpdate(current: WorkspaceRef[], update: WorkspaceU
 /** The stylesheet that hides `hidden` projects of host `hostId` in both sidebar groupings. */
 export function sidebarCss(hostId: string, projects: Project[], hidden: Project[], workspaces: WorkspaceRef[]): string {
   const hiddenIds = new Set(hidden.map((project) => project.projectId));
+  const visibleKeys = new Set(projects.filter((project) => !hiddenIds.has(project.projectId)).map((project) => project.projectKey));
   const selectors = new Set<string>();
   for (const project of hidden) {
     // 0.12 uses host/project-ID view keys when several projects share a remote.
     const keys = [JSON.stringify([hostId, project.projectId])];
-    if (project.projectKey && projects.every((other) => other.projectKey !== project.projectKey || hiddenIds.has(other.projectId))) {
+    if (project.projectKey && !visibleKeys.has(project.projectKey)) {
       keys.push(project.projectKey);
     }
     for (const key of keys) {

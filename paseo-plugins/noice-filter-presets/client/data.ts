@@ -20,7 +20,7 @@ export function useProjects(client: PluginClientContext, hostId: string) {
 }
 
 /**
- * Workspace id → project id for active workspaces, kept live by a subscribed list (first 200 workspaces).
+ * Workspace id → project id for active workspaces: the first 200, plus any the subscription reports later (archived ones leave).
  * `workspaces.subscribe` alone never fires: the daemon streams workspace updates only to a subscribed list.
  */
 export function useWorkspaceRefs(client: PluginClientContext, hostId: string): WorkspaceRef[] | undefined {
