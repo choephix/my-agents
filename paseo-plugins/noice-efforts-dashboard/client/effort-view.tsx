@@ -247,13 +247,13 @@ function Overview(props: InnerProps & { narrow: boolean }) {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 12 }}>
         <View style={styles.head}>
           <View style={[ui.line, { gap: 6, height: 22 }]}>
+            {mode === "detail" && props.onClose ? <IconButton c={c} icon="ChevronLeft" label="Back to efforts" onPress={props.onClose} /> : null}
             <Icon name="Map" size={14} color={c.muted} />
             <Text numberOfLines={1} style={{ fontSize: 14, lineHeight: 20, fontWeight: "600", color: c.fg, flexShrink: 1 }}>
               {summary.slug}
             </Text>
             {summary.mapStatus && !narrow ? <Tag c={c} text={summary.mapStatus} /> : null}
             <View style={ui.grow} />
-            {mode === "detail" && props.onClose ? <IconButton c={c} icon="X" label="Close" onPress={props.onClose} /> : null}
             {data.uncommitted || data.commits.length ? (
               <RowButton
                 c={c}
