@@ -31,6 +31,7 @@ interface DomElement extends DomNode {
   innerHTML: string;
   textContent: string | null;
   className: string;
+  readonly classList: { add(name: string): void; remove(name: string): void; contains(name: string): boolean };
   readonly shadowRoot: { querySelector(selector: string): DomElement | null } | null;
   closest(selector: string): DomElement | null;
   querySelector(selector: string): DomElement | null;
@@ -89,6 +90,7 @@ declare const window: {
   removeEventListener(type: string, listener: Listener, options?: ListenerOptions): void;
 };
 declare function requestAnimationFrame(callback: () => void): number;
+declare function getComputedStyle(element: DomElement): { readonly animationName: string };
 declare function cancelAnimationFrame(handle: number): void;
 declare class MutationObserver {
   constructor(callback: () => void);
@@ -112,24 +114,28 @@ function annotationsPanel(): DomElement | null {
   return document.querySelector(ANNOTATIONS)?.shadowRoot?.querySelector(".panel") ?? null;
 }
 
-/** Lucide `text-quote` (Paseo's icon set), constant markup. */
+/** Lucide `quote` (Paseo's icon set), filled with no stroke: its marks are closed shapes. */
 const ICON =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 5H3"/><path d="M21 12H8"/><path d="M21 19H8"/><path d="M3 12v7"/></svg>';
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/><path d="M5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/></svg>';
 
 const CSS = `
 .qs-btn { position: fixed; z-index: 1000; display: inline-flex; align-items: center; gap: 5px; height: 26px; margin: 0;
-  padding: 0 9px 0 7px; box-sizing: border-box; border: 1px solid var(--colors-surface2); border-radius: 7px;
-  background: var(--colors-surface1); color: var(--colors-foreground);
+  padding: 0 9px 0 7px; box-sizing: border-box; border: 1px solid transparent; border-radius: 7px;
+  background: var(--colors-accent); color: var(--colors-accent-foreground);
   font: 500 12px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18); cursor: pointer; white-space: nowrap;
-  user-select: none; -webkit-user-select: none; animation: qs-in 120ms ease-out; }
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--colors-accent) 40%, transparent); cursor: pointer; white-space: nowrap;
+  user-select: none; -webkit-user-select: none; transform-origin: 50% 100%;
+  animation: qs-in 170ms cubic-bezier(0.2, 0.8, 0.2, 1); }
 .qs-btn[hidden] { display: none; }
-.qs-btn:hover { background: color-mix(in srgb, var(--colors-foreground) 7%, var(--colors-surface1)); }
+.qs-btn.qs-out { animation: qs-out 100ms ease-in forwards; pointer-events: none; }
+.qs-btn:hover { background: color-mix(in srgb, var(--colors-accent) 85%, var(--colors-accent-foreground)); }
 .qs-btn:focus-visible { outline: 2px solid var(--colors-accent-bright); outline-offset: 1px; }
-.qs-btn svg { width: 14px; height: 14px; flex: none; fill: none; stroke: var(--colors-foreground-muted); stroke-width: 2;
-  stroke-linecap: round; stroke-linejoin: round; }
-@keyframes qs-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .qs-btn { animation: none; } }
+.qs-btn svg { width: 14px; height: 14px; flex: none; fill: currentColor; stroke: none; }
+@keyframes qs-in { from { opacity: 0; transform: translateY(3px) scale(0.86); } to { opacity: 1; transform: none; } }
+@keyframes qs-out { to { opacity: 0; transform: translateY(2px) scale(0.86); } }
+@media (prefers-reduced-motion: reduce) { .qs-btn, .qs-btn.qs-out { animation: none; } }
+${CHAT} ::selection { background: color-mix(in srgb, var(--colors-accent) 35%, var(--colors-background));
+  color: var(--colors-foreground); }
 `;
 
 interface Target {
@@ -227,10 +233,20 @@ export function startSimpleQuote(): () => void {
     else annotations.disconnect();
   };
 
+  // Exit: play qs-out, then hide; with reduced motion there is no animation, so hide at once.
+  const finish = () => {
+    if (!button.classList.contains("qs-out")) return;
+    button.classList.remove("qs-out");
+    button.hidden = true;
+  };
+  button.addEventListener("animationend", finish);
+
   const hide = () => {
     target = null;
-    button.hidden = true;
     follow(false);
+    if (button.hidden || button.classList.contains("qs-out")) return;
+    button.classList.add("qs-out");
+    if (getComputedStyle(button).animationName === "none") finish();
   };
 
   /**
@@ -249,6 +265,7 @@ export function startSimpleQuote(): () => void {
     }
     const firstLine = rects.filter((rect) => rect.top - top < 2);
     const middle = (Math.min(...firstLine.map((rect) => rect.left)) + Math.max(...firstLine.map((rect) => rect.right))) / 2;
+    button.classList.remove("qs-out");
     button.hidden = false;
     const width = button.offsetWidth;
     const height = button.offsetHeight;

@@ -6,9 +6,10 @@ Select text anywhere in a chat (assistant replies, your own messages, tool outpu
 ## What it does
 
 - **The button.** Shows once you release the mouse (or as you extend a selection with the keyboard), centred above the first selected line, or below the last one when there is no room above. It follows the text when the chat scrolls, hides while the selection is scrolled out of the chat, and goes away when the selection is cleared or moves outside the chat. Selections in the message box itself get no button.
+- **The look.** A solid pill in the theme's accent colour with filled quote marks; it scales in softly and shrinks out (none of it with reduced motion on). Selected text in a chat gets a muted accent background (35% accent over the page background) with the normal text colour, so the selection and the pill never blend together. The message box keeps Paseo's own selection colour.
 - **The quote.** From an assistant reply, the quote keeps the Markdown: bold, links, lists, inline code and code blocks come out exactly as Ctrl+C copies them in Paseo. Your own messages and tool output are quoted as the text you see. Every line starts with `> `; empty lines become `>`. Blank lines around the selection and trailing spaces are dropped.
 - **Where it goes.** At the end of the draft, never at the old cursor. An empty (or whitespace-only) message box gets the quote and one blank line. A draft with text keeps its text, then one blank line, the quote, and one blank line. The message box gets focus with the cursor after that last blank line, and the selection is cleared.
-- **Untouched.** Copying with Ctrl+C or Cmd+C, clicking links in messages, and other chat plugins work as before. The plugin adds one button to the page and changes nothing Paseo draws.
+- **Untouched.** Copying with Ctrl+C or Cmd+C, clicking links in messages, and other chat plugins work as before. Besides the chat selection colour, the plugin adds one button to the page and changes nothing Paseo draws.
 - **Next to the annotations plugin.** That plugin opens its own selection toolbar (Add to chat, Ask in new chat, Copy) in the same spot. While it is open, the Quote button sits right beside it (left of it when the chat has no room on the right), and pressing Quote doesn't close it first.
 
 ![Bold, lists and inline code kept in the quote](screenshots/quoted-markdown-dark.webp)
