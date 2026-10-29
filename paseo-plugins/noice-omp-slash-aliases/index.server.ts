@@ -1,5 +1,6 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { btwAsk, btwChats, btwDismiss, btwList } from "./shared/btw";
+import { preferences } from "./shared/preferences";
 import { ompProviders } from "./shared/providers";
 import { tanStatus } from "./shared/tan";
 import { btwRoot, dismissEntry, listEntries, markedPids, pruneOutbox, summarizeChats } from "./server/btw-outbox";
@@ -14,6 +15,7 @@ const PROCESS_CACHE_MS = 3_000;
 const START_SLACK_MS = 2_000;
 
 export default function contribute(server: PluginServerContext) {
+  server.registerSettings(preferences);
   const root = btwRoot();
   // Chats keep their workspace; only found ones are cached, so a missing agent is retried.
   const workspaceIds = new Map<string, string>();

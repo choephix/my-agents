@@ -1,4 +1,12 @@
-OMP slash commands for Paseo's `omp` provider: `/tan <work>`, `/omfg <correction>`, `/queue <message>` and `/btw <question>`. None of them cancels a running reply. All of them need the OMP extension `headless-builtins` (`~/workspace/my-agents/.omp/extensions/headless-builtins/`, symlinked into `~/.omp/agent/extensions/`).
+OMP slash commands for Paseo's `omp` provider: `/omfg <correction>`, `/queue <message>`, `/btw <question>` and, when switched on, `/tan <work>`. None of them cancels a running reply. All of them need the OMP extension `headless-builtins` (`~/workspace/my-agents/.omp/extensions/headless-builtins/`, symlinked into `~/.omp/agent/extensions/`).
+
+## Settings
+
+**Settings → Host → Plugins → OMP slash commands → /tan command**, off by default (the Side agent plugin's `/tangent` is the replacement). It is a host setting; open apps follow a change at once.
+
+- On: the plugin offers `/tan` in the `/` menu and sends it as `/follow-up /tan …`, as described below.
+- Off: `/tan` is not in the `/` menu; OMP's own command list has no `tan` either (checked against its live list). Typed and sent anyway, the text goes to OMP as an ordinary message, and the extension's input hook still starts OMP's tangent, so it is not passed to the model. Without the `/follow-up` wrapper Paseo sends it like any message: in an idle chat that makes no difference; while a reply is running, Paseo stops that reply first (tested: the running `sleep` was aborted, then the tangent ran).
+- Either way, `/tan` rows already in a chat, and the rows of a `/tan` typed while off, are drawn as below, and `tan.status` keeps working.
 
 ## How
 

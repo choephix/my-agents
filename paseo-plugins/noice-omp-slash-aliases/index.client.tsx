@@ -1,18 +1,31 @@
+import { settingsRpc } from "@getpaseo/plugin";
 import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
 import { createPillIcon } from "./client/btw-sheet";
 import { BtwStore, formatElapsed } from "./client/btw-store";
 import { OmpProviders } from "./client/omp-providers";
+import { createSettingsScreen } from "./client/settings";
 import { createTanRow, TanRowData, type TanRpc } from "./client/tan-row";
 import { btwAsk, btwChats, btwDismiss, btwList } from "./shared/btw";
+import { DEFAULTS, preferences, type Preferences } from "./shared/preferences";
 import { ompProviders } from "./shared/providers";
 import { tanStatus } from "./shared/tan";
 
+const PLUGIN_ID = "noice-omp-slash-aliases";
+
+interface Alias {
+  name: string;
+  description: string;
+  argumentHint: string;
+  send(args: string): string;
+}
+
 /** Plain aliases: OMP gets the `/follow-up` form, which never cancels a running reply. */
-const ALIASES = [
-  { name: "tan", description: "OMP: run a background tangent (without interrupting)", argumentHint: "<work>", send: (args: string) => `/follow-up /tan ${args}` },
-  { name: "omfg", description: "OMP: turn a correction into a persistent rule", argumentHint: "<correction>", send: (args: string) => `/follow-up /omfg ${args}` },
-  { name: "queue", description: "OMP: queue a message after the current turn", argumentHint: "<message>", send: (args: string) => `/follow-up ${args}` },
-] as const;
+const ALIASES: Alias[] = [
+  { name: "omfg", description: "OMP: turn a correction into a persistent rule", argumentHint: "<correction>", send: args => `/follow-up /omfg ${args}` },
+  { name: "queue", description: "OMP: queue a message after the current turn", argumentHint: "<message>", send: args => `/follow-up ${args}` },
+];
+/** Behind the "/tan command" setting, off by default. */
+const TAN_ALIAS: Alias = { name: "tan", description: "OMP: run a background tangent (without interrupting)", argumentHint: "<work>", send: args => `/follow-up /tan ${args}` };
 
 /** Paseo can echo the queued message with or without its transport prefix. */
 const BTW_SEND = /^(?:\/follow-up )?\/btw /;
@@ -78,21 +91,53 @@ export default function contribute(client: PluginClientContext) {
   const unsubscribe = store.subscribe(syncPills);
   void store.refresh();
 
+  const addAlias = (alias: Alias) =>
+    client.addSlashCommand({
+      name: alias.name,
+      description: alias.description,
+      argumentHint: alias.argumentHint,
+      context: "agent",
+      async onSubmit({ args, agent, paseo }) {
+        // Plugin commands win provider collisions: other providers get their own command back unchanged.
+        if (!(await providers.isOmp(agent.provider))) return void (await paseo.agents.ref(agent.id).send(`/${alias.name}${args ? ` ${args}` : ""}`));
+        if (!args) throw new Error(`Usage: /${alias.name} ${alias.argumentHint}`);
+        await paseo.agents.ref(agent.id).send(alias.send(args));
+      },
+    });
+
+  // `/tan` follows the host setting; nothing is registered until it is read, so a switched-off alias never flashes.
+  let removeTan: (() => void) | undefined;
+  const applySettings = (values: Preferences) => {
+    if (values.tan && !removeTan) removeTan = addAlias(TAN_ALIAS);
+    else if (!values.tan && removeTan) {
+      removeTan();
+      removeTan = undefined;
+    }
+  };
+  let disposed = false;
+  const readSettings = () =>
+    client.rpc(settingsRpc(preferences.id).read, {}).then(
+      result => {
+        if (disposed) return;
+        const parsed = result.status === "ready" ? preferences.schema.safeParse(result.values) : null;
+        applySettings(parsed?.success ? parsed.data : DEFAULTS);
+      },
+      (error: unknown) => console.warn("[noice-omp-slash-aliases] settings read failed", error),
+    );
+  void readSettings();
+  // Every settings save is announced; `snapshot` also fires on (re)connect. Other open clients follow.
+  const settingsEvents = client.paseo.observeEvents(["status.plugin_settings_changed"]);
+  settingsEvents.subscribe({
+    snapshot: () => void readSettings(),
+    update(message) {
+      if (message.type === "status" && message.payload.status === "plugin_settings_changed"
+        && message.payload.pluginId === PLUGIN_ID && message.payload.settingsId === preferences.id) void readSettings();
+    },
+  });
+
   const cleanups = [
-    ...ALIASES.map(alias =>
-      client.addSlashCommand({
-        name: alias.name,
-        description: alias.description,
-        argumentHint: alias.argumentHint,
-        context: "agent",
-        async onSubmit({ args, agent, paseo }) {
-          // Plugin commands win provider collisions: other providers get their own command back unchanged.
-          if (!(await providers.isOmp(agent.provider))) return void (await paseo.agents.ref(agent.id).send(`/${alias.name}${args ? ` ${args}` : ""}`));
-          if (!args) throw new Error(`Usage: /${alias.name} ${alias.argumentHint}`);
-          await paseo.agents.ref(agent.id).send(alias.send(args));
-        },
-      }),
-    ),
+    client.addSettingsScreen({ id: "commands", title: "OMP slash commands", icon: "SquareSlash", Component: createSettingsScreen(applySettings) }),
+    ...ALIASES.map(addAlias),
     client.addSlashCommand({
       name: "btw",
       description: "OMP: quick by-the-way question about this chat (no interruption, not saved to the chat)",
@@ -137,6 +182,9 @@ export default function contribute(client: PluginClientContext) {
   ];
 
   return () => {
+    disposed = true;
+    void settingsEvents.release().catch(() => {});
+    removeTan?.();
     cleanups.forEach(cleanup => cleanup());
     unsubscribe();
     store.dispose();
