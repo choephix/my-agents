@@ -1,0 +1,6 @@
+{
+  "id": "nilometer",
+  "name": "Nilometer",
+  "description": "The Nilometer inbox and doing board from Axalon Mainframe's /desk: priority, answers, hashtags, linked memos and pull requests. Read-only.",
+  "requirements": { "paseo": ">=0.13.0" }
+}

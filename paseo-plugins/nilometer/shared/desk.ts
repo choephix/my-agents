@@ -1,7 +1,7 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
-// The shape of Axalon Mainframe's /desk.json (its pages/desk-json.ts).
+// The shape returned by Axalon Mainframe's /desk.json.
 
 const person = z.object({
   tab: z.string().nullable(),
@@ -17,52 +17,57 @@ const person = z.object({
 });
 
 export const PRIORITIES = ["blocking", "revisit", "whenever"] as const;
-export const KINDS = ["asks", "doing", "endeavors"] as const;
+export const KINDS = ["inbox", "doing"] as const;
 export const PR_STATES = ["merged", "ready", "open", "conflict", "closed", "draft", "unknown"] as const;
 
-const card = z.object({
-  kind: z.enum(KINDS),
+const cardFields = {
   name: z.string(),
-  file: z.string(),
   url: z.string(),
-  status: z.string(),
+  settled: z.boolean(),
   priority: z.enum(PRIORITIES).nullable(),
-  effort: z.string().nullable(),
-  /** Key into `workspaces`. */
-  workspace: z.string(),
-  live: z.boolean(),
-  closed: z.boolean(),
-  quiet: z.boolean(),
-  broken: z.boolean(),
-  opened: z.string().nullable(),
-  updated: z.string().nullable(),
-  title: z.string(),
-  now: z.string().nullable(),
   blocks: z.string().nullable(),
-  answer: z.string().nullable(),
   body: z.string(),
-  prs: z.array(z.number()),
-  asks: z.array(z.string()),
+  title: z.string(),
+  answers: z.array(z.string()),
+  hashtags: z.array(z.string()),
+  starred: z.boolean(),
   links: z.array(z.string()),
+  prs: z.array(z.number()),
   asker: person.nullable(),
   watchers: z.array(person),
   sessions: z.array(person),
+};
+
+const inboxCard = z.object({
+  ...cardFields,
+  kind: z.literal("inbox"),
+  status: z.string(),
+});
+
+const doingCard = z.object({
+  ...cardFields,
+  kind: z.literal("doing"),
+  memos: z.array(z.string()),
 });
 
 export const deskSchema = z.object({
-  at: z.string(),
-  repo: z.string(),
-  githubFetchedAt: z.string().nullable(),
-  /** Local folders a web server shares: [path prefix, URL prefix]. Turns a link written as a local path into one that opens. */
+  /** Milliseconds are not part of the new contract; this is retained when Mainframe supplies it. */
+  at: z.string().optional(),
+  repo: z.string().default(""),
+  githubFetchedAt: z.string().nullable().optional(),
+  /** Local folders a web server shares: [path prefix, URL prefix]. */
   shared: z.array(z.tuple([z.string(), z.string()])),
   workspaces: z.array(z.object({ key: z.string(), title: z.string(), hue: z.number() })),
   /** `owner/repo#number` → state. */
   prs: z.record(z.string(), z.object({ state: z.enum(PR_STATES), words: z.string(), title: z.string() })),
-  cards: z.array(card),
+  inbox: z.array(inboxCard),
+  doing: z.array(doingCard),
 });
 
 export type Desk = z.infer<typeof deskSchema>;
-export type DeskCard = Desk["cards"][number];
+export type InboxCard = z.infer<typeof inboxCard>;
+export type DoingCard = z.infer<typeof doingCard>;
+export type DeskCard = InboxCard | DoingCard;
 export type DeskPerson = z.infer<typeof person>;
 export type Priority = (typeof PRIORITIES)[number];
 export type Kind = (typeof KINDS)[number];

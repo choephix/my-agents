@@ -10,7 +10,7 @@ export interface CardScene {
   desk: Desk;
   c: Palette;
   now: number;
-  asksByName: Map<string, DeskCard>;
+  inboxByName: Map<string, DeskCard>;
   openAgent?: (agentId: string) => void;
   /** Touch layout: no hover highlight. */
   compact: boolean;
@@ -38,9 +38,8 @@ export function age(iso: string | null, now: number): string {
 }
 
 export function stateOf(card: DeskCard): CardState {
-  if (card.closed) return "done";
-  if (!card.live) return "stray";
-  if (card.kind === "doing") return card.quiet ? "quiet" : "doing";
+  if (card.settled) return "done";
+  if (card.kind === "doing") return "doing";
   return card.priority ?? "whenever";
 }
 
@@ -87,9 +86,8 @@ function StatusDot({ status, c }: { status: string; c: Palette }) {
 /** A session: opens its Paseo tab, or copies the command that revives it when the tab is gone. */
 /** What tapping an ask's asker puts on the clipboard: the composer can't be prefilled from a plugin. */
 function replyOf(card: DeskCard): string | undefined {
-  if (card.kind !== "asks" || !card.file) return undefined;
-  const at = card.file.lastIndexOf("/desk/");
-  return `Re: ${at < 0 ? card.file : card.file.slice(at + 1)}\n\n`;
+  if (card.kind !== "inbox") return undefined;
+  return `Re: ${card.url}\n\n`;
 }
 
 function Person({ person, role, scene, wide, reply }: { person: DeskPerson; role?: string; scene: CardScene; wide?: boolean; reply?: string }) {
@@ -171,22 +169,23 @@ function RefLink({ target, scene }: { target: Target; scene: CardScene }) {
 const stamp = (iso: string) =>
   new Date(iso).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-/** What the card shows beyond its face: references, people, times and the file. */
+/** What the card shows beyond its face: references, people and links. */
 function refsOf(card: DeskCard, desk: Desk, shown: string, rest: string) {
   const words = `${shown}\n${rest}`;
   return {
     links: card.links.filter((url) => !url.includes(`github.com/${desk.repo}/pull/`) && !words.includes(url)).map((url) => linkTarget(url, desk.shared)),
-    asks: card.asks.filter((url) => !words.includes(url)),
+    memos: card.kind === "doing" ? card.memos.filter((url) => !words.includes(url)) : [],
   };
 }
 
 function shownOf(card: DeskCard) {
   const doing = card.kind === "doing";
-  const face = doing ? (card.now ?? card.title) : card.title;
-  const nowLine = doing ? null : card.now;
-  const { lead, rest } = doing ? { lead: "", rest: [card.now ? card.title : "", card.body].filter(Boolean).join("\n\n") } : splitBody(card.body);
-  const shown = `${face}\n${card.answer ?? ""}\n${nowLine ?? ""}\n${lead}\n${card.blocks ?? ""}`;
-  return { doing, face, nowLine, lead, rest, shown };
+  const face = card.title;
+  const answers = card.answers.join("\n\n");
+  const { lead, rest } = splitBody(card.body);
+  const nowLine = null;
+  const shown = `${face}\n${answers}\n${lead}\n${card.blocks ?? ""}`;
+  return { doing, face, nowLine, lead, rest: [answers, rest].filter(Boolean).join("\n\n"), shown };
 }
 
 function Blocks({ card, desk, c, size }: { card: DeskCard; desk: Desk; c: Palette; size: { fontSize: number; lineHeight: number } }) {
@@ -199,16 +198,20 @@ function Blocks({ card, desk, c, size }: { card: DeskCard; desk: Desk; c: Palett
 }
 
 function Answer({ card, desk, c, size }: { card: DeskCard; desk: Desk; c: Palette; size: { fontSize: number; lineHeight: number } }) {
-  if (!card.answer) return null;
+  if (!card.answers.length) return null;
   return (
     <View style={{ flexDirection: "row", gap: 6 }}>
       <View style={{ paddingTop: 2 }}>
         <Icon name="CornerDownRight" size={12} color={c.ok} />
       </View>
-      <Text style={{ ...size, color: c.fg, flex: 1 }}>
-        <Text style={{ color: c.muted }}>You: </Text>
-        <Inline text={card.answer} desk={desk} c={c} style={{ ...size, color: c.fg }} />
-      </Text>
+      <View style={{ flex: 1, gap: 3 }}>
+        {card.answers.map((answer, i) => (
+          <Text key={i} style={{ ...size, color: c.fg }}>
+            <Text style={{ color: c.muted }}>Answer: </Text>
+            <Inline text={answer} desk={desk} c={c} style={{ ...size, color: c.fg }} />
+          </Text>
+        ))}
+      </View>
     </View>
   );
 }
@@ -229,8 +232,8 @@ function CardModal({ card, scene, open, onOpenChange }: { card: DeskCard; scene:
   const { desk, c } = scene;
   const state = stateOf(card);
   const { doing, face, nowLine, lead, rest, shown } = shownOf(card);
-  const { links, asks } = refsOf(card, desk, shown, rest);
-  const workspace = desk.workspaces.find((w) => w.key === card.workspace)?.title;
+  const { links, memos } = refsOf(card, desk, shown, rest);
+  const workspace = card.asker?.name;
   // Following a link to a Paseo tab leaves the screen, so the modal closes first.
   const inner: CardScene = { ...scene, openAgent: scene.openAgent ? (id) => (onOpenChange(false), scene.openAgent!(id)) : undefined };
   const people: { person: DeskPerson; role: string }[] = [
@@ -247,13 +250,13 @@ function CardModal({ card, scene, open, onOpenChange }: { card: DeskCard; scene:
       onOpenChange={onOpenChange}
     >
       <Modal.Content contentContainerStyle={{ padding: 20, gap: 14 }}>
-        <Inline text={face} desk={desk} c={c} style={{ ...MODAL.title, color: card.closed ? c.muted : c.fg }} />
+        <Inline text={face} desk={desk} c={c} style={{ ...MODAL.title, color: card.settled ? c.muted : c.fg }} />
         <Answer card={card} desk={desk} c={c} size={MODAL.body} />
         {nowLine ? <Inline text={nowLine} desk={desk} c={c} style={{ ...MODAL.body, color: c.body }} /> : null}
         {lead ? <Inline text={lead} desk={desk} c={c} style={{ ...MODAL.body, color: c.body }} /> : null}
         {rest ? <Markdown>{rest}</Markdown> : null}
         <Blocks card={card} desk={desk} c={c} size={MODAL.body} />
-        {card.broken ? <Text style={{ ...MODAL.body, color: c.danger }}>The front matter can't be read.</Text> : null}
+        {card.kind === "inbox" && card.status === "unreadable" ? <Text style={{ ...MODAL.body, color: c.danger }}>The front matter can't be read.</Text> : null}
 
         {card.prs.length ? (
           <Section label="Pull requests" c={c}>
@@ -271,15 +274,15 @@ function CardModal({ card, scene, open, onOpenChange }: { card: DeskCard; scene:
             ))}
           </Section>
         ) : null}
-        {asks.length || links.length ? (
+        {memos.length || links.length ? (
           <Section label="Links" c={c}>
-            {asks.map((url) => {
+            {memos.map((url) => {
               const name = url.replace(/^.*\//, "").replace(/\.md$/, "");
-              const ask = scene.asksByName.get(name);
+              const memo = scene.inboxByName.get(name);
               const label = name.replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(/-/g, " ");
               return (
-                <Text key={url} onPress={() => void openExternalUrl(url)} accessibilityRole="link" style={{ ...TYPE.small, color: ask?.live ? c.metaStrong : c.meta }}>
-                  {ask?.live ? "Open ask: " : "Settled ask: "}
+                <Text key={url} onPress={() => void openExternalUrl(url)} accessibilityRole="link" style={{ ...TYPE.small, color: memo?.settled ? c.meta : c.metaStrong }}>
+                  {memo?.settled ? "Settled memo: " : "Memo: "}
                   {label}
                 </Text>
               );
@@ -291,16 +294,12 @@ function CardModal({ card, scene, open, onOpenChange }: { card: DeskCard; scene:
             ))}
           </Section>
         ) : null}
-        <Section label="File" c={c}>
-          <Text style={{ ...TYPE.small, color: c.meta }}>
-            {card.opened ? `${doing ? "Started" : "Opened"} ${stamp(card.opened)}` : ""}
-            {card.updated ? `${card.opened ? " · " : ""}updated ${stamp(card.updated)}` : ""}
-          </Text>
+        <Section label="Source" c={c}>
           <Text selectable style={{ ...TYPE.small, fontFamily: MONO, color: c.meta }}>
-            {card.file.replace(/^\/home\/[^/]+/, "~")}
+            {card.url}
           </Text>
           <Text onPress={() => void openExternalUrl(card.url)} accessibilityRole="link" style={{ ...TYPE.small, color: c.ok }}>
-            Open the file
+            Open the card
           </Text>
         </Section>
       </Modal.Content>
@@ -318,8 +317,6 @@ export function Card({ card, scene }: { card: DeskCard; scene: CardScene }) {
   const inText = prsIn(shown);
   const chips = card.prs.filter((n) => !inText.has(n));
   const { links } = refsOf(card, desk, shown, rest);
-  const when = doing ? age(card.updated, now) : age(card.opened, now);
-  const old = !doing && !card.closed && card.opened != null && now - Date.parse(card.opened) > DAY;
 
   return (
     <>
@@ -340,12 +337,22 @@ export function Card({ card, scene }: { card: DeskCard; scene: CardScene }) {
         }}
       >
         <View style={{ position: "absolute", left: -1, top: 11, width: 3, height: 14, backgroundColor: c.state(state) }} />
-        <Inline text={face} desk={desk} c={c} style={{ ...TYPE.title, color: card.closed ? c.muted : c.fg }} />
+        <Inline text={face} desk={desk} c={c} style={{ ...TYPE.title, color: card.settled ? c.muted : c.fg }} />
+        {card.starred || card.hashtags.length ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {card.starred ? <Icon name="Star" size={12} color={c.warn} /> : null}
+            {card.hashtags.map((tag) => (
+              <Text key={tag} style={{ ...TYPE.small, color: c.meta }}>
+                #{tag.replace(/^#/, "")}
+              </Text>
+            ))}
+          </View>
+        ) : null}
         <Answer card={card} desk={desk} c={c} size={TYPE.body} />
         {nowLine ? <Inline text={nowLine} desk={desk} c={c} style={{ ...TYPE.body, color: c.body }} lines={3} /> : null}
         {lead ? <Inline text={lead} desk={desk} c={c} style={{ ...TYPE.body, color: c.body }} lines={3} /> : null}
         <Blocks card={card} desk={desk} c={c} size={TYPE.small} />
-        {card.broken ? <Text style={{ ...TYPE.small, color: c.danger }}>The front matter can't be read.</Text> : null}
+        {card.kind === "inbox" && card.status === "unreadable" ? <Text style={{ ...TYPE.small, color: c.danger }}>The front matter can't be read.</Text> : null}
 
         <View style={{ gap: 5, borderTopWidth: 1, borderTopColor: c.border, paddingTop: 6, marginTop: 1 }}>
           {chips.length ? (
@@ -359,7 +366,6 @@ export function Card({ card, scene }: { card: DeskCard; scene: CardScene }) {
             {card.asker ? <Person person={card.asker} scene={scene} reply={replyOf(card)} /> : null}
             {links[0] ? <RefLink target={links[0]} scene={scene} /> : null}
             <View style={{ flex: 1 }} />
-            {when ? <Text style={{ ...TYPE.small, color: old ? c.warn : c.meta, fontVariant: ["tabular-nums"] }}>{when}</Text> : null}
           </View>
         </View>
       </Pressable>
