@@ -97,6 +97,8 @@ export const reopenPastSession = defineRpc({
       handle: z.string(),
       /** The row's list key; its star moves to the imported agent, and it is no longer hidden. */
       key: z.string(),
+      /** The panel's workspace. The import lands there when `cwd` is its folder. */
+      workspaceId: z.string(),
     }),
   ]),
   output: z.object({ agentId: z.string() }),

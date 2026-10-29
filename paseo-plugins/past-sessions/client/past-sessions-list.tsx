@@ -780,6 +780,7 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
             cwd: entry.cwd,
             handle: (entry.source === "omp" ? entry.file : entry.sessionId) ?? "",
             key: entry.key,
+            workspaceId,
           }),
     onMutate: (entry) => {
       setLeaving((keys) => new Set(keys).add(entry.key));

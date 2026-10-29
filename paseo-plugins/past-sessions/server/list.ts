@@ -108,6 +108,12 @@ async function listAllWorkspaces(paseo: Paseo) {
   return all;
 }
 
+/** The workspace's folder, as the listing shows it; null when the workspace is gone. */
+export async function workspaceFolder(paseo: Paseo, workspaceId: string): Promise<string | null> {
+  const workspace = (await listAllWorkspaces(paseo)).find((candidate) => candidate.id === workspaceId);
+  return workspace ? (workspace.workspaceDirectory ?? workspace.projectRootPath) : null;
+}
+
 async function listAllAgents(paseo: Paseo) {
   const all = [];
   let cursor: string | undefined;

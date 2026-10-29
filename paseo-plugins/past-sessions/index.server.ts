@@ -19,7 +19,7 @@ export default function contribute(server: PluginServerContext) {
   server.registerSettings(viewSettings);
   server.handle(listPastSessions, listHandler);
   server.handle(listExternalSessions, externalHandler);
-  server.handle(reopenPastSession, (input) => reopenHandler(input, marks));
+  server.handle(reopenPastSession, (input, { paseo }) => reopenHandler(input, marks, paseo));
   server.handle(listMarks, () => markKeys(marks));
   server.handle(setMark, async ({ key, mark, on }) => {
     await marks[mark].set(key, on);

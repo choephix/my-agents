@@ -24,14 +24,22 @@ export interface RecentProviderSession {
   lastActivityAt: string;
 }
 
+/** The daemon's `import_agent_request`; without `workspaceId` the daemon picks a workspace by folder. */
+export interface ImportRequest {
+  provider: string;
+  sessionId: string;
+  cwd: string;
+  workspaceId?: string;
+}
+
 /** The subset of the CLI's `DaemonClient` this plugin calls. */
 export interface DaemonClientSubset {
   fetchRecentProviderSessions(options: { providers: string[]; limit: number; cwd?: string }): Promise<{
     entries: RecentProviderSession[];
     providerErrors?: { provider: string; message: string }[];
   }>;
-  /** What `paseo import` sends; `sessionId` is the OMP session file or the provider's id. */
-  importAgent(input: { provider: string; sessionId: string; cwd: string }): Promise<{ id: string }>;
+  /** What `paseo import` sends, plus a workspace; `sessionId` is the OMP session file or the provider's id. */
+  importAgent(input: ImportRequest): Promise<{ id: string }>;
   /** What `paseo agent reload` sends: unarchives and loads the agent. */
   refreshAgent(agentId: string): Promise<{ agentId: string }>;
   close(): Promise<void>;

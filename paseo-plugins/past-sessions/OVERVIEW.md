@@ -157,9 +157,13 @@ reopening fails (with an error toast). Imports show a short "Importing “title�
 opens when the daemon confirms (a restored Claude agent: ~0.4 s after the click); opening an
 archived agent's chat earlier adds its tab without focusing it.
 - Paseo → daemon `refreshAgent` (what `paseo agent reload <id>` sends): unarchives and loads the
-  agent, then the app opens it.
+  agent in the workspace it belongs to (restoring that workspace if it was archived), then the app
+  opens it. From Folder or Project scope that can be a sibling workspace, not the one being viewed.
 - OMP, Claude Code, Codex → daemon `importAgent` (what `paseo import --provider … --cwd … <file or
-  id>` sends, Paseo's own import), then the app opens the new agent with its history.
+  id>` sends, Paseo's own import), then the app opens the new agent with its history. A session
+  from the viewed workspace's folder is imported into that workspace, even when other workspaces
+  share the folder. A session from another folder (Project scope) goes where the daemon puts that
+  folder: an existing workspace there, or a new one.
 
 The plugin SDK's `PaseoApi` has no import/unarchive calls, so the daemon-side handler borrows the
 daemon client of the `paseo` CLI installed next to the daemon's Node (~4 ms per call). If that
@@ -218,8 +222,8 @@ loading the client once).
   apps were not opened.
 - Workspace scope can't show agents whose workspace was archived (41 of 74 archived agents
   daemon-wide on 2026-10-19); Folder and Project scopes find them by cwd.
-- Importing from the section lets the daemon pick the workspace for that folder, which may be a
-  sibling workspace in the same folder rather than the one being viewed.
+- The binary fallback can't choose the workspace (`paseo import` has no workspace option): with
+  several workspaces in one folder, the daemon picks one of them.
 - Reopening needs the `paseo` CLI package on the daemon host (on Windows, inside the desktop app's
   `resources/app.asar`; otherwise next to the daemon's Node, else on `PATH`, which only allows the
   slower binary fallback).
