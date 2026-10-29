@@ -13,8 +13,8 @@ An existing agent is required; the task is optional. Without a task, the title i
 The child gets the parent's
 provider/model, mode, thinking option (including the provider's active default), feature values, and working directory.
 It appears in the parent's sub-agents strip. Shared cwd means shared files, not
-an isolated worktree. **No finish message is sent into the parent:** check the
-side agent's tab. Sending a synthetic notice would start another parent turn.
+an isolated worktree. **`/side` sends no finish message into the parent:** check the
+side agent's tab. For a child that reports back, use `/tangent` (below).
 
 The old session-file-pointer prompt mode has been removed entirely.
 
@@ -123,6 +123,71 @@ so both flags are visible in the list row as well as the argument hint.
 The separate `omp-slash-aliases` plugin is untouched; `/tan`, `/omfg`, and `/queue`
 remain independent. There are no global composer hooks.
 
+## `/tangent`: background subagent that reports back
+
+```text
+/tangent <task>
+```
+
+Creates a child the same way `/side` does, but always picks the mode itself:
+**Full for OMP parents, Fork for every other provider** (the default-mode
+setting is ignored). Same provider/model, mode, thinking, features, cwd and
+parent link, so it sits in the parent's sub-agents strip. The title is
+`Tangent: <task>` (shortened). Its context note (the `side-fork` entry in Full
+mode, the first prompt in Fork mode) says it is the parent's **tangent
+subagent**: the history belongs to the parent, its only job is the task, and
+its final reply is handed back to the parent.
+
+Nothing moves: no pane, no navigation. Without a task the command refuses with
+an error toast.
+
+When the child's turn ends, the server sends one message into the parent:
+
+```text
+Tangent "<title>" finished (<duration>):
+
+<the child's final reply, in full>
+
+Open the tangent: <app base URL>/h/<server id>/agent/<child id>
+```
+
+The final reply is the assistant text after the turn's last tool call. A failed
+turn is reported with its error, a stopped one as "was stopped", and a child
+archived mid-turn as "was archived"; those reports carry no partial text.
+The link uses `app.baseUrl` from the daemon's `config.json`, or a `paseo://`
+deep link when that is unset.
+
+Delivery never interrupts the parent:
+
+- **OMP parents** get the report as `/follow-up <report>`. OMP queues it behind
+  a running reply; an idle parent starts a turn with it at once. Paseo echoes
+  the raw `/follow-up …` send into the timeline as soon as it is queued, and OMP
+  shows the report again when it delivers it; a client timeline transformer
+  hides the echo, so the report appears once, after the reply it waited for.
+- **Other providers** get it directly when idle. A running parent's reports are
+  held until its turn ends, then sent as one message (several reports are joined
+  with `---`), because a second send would interrupt the turn the first started.
+- A parent that is archived or gone gets nothing; the server logs the drop.
+
+The parent runs a new turn on the report, like any message. Each tangent is
+reported once. Its state lives in child labels (`side-agent.tangent`:
+`pending` → `reported`, plus parent ID and start time), so a plugin reload or
+daemon restart resumes watching: running tangents are watched again; ones that
+ended while nothing watched are reported from their timeline, with the outcome
+inferred (error status → failed, archived → archived, otherwise finished).
+After a daemon restart, a tangent that was cut off mid-turn can therefore be
+reported as finished with whatever text it had produced. Reports held for a busy
+non-OMP parent are kept in memory only; after a reload they are re-sent from the
+labels. A tangent waiting on a permission prompt is not reported until its turn
+ends.
+
+OMP parents on custom OMP-based providers (any provider ID other than `omp`) are
+treated like other providers: Fork context and held delivery.
+
+`/tangent` is separate from OMP's own `/tan` (routed by the `omp-slash-aliases`
+plugin), which is unchanged. OMP's live command list has no `tangent` command
+for this one to shadow.
+
 ## Files and operation
 
 - Fork mode creates only the normal Paseo/OMP child session.
@@ -133,13 +198,16 @@ remain independent. There are no global composer hooks.
 - Failed full launches archive the imported child and remove their copy when
   cleanup succeeds. The live tests archived their agents before explicitly
   deleting all test-created full-memory copies and sidecar directories.
-- The minimal server part registers settings and one RPC handler; it has no
-  lifecycle hooks. It uses a short-lived installed SDK connection for native
-  fork/import/config RPCs, authenticated to the published **loopback TCP** daemon
-  under `PASEO_HOME` (or `~/.paseo`). Socket-only or unpublished endpoints are not
-  supported and fail clearly. Local credentials are never sent to remote hosts.
+- The server part registers settings, the `/side` and `/tangent` RPC handlers,
+  and two lifecycle listeners (`agent.turn_ended`, `agent.archived`) that watch
+  tangents. It uses short-lived installed SDK connections for native
+  fork/import/config/label/timeline RPCs, authenticated to the published
+  **loopback TCP** daemon under `PASEO_HOME` (or `~/.paseo`). Socket-only or
+  unpublished endpoints are not supported and fail clearly. Local credentials
+  are never sent to remote hosts.
 - `node_modules` is an ignored symlink to the already-installed neighboring
-  `chat-diff-highlight/node_modules`; no npm install was run.
+  `chat-diff-highlight/node_modules`; no npm install was run. `npm run typecheck`
+  and `npm test` run from this folder.
 
 ```sh
 flock /tmp/paseo-plugin.lock paseo plugin reload side-agent
@@ -147,6 +215,6 @@ paseo plugin ls side-agent
 paseo plugin disable side-agent
 ```
 
-Disabling removes the command, not existing agents or saved sessions. No daemon
-restart, Paseo source patch, provider patch, or commit is involved.
+Disabling removes the commands and stops tangent watching, not existing agents
+or saved sessions; pending tangents are picked up again when it is re-enabled.
 

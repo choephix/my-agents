@@ -1,7 +1,8 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { createSide, preferences } from "./shared/preferences";
-import { connectLocalDaemon } from "./server/daemon";
-import { copyCompletedSession, removeSessionCopy } from "./server/full-memory";
+import { createSide, createTangent, preferences } from "./shared/preferences";
+import { childTitle, launchChild } from "./server/launch";
+import { daemonPort, TangentWatcher, TANGENT_LABEL, TANGENT_PARENT_LABEL, TANGENT_STARTED_LABEL } from "./server/tangents";
 
 export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(preferences);
@@ -9,63 +10,58 @@ export default function contribute(server: PluginServerContext) {
     const saved = await settings.read();
     if (!requestedMode && saved.status !== "ready") throw new Error("Side agent settings are invalid; restore defaults in plugin settings.");
     const mode = requestedMode ?? (saved.status === "ready" ? saved.values.defaultMode : "fork");
-    const result = await paseo.agents.ref(parentId).refresh();
-    if (!result || result.agent.archivedAt) throw new Error("The parent agent is no longer available.");
-    const parent = result.agent;
-    const thinkingOptionId = parent.thinkingOptionId ?? parent.effectiveThinkingOptionId;
-    const featureValues = Object.fromEntries((parent.features ?? []).map(feature => [feature.id, feature.value]));
-    const title = `Side: ${(task || parent.title?.trim() || "Untitled chat").replace(/\s+/g, " ").slice(0, 64)}`;
-    const prompt = task
-      ? `You are a side agent forked from Paseo chat ${parent.id}. The preceding conversation or attached chat history belongs to the parent; earlier tasks are not yours. Work only on the task below and report concisely.\n\nTask:\n${task}`
-      : `You are a side agent forked from Paseo chat ${parent.id}. The attached chat history belongs to the parent. Wait for the user's instructions; reply only: Ready.`;
-    const daemon = await connectLocalDaemon();
-    let sessionCopy: string | undefined;
-    let importedId: string | undefined;
-    try {
-      // Refuse mismatched daemon homes before any filesystem or agent mutation.
-      if (!(await daemon.fetchAgent(parent.id))) throw new Error("Parent is unavailable on this local daemon.");
-      if (mode === "fork") {
-        const context = await daemon.buildAgentForkContext(parent.id);
-        if (!context.attachment) throw new Error(context.error ?? "Paseo could not build fork context.");
-        const attachment = { ...context.attachment };
-        const prefix = "<chat-history-summary>\n[Earlier history omitted; newest kept]\n";
-        if (attachment.text.length > 100_000) attachment.text = prefix + attachment.text.slice(-(100_000 - prefix.length));
-        const child = await paseo.agents.create({
-          cwd: parent.cwd, parent: parent.id, title, prompt,
-          labels: { "side-agent.mode": mode },
-          config: {
-            provider: parent.model ? `${parent.provider}/${parent.model}` : parent.provider,
-            ...(parent.currentModeId ? { modeId: parent.currentModeId } : {}),
-            ...(thinkingOptionId ? { thinkingOptionId } : {}),
-            featureValues,
-          },
-          attachments: [attachment],
-        });
-        return { agentId: child.id, mode };
-      }
-      if (parent.provider !== "omp") throw new Error("Full memory is OMP-only; use /side --fork for this provider.");
-      if (!parent.persistence?.nativeHandle) throw new Error("Parent OMP session file is unavailable.");
-      const contextNote = `You are a side agent forked from Paseo chat ${parent.id} (${parent.title?.trim() || "Untitled chat"}). The conversation above belongs to the parent; earlier tasks are not yours. Work only on what the user asks next.`;
-      sessionCopy = await copyCompletedSession(parent.persistence.nativeHandle, contextNote);
-      const child = await daemon.importAgent({
-        providerId: "omp", providerHandleId: sessionCopy, cwd: parent.cwd,
-        ...(parent.workspaceId ? { workspaceId: parent.workspaceId } : {}),
-        labels: { "paseo.parent-agent-id": parent.id, "side-agent.mode": mode },
-      });
-      importedId = child.id;
-      await daemon.updateAgent(child.id, { name: title });
-      await daemon.applyAgentConfig(child.id, {
-        modelId: parent.model, thinkingOptionId: thinkingOptionId ?? null,
-        ...(parent.currentModeId ? { modeId: parent.currentModeId } : {}), featureValues,
-      });
-      if (task) await daemon.sendAgentMessage(child.id, task);
-      return { agentId: child.id, mode };
-    } catch (error) {
-      // A failed full-mode launch must not leave an active half-configured child.
-      if (importedId) await daemon.archiveAgent(importedId);
-      if (sessionCopy) await removeSessionCopy(sessionCopy);
-      throw error;
-    } finally { await daemon.close(); }
+    const child = await launchChild(paseo, parentId, parent => ({
+      mode,
+      title: childTitle("Side", task || parent.title?.trim() || "Untitled chat"),
+      forkPrompt: task
+        ? `You are a side agent forked from Paseo chat ${parent.id}. The preceding conversation or attached chat history belongs to the parent; earlier tasks are not yours. Work only on the task below and report concisely.\n\nTask:\n${task}`
+        : `You are a side agent forked from Paseo chat ${parent.id}. The attached chat history belongs to the parent. Wait for the user's instructions; reply only: Ready.`,
+      fullNote: `You are a side agent forked from Paseo chat ${parent.id} (${parent.title?.trim() || "Untitled chat"}). The conversation above belongs to the parent; earlier tasks are not yours. Work only on what the user asks next.`,
+      task,
+      labels: { "side-agent.mode": mode },
+    }));
+    return { agentId: child.agentId, mode: child.mode };
   });
-  return () => {};
+
+  const tangents = new TangentWatcher(daemonPort);
+  const report = (what: string) => (error: unknown) => console.error(`side-agent: ${what} failed.`, error);
+  server.handle(createTangent, async ({ parentId, task }, { paseo }) => {
+    const startedAt = Date.now();
+    const child = await launchChild(paseo, parentId, parent => {
+      // Full memory where it exists (OMP); Paseo's fork context everywhere else.
+      const mode = parent.provider === "omp" ? "full" : "fork";
+      const who = `You are the tangent subagent of Paseo chat ${parent.id} (${parent.title?.trim() || "Untitled chat"}).`;
+      const handBack = "Your final reply is handed back to the parent chat as the result, so make it complete on its own.";
+      return {
+        mode,
+        title: childTitle("Tangent", task),
+        forkPrompt: `${who} The attached chat history belongs to the parent; earlier tasks are not yours. Your only job is the task below. ${handBack}\n\nTask:\n${task}`,
+        fullNote: `${who} The conversation above belongs to the parent; earlier tasks are not yours. Your only job is the task in the next message. ${handBack}`,
+        task,
+        labels: { "side-agent.mode": mode, [TANGENT_LABEL]: "pending", [TANGENT_PARENT_LABEL]: parent.id, [TANGENT_STARTED_LABEL]: String(startedAt) },
+      };
+    });
+    void tangents.watch(child.agentId, { parentId: child.parent.id, title: child.title, startedAt }).catch(report(`tangent report for ${child.agentId}`));
+    return { agentId: child.agentId, mode: child.mode, title: child.title };
+  });
+
+  const offTurn = server.on("agent.turn_ended", async ({ agent, outcome }) => {
+    await tangents.turnEnded(agent.id, outcome.kind === "failed" ? { kind: "failed", message: outcome.error.message } : { kind: outcome.kind })
+      .catch(report(`tangent report for ${agent.id}`));
+  });
+  const offArchive = server.on("agent.archived", async ({ agent }) => {
+    await tangents.archived(agent.id).catch(report(`tangent archive handling for ${agent.id}`));
+  });
+  // After a daemon restart this process can start before the daemon accepts connections.
+  let stopped = false;
+  void (async () => {
+    for (let attempt = 1; !stopped; attempt++) {
+      try { return await tangents.resume(); }
+      catch (error) {
+        if (attempt === 5) return report("resuming tangents")(error);
+        await sleep(3000);
+      }
+    }
+  })();
+  return () => { stopped = true; offTurn(); offArchive(); };
 }

@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { Platform, Text } from "react-native";
 import type { PluginAgentCommandContext, PluginClientContext, PluginScreenProps } from "@getpaseo/plugin/client";
 import { capturePane, prepareRightPane } from "./client/web";
-import { createSide } from "./shared/preferences";
+import { createSide, createTangent, TANGENT_REPORT_START } from "./shared/preferences";
 import { ContextSettings } from "./client/settings";
 
 // Slash callbacks have openScreen, not navigation. A registered screen supplies
@@ -50,5 +50,25 @@ export default function contribute(client: PluginClientContext) {
     console.info("side-agent: //side is unavailable: Paseo rejects name /side; registering /side instead.");
     slash = client.addSlashCommand({ ...command, name: "side" });
   }
-  return () => { slash(); settings(); screen(); };
+  // Stays in the background: no pane, no navigation. The child shows in the sub-agents strip.
+  const tangent = client.addSlashCommand({
+    name: "tangent",
+    description: "Background subagent with this chat's memory; its final reply comes back here",
+    argumentHint: "<task>",
+    context: "agent",
+    async onSubmit({ args, agent, rpc }) {
+      const task = args.trim();
+      if (!task) throw new Error("/tangent needs a task: /tangent <task>");
+      await rpc(createTangent, { parentId: agent.id, task });
+    },
+  });
+  // Paseo echoes the `/follow-up <report>` send the moment it is queued, mid-reply. OMP records
+  // the report again when it actually delivers it after the reply; show only that one.
+  const followUpEcho = `/follow-up ${TANGENT_REPORT_START}`;
+  const hideEcho = client.addTimelineTransformer({
+    id: "tangent-follow-up-echo",
+    query: { itemType: "user_message" },
+    transform: ({ item }) => (item.text.startsWith(followUpEcho) ? { items: [] } : undefined),
+  });
+  return () => { hideEcho(); tangent(); slash(); settings(); screen(); };
 }
