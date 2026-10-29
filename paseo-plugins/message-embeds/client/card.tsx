@@ -26,6 +26,8 @@ interface BodyProps {
   /** Expanded height: the window minus room for the chat header and composer. */
   bodyHeight: number;
   cardHovered: boolean;
+  /** Keys this card's expanded/open state, which outlives remounts. */
+  stateKey: string;
 }
 
 const MONO = Platform.select({
@@ -51,17 +53,50 @@ function sizeLabel(bytes: number): string {
   return bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** Runs an RPC whenever `key` changes and keeps the latest answer; a thrown call reads as unreadable. */
+/*
+ * Paseo's chat list unmounts rows scrolled out of view and mounts them again on the way back. A
+ * card that came back shorter (loading, folded) than it left made the list's scroll position jump
+ * and never settle. So answers, image sizes and open/folded state outlive the card, keyed per chat
+ * and embed, and a card that mounts again has its final height in its first frame.
+ */
+const MAX_CACHED = 40;
+const results = new Map<string, unknown>();
+const imageSizes = new Map<string, { width: number; height: number } | "failed">();
+const toggles = new Map<string, boolean>();
+
+function remember<V>(map: Map<string, V>, key: string, value: V): void {
+  map.delete(key);
+  map.set(key, value);
+  // Oldest first in insertion order; images are up to ~5 MB as data URIs.
+  if (map.size > MAX_CACHED) map.delete(map.keys().next().value as string);
+}
+
+/** A boolean (expanded, open) that survives the card remounting. */
+function useToggle(key: string): [boolean, () => void] {
+  const [value, setValue] = useState(() => toggles.get(key) ?? false);
+  const toggle = () => setValue((previous) => {
+    remember(toggles, key, !previous);
+    return !previous;
+  });
+  return [value, toggle];
+}
+
+/**
+ * Runs an RPC whenever `key` changes; starts from the last answer for `key`, so a remount doesn't
+ * pass through "loading". `load` null means not wanted now. A thrown call reads as unreadable.
+ */
 function useRead<T>(load: (() => Promise<T>) | null, key: string): T | { status: "error"; message: string } | null {
-  const [result, setResult] = useState<T | { status: "error"; message: string } | null>(null);
+  type Result = T | { status: "error"; message: string };
+  const [result, setResult] = useState<Result | null>(() => (load ? (results.get(key) as Result | undefined) ?? null : null));
   const loadRef = useRef(load);
   loadRef.current = load;
   useEffect(() => {
     let live = true;
-    setResult(null);
     const run = loadRef.current;
+    setResult(run ? (results.get(key) as Result | undefined) ?? null : null);
     if (run) {
       run().then((next) => {
+        remember(results, key, next);
         if (live) setResult(next);
       }).catch(() => {
         if (live) setResult({ status: "error", message: "File could not be read." });
@@ -175,14 +210,13 @@ function Fade({ background }: { background: string }) {
   );
 }
 
-function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered }: BodyProps) {
+function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered, stateKey }: BodyProps) {
   const read = useRpc(readEmbedFile);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, toggleExpanded] = useToggle(stateKey);
   const result = useRead(
     () => read({ agentId, path: data.path, lineStart: data.lineStart, lineEnd: data.lineEnd }),
-    `${agentId}\n${data.path}\n${data.lineStart}\n${data.lineEnd}`,
+    `text\n${agentId}\n${data.path}\n${data.lineStart}\n${data.lineEnd}`,
   );
-  useEffect(() => setExpanded(false), [result]);
   const ok = result?.status === "ok" ? result : null;
   const detail = ok ? lineLabel(ok.lineStart, ok.lineEnd) : data.lineStart ? lineLabel(data.lineStart, data.lineEnd ?? data.lineStart) : null;
   return (
@@ -191,7 +225,7 @@ function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered }
       {result?.status === "error" ? (
         <Note theme={theme}>{result.message}</Note>
       ) : ok ? (
-        <Pressable accessibilityRole="button" accessibilityLabel={expanded ? "Collapse file preview" : "Expand file preview"} onPress={() => setExpanded((value) => !value)}>
+        <Pressable accessibilityRole="button" accessibilityLabel={expanded ? "Collapse file preview" : "Expand file preview"} onPress={toggleExpanded}>
           <View style={{ position: "relative" }}>
             <ScrollView scrollEnabled={expanded} style={{ maxHeight: expanded ? bodyHeight : FOLDED_TEXT_HEIGHT }} contentContainerStyle={{ paddingHorizontal: 9, paddingBottom: 8 }}>
               <Text selectable style={{ color: theme.colors.foreground, fontFamily: MONO, fontSize: CODE_SIZE, lineHeight: 17 }}>
@@ -208,24 +242,31 @@ function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered }
   );
 }
 
-function ImageEmbed({ data, agentId, theme, bodyHeight, cardHovered }: BodyProps) {
+function ImageEmbed({ data, agentId, theme, bodyHeight, cardHovered, stateKey }: BodyProps) {
   const read = useRpc(readEmbedAsset);
-  const result = useRead(() => read({ agentId, path: data.path }), `${agentId}\n${data.path}`);
+  const assetKey = `asset\n${agentId}\n${data.path}`;
+  const result = useRead(() => read({ agentId, path: data.path }), assetKey);
   const ok = result?.status === "ok" ? result : null;
-  const [natural, setNatural] = useState<{ width: number; height: number } | "failed" | null>(null);
-  const [available, setAvailable] = useState(0);
-  const [expanded, setExpanded] = useState(false);
+  const [natural, setNatural] = useState(() => imageSizes.get(assetKey) ?? null);
+  const [expanded, toggleExpanded] = useToggle(stateKey);
   useEffect(() => {
-    setNatural(null);
-    setExpanded(false);
-    if (ok) Image.getSize(ok.body, (width, height) => setNatural({ width, height }), () => setNatural("failed"));
-  }, [ok?.body]);
+    if (!ok) return;
+    let live = true;
+    Image.getSize(ok.body, (width, height) => {
+      remember(imageSizes, assetKey, { width, height });
+      if (live) setNatural({ width, height });
+    }, () => {
+      remember(imageSizes, assetKey, "failed");
+      if (live) setNatural("failed");
+    });
+    return () => { live = false; };
+  }, [ok?.body, assetKey]);
 
   const size = natural && natural !== "failed" ? natural : null;
-  // Never upscaled; fits the card width, and the folded or expanded height.
-  const fitWidth = size && available ? Math.min(1, available / size.width) : 0;
-  const clipped = size ? size.height * fitWidth > FOLDED_IMAGE_HEIGHT : false;
-  const scale = size ? Math.min(fitWidth, (expanded ? bodyHeight : FOLDED_IMAGE_HEIGHT) / size.height) : 0;
+  // Width from the height cap and the aspect ratio, never upscaled, never wider than the card
+  // (maxWidth); no measuring, so the first frame already has the final height.
+  const clipped = size ? size.height > FOLDED_IMAGE_HEIGHT : false;
+  const width = size ? Math.min(size.width, ((expanded ? bodyHeight : FOLDED_IMAGE_HEIGHT) * size.width) / size.height) : 0;
   const detail = ok ? [size ? `${size.width}×${size.height}` : null, sizeLabel(ok.bytes)].filter(Boolean).join(" · ") : null;
   const svgOffWeb = Platform.OS !== "web" && /\.svg$/i.test(data.path);
 
@@ -237,15 +278,15 @@ function ImageEmbed({ data, agentId, theme, bodyHeight, cardHovered }: BodyProps
       ) : natural === "failed" ? (
         <Note theme={theme}>{svgOffWeb ? "SVG previews need the desktop or web app." : "The image could not be shown."}</Note>
       ) : (
-        <View onLayout={(event) => setAvailable(event.nativeEvent.layout.width - 18)} style={{ paddingHorizontal: 9, paddingBottom: 9 }}>
-          {ok && size && scale ? (
+        <View style={{ paddingHorizontal: 9, paddingBottom: 9 }}>
+          {ok && size ? (
             <Pressable
               disabled={!clipped}
               accessibilityRole={clipped ? "button" : "image"}
               accessibilityLabel={clipped ? (expanded ? "Shrink image" : "Enlarge image") : data.path}
-              onPress={() => setExpanded((value) => !value)}
+              onPress={toggleExpanded}
             >
-              <Image source={{ uri: ok.body }} resizeMode="contain" style={{ width: size.width * scale, height: size.height * scale, borderRadius: 4 }} />
+              <Image source={{ uri: ok.body }} resizeMode="contain" style={{ width, maxWidth: "100%", aspectRatio: size.width / size.height, borderRadius: 4 }} />
             </Pressable>
           ) : (
             <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>Loading image…</Text>
@@ -261,11 +302,10 @@ function ImageEmbed({ data, agentId, theme, bodyHeight, cardHovered }: BodyProps
  * Paseo, its storage or its session. It loads only while open; closing unloads it, so pages
  * with animations cost nothing while folded.
  */
-function HtmlEmbed({ data, agentId, theme, bodyHeight, cardHovered }: BodyProps) {
+function HtmlEmbed({ data, agentId, theme, bodyHeight, cardHovered, stateKey }: BodyProps) {
   const read = useRpc(readEmbedAsset);
-  const [open, setOpen] = useState(false);
-  const result = useRead(open ? () => read({ agentId, path: data.path }) : null, `${agentId}\n${data.path}`);
-  useEffect(() => setOpen(false), [agentId, data.path]);
+  const [open, toggleOpen] = useToggle(stateKey);
+  const result = useRead(open ? () => read({ agentId, path: data.path }) : null, `asset\n${agentId}\n${data.path}`);
   const ok = result?.status === "ok" ? result : null;
   const web = Platform.OS === "web";
 
@@ -277,7 +317,7 @@ function HtmlEmbed({ data, agentId, theme, bodyHeight, cardHovered }: BodyProps)
         href={ok ? fileHref(ok.path) : null}
         detail={null}
         cardHovered={cardHovered}
-        action={web ? <PageToggle theme={theme} open={open} onToggle={() => setOpen((value) => !value)} /> : null}
+        action={web ? <PageToggle theme={theme} open={open} onToggle={toggleOpen} /> : null}
       />
       {!web ? (
         <Note theme={theme}>HTML previews need the desktop or web app.</Note>
@@ -317,7 +357,8 @@ export function EmbedCard({ item, agentId, theme, layout }: PluginTimelineItemPr
     overflow: "hidden" as const,
   }), [theme.colors.border, background]);
   const [cardHovered, setCardHovered] = useState(false);
-  const props: BodyProps = { data: item.data, agentId, theme, background, bodyHeight, cardHovered };
+  // Plugin rows carry no id here; the same embed text twice in one chat shares its open state.
+  const props: BodyProps = { data: item.data, agentId, theme, background, bodyHeight, cardHovered, stateKey: `${agentId}\n${item.data.original}` };
   const kind = embedKind(item.data.path);
   return (
     // Hover brightens the header texts. Pointer events, not a Pressable: an outer Pressable never got hover on web.

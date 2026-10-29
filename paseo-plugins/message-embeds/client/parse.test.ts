@@ -4,12 +4,12 @@ import { linkIssueRefs, parseMessage } from "./parse";
 describe("message embed parser", () => {
   it("extracts a complete embed and preserves surrounding markdown", () => {
     expect(parseMessage("Before ![[src/tree.ts#L40-80]] after")).toEqual([
-      { kind: "markdown", id: "markdown-0", text: "Before " },
+      { kind: "markdown", text: "Before " },
       {
         kind: "embed",
-        embed: { id: "embed-0", original: "![[src/tree.ts#L40-80]]", path: "src/tree.ts", lineStart: 40, lineEnd: 80 },
+        embed: { original: "![[src/tree.ts#L40-80]]", path: "src/tree.ts", lineStart: 40, lineEnd: 80 },
       },
-      { kind: "markdown", id: "markdown-2", text: " after" },
+      { kind: "markdown", text: " after" },
     ]);
   });
 

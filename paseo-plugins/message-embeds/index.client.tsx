@@ -120,10 +120,14 @@ export default function contribute(client: PluginClientContext) {
       const segments = parseMessage(item.text);
       // Unchanged text (half-typed or code-only embeds, no `#123`) keeps Paseo's own rendering.
       if (!hasRef && segments.length === 1 && segments[0].kind === "markdown" && segments[0].text === item.text) return undefined;
+      // No `id` on the rows: Paseo then uses `<source message id>/<index>`, unique across the chat.
+      // Its chat list keys each row's measured height by id; the parser's per-message ids
+      // (`markdown-0`, `embed-0`) repeated in every converted message, rows fought over one height
+      // and scrolling looped until React gave up (error #185).
       return {
         items: segments.map((segment): PluginTimelineItem => {
           if (segment.kind === "agent") {
-            return { type: "plugin" as const, id: segment.id, kind: AGENT_CARD_KIND, version: 1, data: { ...segment.link, url: segment.url } };
+            return { type: "plugin" as const, kind: AGENT_CARD_KIND, version: 1, data: { ...segment.link, url: segment.url } };
           }
           if (segment.kind === "embed") {
             const data = {
@@ -133,11 +137,10 @@ export default function contribute(client: PluginClientContext) {
               ...(segment.embed.lineStart === undefined ? {} : { lineStart: segment.embed.lineStart }),
               ...(segment.embed.lineEnd === undefined ? {} : { lineEnd: segment.embed.lineEnd }),
             };
-            return { type: "plugin" as const, id: segment.embed.id, kind: "message-embeds-card", version: 1, data };
+            return { type: "plugin" as const, kind: "message-embeds-card", version: 1, data };
           }
           return {
             type: "plugin" as const,
-            id: segment.id,
             kind: "message-embeds-markdown",
             version: 1,
             data: { text: segment.text, phase },
