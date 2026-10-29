@@ -7,5 +7,5 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
-  "dependencies": { "@getpaseo/client": "0.11.4" }
+  "dependencies": { "@getpaseo/client": "0.13.0" }
 }

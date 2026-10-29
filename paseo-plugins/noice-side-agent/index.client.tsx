@@ -2,16 +2,18 @@ import { useEffect } from "react";
 import { Platform, Text } from "react-native";
 import type { PluginAgentCommandContext, PluginClientContext, PluginScreenProps } from "@getpaseo/plugin/client";
 import { capturePane, prepareRightPane } from "./client/web";
-import { createSide, createTangent, TANGENT_REPORT_START } from "./shared/preferences";
+import { createSide, createTangent } from "./shared/preferences";
+import { parseTangentReports, TANGENT_REPORT_START } from "./shared/report";
 import { ContextSettings } from "./client/settings";
+import { createTangentRow, ReportRowData } from "./client/tangent-row";
 
-// Slash callbacks have openScreen, not navigation. A registered screen supplies
-// the public host navigation on native as well as web, without private imports.
+// Slash callbacks and timeline rows have openScreen, not navigation. A registered screen
+// supplies the public host navigation on native as well as web, without private imports.
 function OpenSideAgent({ navigation, params }: PluginScreenProps) {
   useEffect(() => {
-    if (params.agentId) navigation?.openAgent({ agentId: params.agentId });
-  }, [navigation, params.agentId]);
-  return <Text>{navigation ? "Opening side agent…" : "This Paseo client needs an update to open the side agent. It is available in the parent's sub-agents strip."}</Text>;
+    if (params.agentId) navigation?.openAgent({ agentId: params.agentId, ...(params.serverId ? { serverId: params.serverId } : {}) });
+  }, [navigation, params.agentId, params.serverId]);
+  return <Text>{navigation ? "Opening the agent…" : "This Paseo client needs an update to open the agent. It is available in the parent's sub-agents strip."}</Text>;
 }
 
 export default function contribute(client: PluginClientContext) {
@@ -64,11 +66,24 @@ export default function contribute(client: PluginClientContext) {
   });
   // Paseo echoes the `/follow-up <report>` send the moment it is queued, mid-reply. OMP records
   // the report again when it actually delivers it after the reply; show only that one.
+  // A delivered report (or several, joined for a non-OMP parent) becomes one row per tangent.
   const followUpEcho = `/follow-up ${TANGENT_REPORT_START}`;
-  const hideEcho = client.addTimelineTransformer({
-    id: "tangent-follow-up-echo",
+  const reports = client.addTimelineTransformer({
+    id: "tangent-reports",
     query: { itemType: "user_message" },
-    transform: ({ item }) => (item.text.startsWith(followUpEcho) ? { items: [] } : undefined),
+    transform: ({ item }) => {
+      if (item.text.startsWith(followUpEcho)) return { items: [] };
+      const parsed = parseTangentReports(item.text);
+      if (!parsed) return undefined;
+      // Item ids are not scoped to the source message; the child id is unique per report.
+      return { items: parsed.map(data => ({ type: "plugin" as const, kind: "tangent-report", version: 1, id: `report-${data.agentId}`, data })) };
+    },
   });
-  return () => { hideEcho(); tangent(); slash(); settings(); screen(); };
+  const reportRow = client.addTimelineRenderer({
+    kind: "tangent-report",
+    version: 1,
+    schema: ReportRowData,
+    Component: createTangentRow((serverId, agentId) => client.openScreen({ screenId: "open", params: { serverId, agentId } })),
+  });
+  return () => { reportRow(); reports(); tangent(); slash(); settings(); screen(); };
 }

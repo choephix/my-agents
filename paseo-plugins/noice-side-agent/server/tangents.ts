@@ -3,7 +3,8 @@ import { join } from "node:path";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type { AgentSnapshotPayload } from "@getpaseo/protocol/messages";
 import { connectLocalDaemon, paseoHome } from "./daemon";
-import { chooseDelivery, deliveryText, finalReply, formatTangentReport, type TangentOutcome } from "./tangent-report";
+import { formatTangentReport, type TangentOutcome } from "../shared/report";
+import { chooseDelivery, deliveryText, finalReply } from "./tangent-report";
 
 /** Child labels; they are the durable record, so a plugin reload can resume watching. */
 export const TANGENT_LABEL = "side-agent.tangent";
@@ -150,7 +151,7 @@ export const daemonPort: TangentPort = {
     const page = await daemon.fetchAgentTimeline(id, { direction: "tail", limit: 200, projection: "projected" });
     return finalReply(page.entries.map(entry => entry.item));
   }),
-  send: (id, text) => withDaemon(daemon => daemon.sendAgentMessage(id, text)),
+  send: async (id, text) => { await withDaemon(daemon => daemon.sendAgentMessage(id, text)); },
   markReported: id => withDaemon(daemon => daemon.updateAgent(id, { labels: { [TANGENT_LABEL]: "reported" } })),
   link: async id => {
     const home = paseoHome();

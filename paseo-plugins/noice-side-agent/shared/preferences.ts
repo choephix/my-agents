@@ -20,6 +20,3 @@ export const createTangent = defineRpc({
   input: z.object({ parentId: z.string().min(1), task: z.string().trim().min(1) }),
   output: z.object({ agentId: z.string(), mode: modeSchema, title: z.string() }),
 });
-
-/** Every tangent report starts with this; OMP parents receive it as `/follow-up <report>`. */
-export const TANGENT_REPORT_START = 'Tangent "';

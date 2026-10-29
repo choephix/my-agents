@@ -169,6 +169,19 @@ Delivery never interrupts the parent:
   with `---`), because a second send would interrupt the turn the first started.
 - A parent that is archived or gone gets nothing; the server logs the drop.
 
+In the parent chat the report is not drawn as a user bubble but as a compact row
+in the style of the `/tan` row (`noice-omp-slash-aliases`): a muted dashed box with
+`tangent`, the title (without its `Tangent: ` prefix), the status (`done in 1m 50s`,
+`failed after 12s` in red, `stopped after 17s`, `archived after 3s`) and, for
+finished and failed ones, the first line of the answer or error. Click it to open
+the full answer as Markdown (Paseo's own renderer), with **Open the tangent**
+(opens the child's tab in the app through the plugin's `open` screen, on the host
+named in the link) and **Copy result**. Only the display changes; the parent model
+receives the plain report text. A message of several joined reports becomes one
+row per tangent. The match is exact: a message is drawn this way only if all of
+it parses as reports in the format above, with links to `/h/<server>/agent/<id>`;
+anything else keeps its normal bubble.
+
 The parent runs a new turn on the report, like any message. Each tangent is
 reported once. Its state lives in child labels (`side-agent.tangent`:
 `pending` → `reported`, plus parent ID and start time), so a plugin reload or
@@ -185,8 +198,8 @@ OMP parents on custom OMP-based providers (any provider ID other than `omp`) are
 treated like other providers: Fork context and held delivery.
 
 `/tangent` is separate from OMP's own `/tan` (routed by the `noice-omp-slash-aliases`
-plugin), which is unchanged. OMP's live command list has no `tangent` command
-for this one to shadow.
+plugin, where it is now off by default). OMP's live command list has no `tangent`
+command for this one to shadow.
 
 ## Files and operation
 
@@ -206,7 +219,8 @@ for this one to shadow.
   unpublished endpoints are not supported and fail clearly. Local credentials
   are never sent to remote hosts.
 - `node_modules` is an ignored symlink to the already-installed neighboring
-  `noice-chat-diff/node_modules`; no npm install was run. `npm run typecheck`
+  `noice-chat-quote/node_modules` (Paseo SDK 0.13.0, needed for the host
+  `Markdown` component); no npm install was run. `npm run typecheck`
   and `npm test` run from this folder.
 
 ```sh

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
-import { chooseDelivery, deliveryText, finalReply, formatDuration, formatTangentReport } from "./tangent-report";
+import { formatDuration, formatTangentReport } from "../shared/report";
+import { chooseDelivery, deliveryText, finalReply } from "./tangent-report";
 
 const base = { title: "Tangent: check the cache key", durationMs: 125_000, reply: "", link: "https://app.example/h/s/agent/c1" };
 
