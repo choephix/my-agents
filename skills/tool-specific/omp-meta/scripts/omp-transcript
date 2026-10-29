@@ -31,13 +31,13 @@ A fork starts by copying its parent's history, stamped with the fork's own
 creation time. Windows leave that copy out unless --inherited is given;
 --own leaves it out of a render even without a window.
 
-list and search rows carry an origin column, read from Paseo's agent
-records ($PASEO_HOME/agents, default ~/.paseo/agents): user (opened in
-Paseo by hand), agent (created by another agent), sched (created by a
-schedule), or ? (Paseo never ran it: a terminal, herdr, omp -p). A fork
-without a record of its own takes its lineage root's origin.
---no-spawned drops agent and sched rows; --spawned keeps only those.
-? rows pass both.
+--spawned keeps only sessions another agent or a schedule created;
+--no-spawned drops them. Either flag adds an origin column, read from
+Paseo's agent records ($PASEO_HOME/agents, default ~/.paseo/agents):
+user (opened in Paseo by hand), agent (created by another agent), sched
+(created by a schedule), or ? (Paseo never ran it: a terminal, herdr,
+omp -p). A fork without a record of its own takes its lineage root's
+origin. ? rows count as not spawned.
 EOF
   exit "${1:-2}"
 }
@@ -515,7 +515,7 @@ lineage_label() {
 declare -A paseo_origin=()
 load_paseo_origins() {
   local dir=${PASEO_HOME:-${HOME:-}/.paseo}/agents id origin
-  [[ -d $dir ]] || return 0
+  [[ -n $spawned_filter && -d $dir ]] || return 0
   while IFS=$'\t' read -r id origin; do
     if [[ -n $id ]]; then paseo_origin[$id]=$origin; fi
   done < <(find "$dir" -mindepth 2 -maxdepth 2 -type f -name '*.json' -exec jq -r '
@@ -535,9 +535,8 @@ origin_of() {
 
 origin_passes() {
   case $spawned_filter in
-    exclude) [[ $1 != agent && $1 != sched ]] ;;
     only) [[ $1 == agent || $1 == sched ]] ;;
-    *) return 0 ;;
+    exclude) [[ $1 != agent && $1 != sched ]] ;;
   esac
 }
 
@@ -721,9 +720,12 @@ list_sessions() {
     lineage_root_loaded "$path"
     root=$REPLY
     # Filtered before the dedupe, so a hidden fork never claims its lineage's row.
-    origin_of "$id" "$root"
-    origin=$REPLY
-    origin_passes "$origin" || continue
+    origin=
+    if [[ -n $spawned_filter ]]; then
+      origin_of "$id" "$root"
+      origin_passes "$REPLY" || continue
+      origin=$'\t'$REPLY
+    fi
     if ! $all_forks; then
       [[ -z ${seen_roots[$root]+set} ]] || continue
       seen_roots[$root]=1
@@ -731,7 +733,7 @@ list_sessions() {
     if [[ $root == "$id" ]]; then lineage=-; else lineage=$root; fi
 
     TZ=UTC printf -v timestamp '%(%Y-%m-%dT%H:%M:%SZ)T' "${mtime_of[$path]}"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s%s\n' \
       "$timestamp" "${fields[1]-}" "${fields[2]-}" "${fields[3]-}" "$path" "$lineage" "$origin"
 
     ((matched += 1))
@@ -1018,7 +1020,8 @@ search_sessions() {
   LC_ALL=C sort -z -r -- "$rows" > "$sorted"
 
   # Each entry is one row, followed by its hit lines when --hits is on. The
-  # lineage and origin columns go in after the path, so the snippet stays last.
+  # lineage column, and origin under a spawned filter, go in after the path,
+  # so the snippet stays last.
   while IFS= read -r -d '' entry; do
     row=${entry#*$'\t'}
     first=${row%%$'\n'*}
@@ -1034,9 +1037,12 @@ search_sessions() {
     else
       root=$(lineage_root "$path")
     fi
-    origin_of "$id" "$root"
-    origin=$REPLY
-    origin_passes "$origin" || continue
+    origin=
+    if [[ -n $spawned_filter ]]; then
+      origin_of "$id" "$root"
+      origin_passes "$REPLY" || continue
+      origin=$'\t'$REPLY
+    fi
     if ! $all_forks; then
       [[ -z ${seen_roots[$root]+set} ]] || continue
       seen_roots[$root]=1
@@ -1044,7 +1050,7 @@ search_sessions() {
     if [[ $root == "$id" ]]; then lineage=-; else lineage=$root; fi
     ((total += 1))
     if ((search_count == 0 || shown < search_count)); then
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' "${cols[@]:0:6}" "$lineage" "$origin"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s%s' "${cols[@]:0:6}" "$lineage" "$origin"
       if $search_snippet; then printf '\t%s' "${cols[6]-}"; fi
       printf '%s\n' "$rest"
       ((shown += 1))

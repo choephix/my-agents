@@ -14,7 +14,7 @@ For a Claude Code session, a Codex thread or a T3 Code thread, use `agent-transc
 ## Find the session
 
 ```bash
-omp-transcript list -n 10                        # newest first: time, id, title, cwd, path, lineage, origin
+omp-transcript list -n 10                        # newest first: time, id, title, cwd, path, lineage
 omp-transcript list --since today                # sessions active today, every folder
 omp-transcript list --under ~/workspace/acme-app --under ~/.herdr/worktrees/acme-app --since 1w
 omp-transcript search "pattern" --hits           # matching sessions, each with up to 5 hits (user first): message id, time, snippet
@@ -23,7 +23,7 @@ omp-transcript search "pattern" --since 2d --reasoning --with-tools   # narrow w
 
 Forks of one conversation appear once, as the newest fork, with the root session's id in the lineage column (`-` for a root); `--all-forks` lists every one. `--cwd` is an exact folder; `--under` includes subfolders and repeats. An id prefix works in place of a full id or path.
 
-The origin column says who started a session, from Paseo's agent records: `user`, `agent` (another agent created it), `sched` (a schedule did), or `?` (Paseo never ran it). `--no-spawned` hides agent- and schedule-started sessions; `--spawned` shows only those.
+`--no-spawned` hides sessions another agent or a schedule started, read from Paseo's agent records; `--spawned` shows only those. Either adds an origin column (`user`, `agent`, `sched`, or `?` when Paseo never ran the session, which counts as not spawned).
 
 ## Read it
 

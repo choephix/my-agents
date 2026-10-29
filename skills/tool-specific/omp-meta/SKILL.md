@@ -28,7 +28,7 @@ omp-transcript search <pattern> [--hits] [--since <when>] [--under <dir>] [-n <c
 # e.g. omp-transcript search 'puppet terminology' --hits --since 2w
 ```
 
-TSV, newest first: `mtime  id  hits  title  cwd  path  lineage  origin  snippet`. Default n=20, `-n 0` prints every match. The pattern is a case-insensitive literal; `--regex` reads it as a regex instead. `--hits [n]` lists up to n matching messages under each row, user messages first, as `\t<message id>\t<time>\t<role>: <snippet>` — the ids feed `--around`.
+TSV, newest first: `mtime  id  hits  title  cwd  path  lineage  snippet`. Default n=20, `-n 0` prints every match. The pattern is a case-insensitive literal; `--regex` reads it as a regex instead. `--hits [n]` lists up to n matching messages under each row, user messages first, as `\t<message id>\t<time>\t<role>: <snippet>` — the ids feed `--around`.
 
 Searched by default: user and assistant messages, titles, shell commands the user ran, @-mentioned paths, and conversation summaries. `--reasoning` adds thinking and `--with-tools` adds tool calls and results — both widen the haystack, and the snippet names which one matched.
 
@@ -40,12 +40,12 @@ omp-transcript list [--cwd <dir>] [--under <dir>]... [--since <when>] [-n <count
 # e.g. omp-transcript list --since today
 ```
 
-TSV, newest first: `mtime  id  title  cwd  path  lineage  origin`. Default n=10, `-n 0` for all.
+TSV, newest first: `mtime  id  title  cwd  path  lineage`. Default n=10, `-n 0` for all.
 
 - **Skip-self:** drop the row whose id (column 2) equals your own session ID.
 - `--cwd` is an exact realpath match; `--under` also matches subdirectories and may repeat.
 - **Forks collapse:** one row per conversation, the newest fork, with the root session's id in the lineage column (`-` for a root). `--all-forks` shows every one.
-- **Origin**, from Paseo's agent records: `user`, `agent` (created by another agent), `sched` (created by a schedule), or `?` (Paseo never ran it: terminal, herdr, `omp -p`). `--no-spawned` drops `agent`/`sched` rows, `--spawned` keeps only those; `?` passes both. Same flags on `search`.
+- **Spawned:** `--no-spawned` drops sessions another agent or a schedule created; `--spawned` keeps only those. Both read Paseo's agent records and add an `origin` column after lineage: `user`, `agent`, `sched`, or `?` (Paseo never ran it: terminal, herdr, `omp -p`; counts as not spawned). Same flags on `search`.
 - Already holding an id? Skip both and pass the id straight to the tool.
 - Need the last message? Use `-m -1`.
 

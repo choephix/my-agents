@@ -5,8 +5,6 @@ repo=$(cd "$(dirname "$0")" && pwd)
 export PATH="$repo:$PATH"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-# No Paseo agent records unless a test writes some: every origin is "?".
-export PASEO_HOME="$tmp/paseo"
 
 # 1. Render only the active branch. Tool traffic is hidden by default,
 # --with-tools indexes it, and --hydrate inlines result bodies.
@@ -238,19 +236,19 @@ touch -d 2024-01-03T00:00:03Z "$session_b_new"
 touch -d 2023-12-31T00:00:00Z "$session_b_new_format"
 
 list_output=$(OMP_SESSIONS_DIR="$sessions_root" omp-transcript list -n 2)
-printf -v expected_list '%s\t%s\t%s\t%s\t%s\t-\t?\n%s\t%s\t%s\t%s\t%s\t-\t?' \
+printf -v expected_list '%s\t%s\t%s\t%s\t%s\t-\n%s\t%s\t%s\t%s\t%s\t-' \
   2024-01-03T00:00:03Z session-b-new "Beta new" "$cwd_b" "$session_b_new" \
   2024-01-02T00:00:02Z session-a-new "Alpha new" "$cwd_a" "$session_a_new"
 [[ $list_output == "$expected_list" ]]
 
 filtered_output=$(OMP_SESSIONS_DIR="$sessions_root" omp-transcript list --cwd "$cwd_a")
-printf -v expected_filtered '%s\t%s\t%s\t%s\t%s\t-\t?\n%s\t%s\t%s\t%s\t%s\t-\t?' \
+printf -v expected_filtered '%s\t%s\t%s\t%s\t%s\t-\n%s\t%s\t%s\t%s\t%s\t-' \
   2024-01-02T00:00:02Z session-a-new "Alpha new" "$cwd_a" "$session_a_new" \
   2024-01-01T00:00:01Z session-a-old "Alpha old" "$cwd_a" "$session_a_old"
 [[ $filtered_output == "$expected_filtered" ]]
 
 new_format_output=$(OMP_SESSIONS_DIR="$sessions_root" omp-transcript list -n 4)
-printf -v expected_new_format_row '%s\t%s\t%s\t%s\t%s\t-\t?' \
+printf -v expected_new_format_row '%s\t%s\t%s\t%s\t%s\t-' \
   2023-12-31T00:00:00Z session-b-new-format "Beta title record" "$cwd_b" "$session_b_new_format"
 [[ $new_format_output == *$'\n'"$expected_new_format_row" ]]
 
@@ -339,24 +337,24 @@ moved_path="$lineage_proj/2026-03-06T00-00-00-000Z_$moved_id.jsonl"
 write_lineage_session "$moved_path" "$moved_id" "$tmp/elsewhere/2026-03-02T00-00-00-000Z_$fork_a_id.jsonl" MOVED
 touch -d 2026-03-06T00:00:00Z "$moved_path"
 moved_list=$(OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript list --all-forks)
-[[ $moved_list == *$'\t'"$moved_id"$'\t'*$'\t'"$root_id"$'\t?\n'* ]]
+[[ $moved_list == *$'\t'"$moved_id"$'\t'*$'\t'"$root_id"$'\n'* ]]
 moved_root=$(cd "$tmp" && OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript list --all-forks -n 1)
-[[ $moved_root == *$'\t'"$moved_id"$'\t'*$'\t'"$root_id"$'\t?' ]]
+[[ $moved_root == *$'\t'"$moved_id"$'\t'*$'\t'"$root_id" ]]
 rm -f "$moved_path"
 
 lineage_list=$(OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript list)
 [[ $(printf '%s\n' "$lineage_list" | wc -l) -eq 3 ]]
-[[ $lineage_list == *$'\t'"$solo_id"$'\t'*$'\t-\t?\n'* ]]
-[[ $lineage_list == *$'\t'"$orphan_id"$'\t'*$'\t'"$gone_id"$'\t?\n'* ]]
-[[ $lineage_list == *$'\t'"$fork_b_id"$'\t'*$'\t'"$root_id"$'\t?' ]]
-[[ $lineage_list != *"$fork_a_id"* && $lineage_list != *"L ROOT"* ]]
+[[ $lineage_list == *$'\t'"$solo_id"$'\t'*$'\t-'$'\n'* ]]
+[[ $lineage_list == *$'\t'"$orphan_id"$'\t'*$'\t'"$gone_id"$'\n'* ]]
+[[ $lineage_list == *$'\t'"$fork_b_id"$'\t'*$'\t'"$root_id" ]]
+[[ $lineage_list != *"$fork_a_id"* && $lineage_list != *$'\t'"$root_id"$'\t'* ]]
 lineage_all=$(OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript list --all-forks)
 [[ $(printf '%s\n' "$lineage_all" | wc -l) -eq 5 ]]
-[[ $lineage_all == *$'\t'"$fork_a_id"$'\t'*$'\t'"$root_id"$'\t?\n'* ]]
-[[ $lineage_all == *$'\t'"$root_id"$'\t'*$'\t-\t?' ]]
+[[ $lineage_all == *$'\t'"$fork_a_id"$'\t'*$'\t'"$root_id"$'\n'* ]]
+[[ $lineage_all == *$'\t'"$root_id"$'\t'*$'\t-' ]]
 lineage_search=$(OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript search LINEAGE_NEEDLE --no-snippet)
 [[ $(printf '%s\n' "$lineage_search" | wc -l) -eq 3 ]]
-[[ $lineage_search == *$'\t'"$fork_b_id"$'\t1\tL FORK_B\t/tmp/lineage\t'"$fork_b_path"$'\t'"$root_id"$'\t?' ]]
+[[ $lineage_search == *$'\t'"$fork_b_id"$'\t1\tL FORK_B\t/tmp/lineage\t'"$fork_b_path"$'\t'"$root_id" ]]
 [[ $lineage_search != *FORK_A* && $lineage_search != *"L ROOT"* ]]
 OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript search LINEAGE_NEEDLE --no-snippet -n 1 \
   >"$tmp/lineage-n1.stdout" 2>"$tmp/lineage-n1.stderr"
@@ -364,31 +362,30 @@ OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript search LINEAGE_NEEDLE --no-s
 lineage_search_all=$(OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript search LINEAGE_NEEDLE --no-snippet --all-forks)
 [[ $(printf '%s\n' "$lineage_search_all" | wc -l) -eq 5 ]]
 
-# Origin comes from Paseo's agent records, matched by runtime session id or by
-# the session file in persistence.nativeHandle. A fork without a record takes
-# its root's; a session Paseo never ran is "?" and passes both filters. The
-# filter runs before the fork dedupe, so hiding a lineage's newest fork leaves
-# the row to the next one.
-paseo_agents="$PASEO_HOME/agents/proj"
+# --spawned/--no-spawned filter by Paseo's agent records, matched by runtime
+# session id or by the session file in persistence.nativeHandle, and add an
+# origin column. A fork without a record takes its root's origin; a session
+# Paseo never ran is "?", not spawned. The filter runs before the fork dedupe,
+# so hiding a lineage's newest fork leaves the row to the next one.
+paseo_home="$tmp/paseo"
+paseo_agents="$paseo_home/agents/proj"
 mkdir -p "$paseo_agents"
 jq -cn --arg path "$root_path" '{persistence:{nativeHandle:$path}, labels:{}}' >"$paseo_agents/root.json"
 jq -cn --arg id "$fork_b_id" '{runtimeInfo:{sessionId:$id}, labels:{"paseo.parent-agent-id":"parent"}}' >"$paseo_agents/fork-b.json"
 jq -cn --arg id "$solo_id" '{runtimeInfo:{sessionId:$id}, labels:{"paseo.schedule-id":"schedule"}}' >"$paseo_agents/solo.json"
-own_list=$(OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript list --no-spawned)
+own_list=$(PASEO_HOME="$paseo_home" OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript list --no-spawned)
 printf -v expected_own '%s\t%s\t%s\t%s\t%s\t%s\t%s\n%s\t%s\t%s\t%s\t%s\t%s\t%s' \
   2026-03-04T00:00:00Z "$orphan_id" "L ORPHAN" /tmp/lineage "$orphan_path" "$gone_id" "?" \
   2026-03-02T00:00:00Z "$fork_a_id" "L FORK_A" /tmp/lineage "$fork_a_path" "$root_id" user
 [[ $own_list == "$expected_own" ]]
-spawned_list=$(OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript list --spawned)
-printf -v expected_spawned '%s\t%s\t%s\t%s\t%s\t%s\t%s\n%s\t%s\t%s\t%s\t%s\t%s\t%s\n%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+spawned_list=$(PASEO_HOME="$paseo_home" OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript list --spawned)
+printf -v expected_spawned '%s\t%s\t%s\t%s\t%s\t%s\t%s\n%s\t%s\t%s\t%s\t%s\t%s\t%s' \
   2026-03-05T00:00:00Z "$solo_id" "L SOLO" /tmp/lineage "$solo_path" - sched \
-  2026-03-04T00:00:00Z "$orphan_id" "L ORPHAN" /tmp/lineage "$orphan_path" "$gone_id" "?" \
   2026-03-03T00:00:00Z "$fork_b_id" "L FORK_B" /tmp/lineage "$fork_b_path" "$root_id" agent
 [[ $spawned_list == "$expected_spawned" ]]
-own_search=$(OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript search LINEAGE_NEEDLE --no-spawned --no-snippet)
+own_search=$(PASEO_HOME="$paseo_home" OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript search LINEAGE_NEEDLE --no-spawned)
 [[ $(printf '%s\n' "$own_search" | wc -l) -eq 2 ]]
-[[ $own_search == *$'\t'"$fork_a_id"$'\t1\tL FORK_A\t/tmp/lineage\t'"$fork_a_path"$'\t'"$root_id"$'\tuser' ]]
-rm -rf "$PASEO_HOME"
+[[ $own_search == *$'\t'"$fork_a_id"$'\t1\tL FORK_A\t/tmp/lineage\t'"$fork_a_path"$'\t'"$root_id"$'\tuser\tuser: LINEAGE_NEEDLE FORK_A' ]]
 
 
 # 10. Message slicing counts renderable records, keeps an assistant record's
@@ -650,7 +647,7 @@ set -e
 
 # Newest first, hit counts, default snippet prefers a user match.
 search_user_snip=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search unique_user_needle -n 1)
-[[ $search_user_snip == 2026-01-10T00:00:00Z$'\tsearch-user\t2\tUser session\t'"$search_cwd"$'\t'"$user_path"$'\t-\t?\tuser: UNIQUE_USER_NEEDLE one' ]]
+[[ $search_user_snip == 2026-01-10T00:00:00Z$'\tsearch-user\t2\tUser session\t'"$search_cwd"$'\t'"$user_path"$'\t-\tuser: UNIQUE_USER_NEEDLE one' ]]
 OMP_SESSIONS_DIR="$search_root" omp-transcript search UNIQUE_USER_NEEDLE -n 1 --no-snippet \
   >"$tmp/search-n1.stdout" 2>"$tmp/search-n1.stderr"
 [[ $(<"$tmp/search-n1.stderr") == "omp-transcript: 2 sessions matched, showing 1 (raise with -n, 0 for all)" ]]
@@ -684,9 +681,9 @@ search_abandon=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search ABANDONED
 search_trunc=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search TRUNCATED_NEEDLE --no-snippet)
 [[ $search_trunc == *$'\tsearch-trunc\t1\tTrunc session\t'* ]]
 search_fallback=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search FALLBACK_NEEDLE --no-snippet)
-[[ $search_fallback == *$'\tfallback-id\t1\t-\t\t'"$noid_path"$'\t-\t?' ]]
+[[ $search_fallback == *$'\tfallback-id\t1\t-\t\t'"$noid_path"$'\t-' ]]
 search_fallback_snip=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search FALLBACK_NEEDLE)
-[[ $search_fallback_snip == *$'\tfallback-id\t1\t-\t\t'"$noid_path"$'\t-\t?\tuser: FALLBACK_NEEDLE' ]]
+[[ $search_fallback_snip == *$'\tfallback-id\t1\t-\t\t'"$noid_path"$'\t-\tuser: FALLBACK_NEEDLE' ]]
 
 # Literal vs regex, dash patterns, invalid regex, empty haystack.
 search_dot_lit=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search 'foo.bar' --no-snippet)
@@ -763,8 +760,8 @@ jq -cn '{type:"message",id:"h3",parentId:"h2",timestamp:"2026-04-03T10:00:00.000
 touch -d 2026-04-03T10:00:00Z "$hits_path"
 
 hits_out=$(OMP_SESSIONS_DIR="$hits_root" omp-transcript search HITS_NEEDLE --hits)
-printf -v expected_hits '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n\t%s\n\t%s\n\t%s\n\t%s' \
-  2026-04-03T10:00:00Z hits-session 4 "HITS_NEEDLE title" /tmp/hits "$hits_path" - "?" "user: HITS_NEEDLE first" \
+printf -v expected_hits '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n\t%s\n\t%s\n\t%s\n\t%s' \
+  2026-04-03T10:00:00Z hits-session 4 "HITS_NEEDLE title" /tmp/hits "$hits_path" - "user: HITS_NEEDLE first" \
   $'h1\t2026-04-01T10:00:00Z\tuser: HITS_NEEDLE first' \
   $'h3\t2026-04-03T10:00:00Z\tuser: HITS_NEEDLE third' \
   $'hits-session\t2026-04-01T00:00:00Z\ttitle: HITS_NEEDLE title' \
@@ -872,6 +869,6 @@ fork_search_inherited=$(TZ=UTC OMP_SESSIONS_DIR="$fork_root" omp-transcript sear
 [[ $fork_search_inherited == *$'\tfork-child\t2\t'* && $fork_search_inherited == *$'\tc1\t'* ]]
 # Without a window the whole fork is searched, and it stands for its lineage.
 fork_search_all=$(OMP_SESSIONS_DIR="$fork_root" omp-transcript search FORK_NEEDLE --no-snippet)
-[[ $fork_search_all == *$'\tfork-child\t2\t'*$'\tfork-parent\t?' && $(printf '%s\n' "$fork_search_all" | wc -l) -eq 1 ]]
+[[ $fork_search_all == *$'\tfork-child\t2\t'*$'\tfork-parent' && $fork_search_all != *$'\tfork-parent\t'* ]]
 
 printf 'PASS: render, hydration, slicing, dynamic fences, list mode, id resolution, search, windows, lineage, origin, hits, around, and fork copies\n'
