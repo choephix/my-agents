@@ -1,9 +1,0 @@
-{
-  "id": "popular-themes",
-  "name": "Popular themes",
-  "description": "Tokyo Night, Dracula, Rosé Pine, Nord, Gruvbox, One, GitHub, Solarized, Kanagawa and Everforest app themes; light variants of One, GitHub and Solarized.",
-  "media": ["screenshots/contact-sheet.webp"],
-  "requirements": {
-    "paseo": ">=0.11.4"
-  }
-}

@@ -1,9 +1,0 @@
-{
-  "id": "t3-chat-theme",
-  "name": "T3 Chat theme",
-  "description": "T3 Chat Dark and T3 Chat Light app themes, from T3 Code's palette.",
-  "media": ["screenshots/t3-chat-dark.webp", "screenshots/t3-chat-light.webp"],
-  "requirements": {
-    "paseo": ">=0.11.4"
-  }
-}

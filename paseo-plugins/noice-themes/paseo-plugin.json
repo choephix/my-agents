@@ -1,0 +1,9 @@
+{
+  "id": "noice-themes",
+  "name": "Themes",
+  "description": "T3 Chat, Tokyo Night, Dracula, Rosé Pine, Nord, Gruvbox, One, GitHub, Solarized, Kanagawa and Everforest app themes; light variants of T3 Chat, One, GitHub and Solarized.",
+  "media": ["screenshots/contact-sheet.webp", "screenshots/t3-chat-dark.webp", "screenshots/t3-chat-light.webp"],
+  "requirements": {
+    "paseo": ">=0.11.4"
+  }
+}

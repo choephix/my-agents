@@ -39,7 +39,7 @@ My agentic stuff.
 - [Sidebar filters by project group](paseo-plugins/noice-filter-presets)
 - [Tidier sent messages](paseo-plugins/noice-chat-message-polish)
 - [Quieter diff colouring](paseo-plugins/noice-chat-diff)
-- [More app themes](paseo-plugins/popular-themes), and [T3 Chat's](paseo-plugins/t3-chat-theme)
+- [More app themes, T3 Chat's included](paseo-plugins/noice-themes)
 - [Hide the composer controls you never use](paseo-plugins/noice-composer-declutter)
 - [A clickable copy of Paseo for mocking plugins before building them](paseo-mock-base)
 

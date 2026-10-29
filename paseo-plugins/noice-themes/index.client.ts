@@ -3,6 +3,38 @@ import type { PluginClientContext } from "@getpaseo/plugin/client";
 // One self-contained block per theme: delete a block to remove that theme.
 // Sources and the reasoning behind each token are in OVERVIEW.md.
 const themes = [
+  // T3 Chat Dark
+  {
+    id: "t3-chat-dark",
+    name: "T3 Chat Dark",
+    appearance: "dark",
+    colors: {
+      background: "#1f1a24",
+      foreground: "#f9f8fb",
+      raised: "#2c2631",
+      control: "#362d3d",
+      border: "#27242c",
+      accent: "#fbd0e8",
+      mutedForeground: "#e7d0dd",
+      ring: "#968d9f",
+    },
+  },
+  // T3 Chat Light
+  {
+    id: "t3-chat-light",
+    name: "T3 Chat Light",
+    appearance: "light",
+    colors: {
+      background: "#fdf7fd",
+      foreground: "#501854",
+      raised: "#fdfafd",
+      control: "#f2e1f4",
+      border: "#eee1ed",
+      accent: "#c12269",
+      mutedForeground: "#ac1668",
+      ring: "#eaa7cb",
+    },
+  },
   // Tokyo Night
   {
     id: "tokyo-night",
