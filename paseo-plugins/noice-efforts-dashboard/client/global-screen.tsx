@@ -2,7 +2,7 @@ import type { PluginScreenProps, PluginSidebarItemProps } from "@getpaseo/plugin
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { useRef, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Dimensions, StyleSheet, Text, View } from "react-native";
 import type { EffortSummary, Overview, Root, WorkspaceInfo } from "../shared/rpc";
 import { usePrefetch, useOverview, useSearch, useVisible } from "./data";
 import { EffortView } from "./effort-view";
@@ -15,6 +15,17 @@ import { openPanel, SCREEN_ID } from "./runtime";
 import { SearchResults } from "./search-results";
 import { setViewState, viewKey, type Page } from "./state";
 import { IconButton, RowButton, SearchField, styles as ui } from "./ui";
+
+/** The right column that reads an effort beside the list. */
+const SIDE = 360;
+/**
+ * The list's own width (a docked sidebar takes window width) below which rows become cards. The
+ * table's fixed columns and gaps take 228 px and the name gets 2/8.2 of the rest: ~165 px at
+ * 900, about 22 characters, which fits three in four effort names. Beside the right column the
+ * Open tickets column goes (216 px fixed, name 2/5.8), so the same name width needs 700.
+ */
+const TABLE_MIN = 900;
+const TABLE_MIN_BESIDE = 700;
 
 export function EffortsSidebarItem({ currentScreen, openScreen }: PluginSidebarItemProps) {
   return <SidebarRow icon="Map" label="Efforts" active={currentScreen?.screenId === SCREEN_ID} onPress={() => openScreen({ screenId: SCREEN_ID, params: {} })} />;
@@ -96,7 +107,11 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
   const prefetch = usePrefetch();
   // A bare number finds the effort you came from first.
   const search = useSearch(query, { current: params.effort });
-  const gutter = compact ? 14 : 20;
+  // Before the first layout the window stands in; it is at least as wide as the screen.
+  const measured = width < 0 ? Dimensions.get("window").width : width;
+  const wide = !compact && width > 900;
+  const table = !compact && (selected && wide ? measured - SIDE >= TABLE_MIN_BESIDE : measured >= TABLE_MIN);
+  const gutter = table ? 20 : 14;
 
   if (!data) {
     return (
@@ -120,7 +135,6 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
   const live = groupsOf(data).filter((group) => shown.has(group.root.root));
   const groups = held ? heldOrder(live, held) : live;
   drawn.current = groups;
-  const wide = !compact && width > 900;
 
   const detail = selected ? (
     <EffortView
@@ -157,34 +171,68 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
     const hot = here || (selected?.root === effort.root && selected.slug === effort.slug);
     const { bound, suggested } = workspacesOf(data, effort);
     const next = nextText(effort);
-    const chips = [...bound, ...suggested].slice(0, 2).map((workspace) => (
+    const words = openWords(effort.counts).map((word, index) => (
+      <Text key={word.word} style={word.strong ? { color: c.fg, fontWeight: "500" } : word.faint ? { opacity: 0.7 } : undefined}>
+        {index ? " · " : ""}
+        {word.word}
+      </Text>
+    ));
+    const all = [...bound, ...suggested];
+    const chips = all.slice(0, 2).map((workspace) => (
       <Interactive
         key={workspace.id}
         accessibilityRole="button"
         accessibilityLabel={`Open ${workspace.name} with its Efforts panel`}
         onPress={() => openPanel(workspace.id)}
-        style={() => ({ flexShrink: 1, minWidth: 0 })}
+        style={() => ({ flexShrink: 1, minWidth: 0, paddingVertical: table ? 0 : 2 })}
       >
         {({ hovered }) => <WsChip c={c} name={workspace.name} prefix={chipPrefix(workspace, group.root)} suggested={!bound.includes(workspace)} hot={hot} hovered={hovered} />}
       </Interactive>
     ));
-    if (compact) {
+    if (!table) {
       return (
-        <RowButton key={effort.key} c={c} hot={here} onPress={() => open(effort)} style={[styles.prow, here ? { borderLeftWidth: 3, borderLeftColor: c.fg } : null]}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <View style={[ui.line, { gap: 6 }]}>
-              <Text numberOfLines={1} style={{ fontSize: 15, lineHeight: 21, color: c.fg, flexShrink: 1 }}>
-                {effort.slug}
-              </Text>
-              {effort.mapStatus ? <Tag c={c} text={effort.mapStatus} /> : null}
-            </View>
-            <Text numberOfLines={1} style={{ ...SMALL, color: c.muted }}>
-              {next.num ? `Next ${next.num} ${next.text}` : !effort.counts.total && effort.destination ? effort.destination : next.text}
+        <RowButton
+          key={effort.key}
+          c={c}
+          hot={hot}
+          onPress={() => open(effort)}
+          onHoverIn={() => prefetch.detail(effort)}
+          onHoverOut={prefetch.cancel}
+          label={`Read ${effort.slug}`}
+          style={[styles.card, here ? { borderLeftWidth: 3, borderLeftColor: c.fg, paddingLeft: 11 } : null]}
+        >
+          <View style={[ui.line, { alignItems: "flex-start" }]}>
+            <Text style={{ fontSize: 15, lineHeight: 21, color: c.fg, flexShrink: 1 }}>{effort.slug}</Text>
+            {effort.mapStatus ? <Tag c={c} text={effort.mapStatus} style={{ marginTop: 3, ...(hot ? { backgroundColor: c.s0 } : null) }} /> : null}
+            <Text style={{ ...SMALL, color: c.muted, marginLeft: "auto", marginTop: 2 }}>{age(effort.touchedMs)}</Text>
+          </View>
+          <View style={ui.line}>
+            {effort.counts.total ? <Bar done={effort.counts.done} total={effort.counts.total} c={c} width={56} /> : null}
+            <Text numberOfLines={1} style={{ ...SMALL, color: c.muted, flexShrink: 1 }}>
+              {effort.counts.total ? (
+                <>
+                  {effort.counts.done}/{effort.counts.total}
+                  {words.length ? " · " : ""}
+                  {words}
+                </>
+              ) : (
+                effort.destination || "no tickets"
+              )}
             </Text>
           </View>
-          <View style={{ alignItems: "flex-end", gap: 4 }}>
-            <Text style={{ ...SMALL, color: c.muted }}>{effort.counts.total ? `${effort.counts.done}/${effort.counts.total}` : age(effort.touchedMs)}</Text>
-            {effort.counts.total ? <Bar done={effort.counts.done} total={effort.counts.total} c={c} width={28} /> : null}
+          <View style={ui.line}>
+            <Text numberOfLines={1} style={{ ...SMALL, color: next.num ? c.fg : c.muted, flex: 1, minWidth: 0 }}>
+              {next.num ? <Text style={{ color: c.muted }}>{next.num} </Text> : null}
+              {next.num ? next.text : "—"}
+            </Text>
+            {chips.length ? (
+              <View style={[ui.line, { gap: 4, flexShrink: 1, maxWidth: "60%" }]}>
+                {chips}
+                {all.length > 2 ? <Text style={{ ...SMALL, color: c.muted }}>+{all.length - 2}</Text> : null}
+              </View>
+            ) : (
+              <Text style={{ ...SMALL, color: c.muted, opacity: 0.7 }}>no workspace</Text>
+            )}
           </View>
         </RowButton>
       );
@@ -221,14 +269,7 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
         </View>
         {selected ? null : (
           <Text numberOfLines={1} style={[styles.cOpen, { ...SMALL, color: c.muted }]}>
-            {!effort.counts.total && effort.destination
-              ? effort.destination
-              : openWords(effort.counts).map((word, index) => (
-                  <Text key={word.word} style={word.strong ? { color: c.fg, fontWeight: "500" } : word.faint ? { opacity: 0.7 } : undefined}>
-                    {index ? " · " : ""}
-                    {word.word}
-                  </Text>
-                ))}
+            {!effort.counts.total && effort.destination ? effort.destination : words}
           </Text>
         )}
         <View style={styles.cWs}>{chips.length ? chips : <Text style={{ ...SMALL, color: c.muted, opacity: 0.7 }}>no workspace</Text>}</View>
@@ -264,7 +305,8 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
         </View>
         <IconButton c={c} icon="Ellipsis" label="Legend" active={menu} onPress={() => setMenu(!menu)} />
       </View>
-      <View style={[styles.chips, { paddingHorizontal: gutter }]}>
+      {/* One swipeable line on narrow screens; the table's width wraps them as before. */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.chips, { paddingHorizontal: gutter }, table ? { width: "100%" } : { flexWrap: "nowrap" }]}>
         {data.roots.map((root) => {
           const on = shown.has(root.root);
           return (
@@ -292,7 +334,7 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
             </Interactive>
           </View>
         ) : null}
-      </View>
+      </ScrollView>
       {data.warnings.length ? (
         // Problems the server noticed (a mistyped Extra folder, unreadable settings); otherwise silent.
         <Text style={{ ...SMALL, color: c.muted, paddingHorizontal: gutter, paddingTop: 6 }}>{data.warnings.join(" · ")}</Text>
@@ -310,7 +352,7 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
         />
       ) : (
         <>
-          {!compact ? (
+          {table ? (
             <View style={[styles.thead, { paddingHorizontal: gutter }]}>
               <Text style={[styles.cBar, styles.th, { color: c.muted }]}>Done</Text>
               <Text style={[styles.cName, styles.th, { color: c.muted }]}>Effort</Text>
@@ -384,7 +426,7 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
         {list}
         {menu ? <Menu c={c} items={[]} legend="global" top={44} onClose={() => setMenu(false)} /> : null}
       </View>
-      {detail ? <View style={{ width: 360, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: c.border }}>{detail}</View> : null}
+      {detail ? <View style={{ width: SIDE, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: c.border }}>{detail}</View> : null}
     </View>
   );
 }
@@ -397,7 +439,7 @@ const styles = StyleSheet.create({
   th: { fontSize: 11 },
   ghead: { flexDirection: "row", alignItems: "center", gap: 6, paddingTop: 10, paddingBottom: 3 },
   grow: { flexDirection: "row", alignItems: "center", gap: 12, height: 30 },
-  prow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 8 },
+  card: { paddingHorizontal: 14, paddingVertical: 10, gap: 4 },
   gfold: { flexDirection: "row", alignItems: "center", gap: 6, height: 26 },
   cBar: { width: 80, flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 },
   cName: { flex: 2, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6, overflow: "hidden" },

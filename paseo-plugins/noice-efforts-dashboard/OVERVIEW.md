@@ -36,8 +36,11 @@ effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<s
   the effort marked "you came from …". Clicking a row reads the effort in a right column (the
   same component as the panel, keyed by effort path, so efforts without a workspace are
   readable); chips open that workspace with its Efforts panel. A back chevron at the start of the
-  effort's title row returns to the list. Phones: two-line rows (name /
-  `Next 01 …`, done count + bar), the effort opens full screen.
+  effort's title row returns to the list. Below 900 px of the list's own width (700 beside the
+  right column, which drops Open tickets; phones always) rows become cards: full name (wraps) +
+  status + age / bar, `11/26 · 13 ready · 2 blocked` / next ticket + up to two workspace chips
+  (`+N`); the project chips become one swipeable line, and an effort opens full screen below
+  900 px of screen width.
 - **Phone composer pill** `acme-task · 0/9 done` on every chat of a bound workspace, compact
   layouts only (< 720 px) and **off by default** (Settings → Show composer pill); tap → sheet with
   all rows; a row opens in place with its Question, status line, the chat button and Read.
