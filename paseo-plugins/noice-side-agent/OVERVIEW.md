@@ -135,8 +135,9 @@ setting is ignored). Same provider/model, mode, thinking, features, cwd and
 parent link, so it sits in the parent's sub-agents strip. The title is
 `Tangent: <task>` (shortened). Its context note (the `side-fork` entry in Full
 mode, the first prompt in Fork mode) says it is the parent's **tangent
-subagent**: the history belongs to the parent, its only job is the task, and
-its final reply is handed back to the parent.
+subagent**: the history belongs to the parent, its only job is the task, it
+should call `report_to_parent` once when done and may call `tangent_progress`
+while working (below), and without that tool its final reply is handed back.
 
 Nothing moves: no pane, no navigation. Without a task the command refuses with
 an error toast.
@@ -151,9 +152,11 @@ Tangent "<title>" finished (<duration>):
 Open the tangent: <app base URL>/h/<server id>/agent/<child id>
 ```
 
-The final reply is the assistant text after the turn's last tool call. A failed
-turn is reported with its error, a stopped one as "was stopped", and a child
-archived mid-turn as "was archived"; those reports carry no partial text.
+The answer is the tangent's `report_to_parent` call if it made one (below),
+otherwise its final reply: the assistant text after the turn's last tool call.
+A failed turn is reported with its error, a stopped one as "was stopped", and a child
+archived mid-turn as "was archived"; those reports carry no partial text, even
+after a `report_to_parent` call.
 The link uses `app.baseUrl` from the daemon's `config.json`, or a `paseo://`
 deep link when that is unset.
 
@@ -174,8 +177,9 @@ In the parent chat each tangent is **one row** in the style of the `/tan` row
 (without its `Tangent: ` prefix).
 
 - **While it runs**, the row sits where `/tangent` was sent: `running 0:42`
-  (counted in the app, once a second) and a muted peek of the child's newest tool
-  call, its name and what it works on (`bash · sleep 120`, `read · src/app.ts`).
+  (counted in the app, once a second) and a muted peek: the tangent's latest
+  `tangent_progress` note, or, before its first note, its newest tool call,
+  name and what it works on (`bash · sleep 120`, `read · src/app.ts`).
   One click opens the tangent's tab.
 - **When it ends**, the same row, in the same place, shows the status
   (`done in 1m 50s`, `failed after 12s` in red, `stopped after 17s`, `archived
@@ -195,6 +199,34 @@ the plain report text. Each write records the parent timeline's epoch on the
 child (`side-agent.tangent-row` label); a report message draws nothing only when
 that epoch is still the parent's current one, which the app asks the server
 (`tangent-row-shown` RPC) once per report row it mounts.
+
+### Tangent tools: `report_to_parent` and `tangent_progress`
+
+The plugin gives these two tools to tangents only: a `before("agent.session_open")`
+hook attaches them to any agent whose `side-agent.tangent` label is `pending`
+(Paseo 0.14 plugin agent tools; they run in this plugin's server process).
+OMP sees them as `report_to_parent` / `tangent_progress`, Codex as
+`paseo.report_to_parent` / `paseo.tangent_progress`; both were exercised live.
+
+- **`report_to_parent { summary, result, files? }`**: one-line summary, the
+  answer in Markdown, absolute paths of created or changed files. It does not
+  send anything yet: the report goes out when the turn ends, as above, with
+  `<summary>\n\n<result>\n\nFiles:\n- \`<path>\`` as the answer. So the row's
+  first line is the summary, the opened row shows summary, result and files,
+  and the parent model reads the same text. Text the tangent writes after the
+  call is ignored. **A later call in the same turn replaces the earlier one**;
+  a call after the tangent has reported (label no longer `pending`) is rejected
+  with an error and changes nothing.
+- **`tangent_progress { note }`**: the running row shows the note (whitespace
+  collapsed to one line) instead of tool calls, until the next note. Its own
+  tool call never shows as a peek. Rejected once the tangent has settled.
+
+The `report_to_parent` call is kept in plugin memory until the turn ends: a
+plugin reload or daemon restart in between loses it, and that tangent is
+reported with its final reply instead. A tangent that has reported keeps the
+tools until its session next reopens; they only return the error then.
+Tangents from before this change, and models that skip the call, get the
+final-reply report; old report rows draw as before (row data unchanged).
 
 Plugin rows live in the daemon's memory, not in the provider's history, so:
 
@@ -244,8 +276,9 @@ command for this one to shadow.
   cleanup succeeds. The live tests archived their agents before explicitly
   deleting all test-created full-memory copies and sidecar directories.
 - The server part registers settings, the `/side`, `/tangent` and
-  `tangent-row-shown` RPC handlers, and two lifecycle listeners
-  (`agent.turn_ended`, `agent.archived`) that watch tangents. It uses
+  `tangent-row-shown` RPC handlers, two lifecycle listeners
+  (`agent.turn_ended`, `agent.archived`) that watch tangents, and the
+  `agent.session_open` hook that gives tangents their tools. It uses
   short-lived installed SDK connections for native
   fork/import/config/label/timeline RPCs, authenticated to the published
   **loopback TCP** daemon under `PASEO_HOME` (or `~/.paseo`). Socket-only or
@@ -254,13 +287,18 @@ command for this one to shadow.
   epoch, one live subscription per running tangent, closed when it ends) go
   through the plugin's own Paseo API, because the daemon accepts appends only
   from plugin sessions.
-- `node_modules` is an ignored symlink to the already-installed neighboring
-  `noice-chat-quote/node_modules` (Paseo SDK 0.13.0, needed for the host
-  `Markdown` component); no npm install was run. `npm run typecheck`
-  and `npm test` run from this folder.
+- **Reloading or enabling this plugin reopens every open agent's session** the
+  next time it is prompted while idle (all agents, not just tangents): Paseo
+  marks all sessions stale whenever a plugin with an `agent.session_open` hook
+  starts. Seen live: unrelated OMP agents logged `refresh`/`resume` opens after a reload.
+  An agent being created in the same instant as a reload failed once with
+  "Session … not found" (OMP resumed a session file not yet written).
+- Paseo SDK **0.14.0** (`@getpaseo/plugin`, `@getpaseo/client`) in this
+  folder's own `node_modules` (`npm install`); requires Paseo ≥ 0.14.0.
+  `npm run typecheck` and `npm test` run from this folder.
 
 ```sh
-flock /tmp/paseo-plugin.lock paseo plugin reload noice-side-agent
+flock /tmp2/paseo-plugin.lock paseo plugin reload noice-side-agent
 paseo plugin ls noice-side-agent
 paseo plugin disable noice-side-agent
 ```

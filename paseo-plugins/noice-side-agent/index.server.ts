@@ -1,6 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import type { PaseoApi } from "@getpaseo/client";
-import type { PluginServerContext } from "@getpaseo/plugin/server";
+import { defineAgentTool, type PluginServerContext } from "@getpaseo/plugin/server";
+import { z } from "zod";
 import { createSide, createTangent, preferences, tangentRowShown } from "./shared/preferences";
 import { childTitle, launchChild } from "./server/launch";
 import { daemonPort, TangentWatcher, TANGENT_LABEL, TANGENT_PARENT_LABEL, TANGENT_ROW_LABEL, TANGENT_STARTED_LABEL } from "./server/tangents";
@@ -37,7 +38,7 @@ export default function contribute(server: PluginServerContext) {
       // Full memory where it exists (OMP); Paseo's fork context everywhere else.
       const mode = parent.provider === "omp" ? "full" : "fork";
       const who = `You are the tangent subagent of Paseo chat ${parent.id} (${parent.title?.trim() || "Untitled chat"}).`;
-      const handBack = "Your final reply is handed back to the parent chat as the result, so make it complete on its own.";
+      const handBack = "When you are done, call report_to_parent once: a one-line summary, the full answer in Markdown (complete on its own), and the files you created or changed. That is what the parent chat receives. While you work, tangent_progress with a few words on what you are doing shows in the parent chat. Without the report_to_parent tool, your final reply is handed back instead.";
       return {
         mode,
         title: childTitle("Tangent", task),
@@ -49,6 +50,36 @@ export default function contribute(server: PluginServerContext) {
     });
     void tangents.watch(child.agentId, { parentId: child.parent.id, title: child.title, startedAt }).catch(report(`tangent report for ${child.agentId}`));
     return { agentId: child.agentId, mode: child.mode, title: child.title };
+  });
+
+  // Only tangents get these, from launch until they have reported.
+  const reportToParent = defineAgentTool({
+    name: "report_to_parent",
+    description: "Hand your result to the parent chat. Call once, at the end; a later call replaces the earlier one. The parent receives it when your turn ends.",
+    input: z.object({
+      summary: z.string().min(1).describe("One line: the outcome"),
+      result: z.string().min(1).describe("The full answer in Markdown, complete on its own"),
+      files: z.array(z.string()).optional().describe("Absolute paths of files you created or changed"),
+    }),
+    async execute({ summary, result, files }, { agent, paseo }) {
+      use(paseo);
+      return await tangents.report(agent.id, { summary, result, files: files ?? [] })
+        ? { text: "Saved. The parent receives it when this turn ends: stop now with a one-line reply." }
+        : { isError: true, text: "This tangent has already reported; nothing was sent." };
+    },
+  });
+  const tangentProgress = defineAgentTool({
+    name: "tangent_progress",
+    description: "Show a few words on what you are doing in the parent chat's tangent row, until the next note.",
+    input: z.object({ note: z.string().min(1).describe("A few words, one line") }),
+    async execute({ note }, { agent, paseo }) {
+      use(paseo);
+      return tangents.progress(agent.id, note) ? { text: "Shown." } : { isError: true, text: "This tangent has already reported." };
+    },
+  });
+  server.before("agent.session_open", ({ request }) => {
+    if (request.labels[TANGENT_LABEL] !== "pending") return;
+    return { ...request, tools: [...request.tools, reportToParent, tangentProgress] };
   });
 
   server.handle(tangentRowShown, async ({ parentId, childId }, { paseo }) => {

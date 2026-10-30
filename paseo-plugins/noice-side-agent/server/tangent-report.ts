@@ -23,6 +23,15 @@ export function finalReply(items: readonly AgentTimelineItem[]): string {
   return reply;
 }
 
+/** A `report_to_parent` call. */
+export interface ExplicitReport { summary: string; result: string; files: string[] }
+
+/** The report's reply from a `report_to_parent` call: the summary line first, so the row's peek shows it. */
+export function explicitReply({ summary, result, files }: ExplicitReport): string {
+  const list = files.length ? `\n\nFiles:\n${files.map(file => `- \`${file}\``).join("\n")}` : "";
+  return `${summary.replace(/\s+/g, " ").trim()}\n\n${result.trim()}${list}`;
+}
+
 export type Delivery = "follow-up" | "send-now" | "wait-for-idle";
 
 /**

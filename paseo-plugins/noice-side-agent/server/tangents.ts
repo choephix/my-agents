@@ -6,7 +6,7 @@ import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { AgentSnapshotPayload } from "@getpaseo/protocol/messages";
 import { connectLocalDaemon, paseoHome } from "./daemon";
 import { formatTangentReport, linkIds, parseTangentReports, TANGENT_ROW_KIND, type TangentOutcome, type TangentRow } from "../shared/report";
-import { chooseDelivery, deliveryText, finalReply } from "./tangent-report";
+import { chooseDelivery, deliveryText, explicitReply, finalReply, type ExplicitReport } from "./tangent-report";
 
 /** Child labels; they are the durable record, so a plugin reload can resume watching. */
 export const TANGENT_LABEL = "side-agent.tangent";
@@ -44,7 +44,8 @@ export interface TangentPort {
   follow(childId: string, onStep: (step: string) => void): () => void;
 }
 
-interface Watched { parentId: string; title: string; startedAt: number }
+/** `note`: its latest `tangent_progress`; it replaces the tool-call peek. */
+interface Watched { parentId: string; title: string; startedAt: number; note?: string }
 
 /** Remembers turn ends of unwatched agents (a fast child can end before `watch` runs) and recent settles. */
 const RECENT_LIMIT = 32;
@@ -59,7 +60,10 @@ export class TangentWatcher {
   readonly #earlyEnds = new Map<string, TangentOutcome>();
   /** Guards a resume racing a fresh tangent; insertion-ordered, so the oldest goes first. */
   readonly #settled = new Set<string>();
-  readonly #follows = new Map<string, () => void>();
+  /** Running rows being kept current: `update` redraws, `stop` ends the timeline subscription. */
+  readonly #rows = new Map<string, { update(): void; stop(): void }>();
+  /** `report_to_parent` calls, the last one per tangent; memory only, so a plugin reload falls back to the final reply. */
+  readonly #reports = new Map<string, ExplicitReport>();
   /** Reports held for busy non-OMP parents, keyed by parent ID. */
   readonly #waiting = new Map<string, { childIds: string[]; reports: string[] }>();
 
@@ -76,19 +80,41 @@ export class TangentWatcher {
     if (row !== "none") await this.#startRow(childId, tangent, row === "write");
   }
 
-  async #startRow(childId: string, { parentId, title, startedAt }: Watched, write: boolean): Promise<void> {
+  async #startRow(childId: string, tangent: Watched, write: boolean): Promise<void> {
     const ids = linkIds(await this.port.link(childId));
     if (!ids) return;
-    const show = (step: string) => this.port.writeRow(parentId, childId, { status: "running", title, startedAt, step, ...ids });
+    let step = "";
+    const show = () => this.port.writeRow(tangent.parentId, childId, { status: "running", title: tangent.title, startedAt: tangent.startedAt, step: tangent.note || step, ...ids });
     if (write) {
-      const epoch = await show("");
+      const epoch = await show();
       if (!epoch || !this.#watched.has(childId)) return;
       await this.port.markRow(childId, epoch);
     }
     if (!this.#watched.has(childId)) return;
-    this.#follows.set(childId, this.port.follow(childId, step => {
-      if (this.#watched.has(childId)) show(step).catch(error => console.error(`noice-side-agent: tangent ${childId} row update failed.`, error));
-    }));
+    const update = () => {
+      if (this.#watched.has(childId)) show().catch(error => console.error(`noice-side-agent: tangent ${childId} row update failed.`, error));
+    };
+    const stop = this.port.follow(childId, next => {
+      step = next;
+      if (!tangent.note) update();
+    });
+    this.#rows.set(childId, { update, stop });
+  }
+
+  /** A `report_to_parent` call: kept until the turn ends. False once the tangent has reported. */
+  async report(childId: string, report: ExplicitReport): Promise<boolean> {
+    if ((await this.port.agent(childId))?.labels[TANGENT_LABEL] !== "pending") return false;
+    this.#reports.set(childId, report);
+    return true;
+  }
+
+  /** A `tangent_progress` note: the running row shows it from now on. False once the tangent has settled. */
+  progress(childId: string, note: string): boolean {
+    const tangent = this.#watched.get(childId);
+    if (!tangent) return false;
+    tangent.note = note.replace(/\s+/g, " ").trim();
+    this.#rows.get(childId)?.update();
+    return true;
   }
 
   async turnEnded(agentId: string, outcome: TangentOutcome): Promise<void> {
@@ -143,9 +169,11 @@ export class TangentWatcher {
     this.#settled.add(childId);
     if (this.#settled.size > RECENT_LIMIT) this.#settled.delete(this.#settled.values().next().value!);
     this.#watched.delete(childId);
-    this.#follows.get(childId)?.();
-    this.#follows.delete(childId);
-    const reply = outcome.kind === "completed" ? await this.port.finalReply(childId) : "";
+    this.#rows.get(childId)?.stop();
+    this.#rows.delete(childId);
+    const explicit = this.#reports.get(childId);
+    this.#reports.delete(childId);
+    const reply = outcome.kind !== "completed" ? "" : explicit ? explicitReply(explicit) : await this.port.finalReply(childId);
     const report = formatTangentReport({
       title: tangent.title, durationMs: this.now() - tangent.startedAt, outcome, reply, link: await this.port.link(childId),
     });
@@ -242,7 +270,8 @@ export const daemonPort = (paseo: () => PaseoApi | undefined): TangentPort => ({
     const subscription = api.agents.ref(childId).timeline.subscribe(update => {
       if (!("event" in update) || update.event.type !== "timeline") return;
       const item = update.event.item;
-      if (item.type !== "tool_call" || item.status !== "running" || item.callId === last) return;
+      // A `tangent_progress` call draws its note, not itself.
+      if (item.type !== "tool_call" || item.status !== "running" || item.callId === last || item.name.endsWith("tangent_progress")) return;
       last = item.callId;
       onStep(describeStep(item));
     });
