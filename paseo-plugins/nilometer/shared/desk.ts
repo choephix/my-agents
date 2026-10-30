@@ -40,12 +40,16 @@ const cardFields = {
   watchers: z.array(person),
   sessions: z.array(person),
   memoKind: z.string().nullable().optional(),
+  /** The front matter's effort, as written. */
+  effort: z.string().nullable().optional(),
 };
 
 const inboxCard = z.object({
   ...cardFields,
   kind: z.literal("inbox"),
   status: z.string(),
+  /** One round of a planning discussion (`<words>-r<round>`); open memos sharing it fold into one stack card. */
+  batch: z.string().nullable().optional(),
 });
 
 const doingCard = z.object({

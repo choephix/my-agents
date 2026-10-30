@@ -6,6 +6,7 @@ import { Dimensions, type LayoutChangeEvent, Pressable, RefreshControl, Text, Vi
 import { type Desk, type DeskCard, type Kind, type Priority, PRIORITIES } from "../shared/desk";
 import { preferences } from "../shared/preferences";
 import { age, Card, type CardScene } from "./card";
+import { type Entry, entryKey, StackCard, stacked } from "./stack";
 import { type Palette, paletteOf, TYPE } from "./palette";
 import { refresh, setToken, useDesk } from "./store";
 export const SCREEN_ID = "desk";
@@ -29,6 +30,8 @@ interface Column {
   /** Workspace hue from Mainframe's workspace map. */
   hue: number;
   cards: DeskCard[];
+  /** The cards as drawn: open memos of one batch folded into a stack. */
+  entries: Entry[];
   blocking: number;
 }
 
@@ -47,7 +50,7 @@ function columnsOf(desk: Desk, kind: Kind, priority: Priority | null, showSettle
     .map(([key, cards]) => {
       const workspace = workspaceByKey.get(key);
       const sorted = [...cards].sort((a, b) => Number(a.settled) - Number(b.settled) || rankOf(a) - rankOf(b));
-      return { key, title: workspace?.title ?? (key.replace(/^effort:/, "") || "No effort"), hue: workspace?.hue ?? 1, cards: sorted, blocking: cards.filter((card) => !card.settled && card.priority === "blocking").length };
+      return { key, title: workspace?.title ?? (key.replace(/^effort:/, "") || "No effort"), hue: workspace?.hue ?? 1, cards: sorted, entries: stacked(sorted), blocking: cards.filter((card) => !card.settled && card.priority === "blocking").length };
     })
     .sort((a, b) => rankOf(a.cards[0]!) - rankOf(b.cards[0]!) || b.cards.length - a.cards.length || a.title.localeCompare(b.title));
 }
@@ -260,7 +263,7 @@ export function DeskScreen({ theme, layout, navigation }: PluginScreenProps) {
   );
 
   const cardsOf = (column: Column): ReactNode =>
-    column.cards.map((card) => <Card key={`${card.kind}/${card.settled ? "s" : "l"}/${card.name}`} card={card} scene={scene} />);
+    column.entries.map((entry) => (entry.kind === "stack" ? <StackCard key={entryKey(entry)} stack={entry} scene={scene} /> : <Card key={entryKey(entry)} card={entry} scene={scene} />));
   const empty = !columns.length ? (
     <Text style={{ ...TYPE.heading, color: c.muted, paddingHorizontal: gutter, paddingVertical: 24 }}>{priority && view === "inbox" ? `No ${priority} inbox items.` : EMPTY[view]}</Text>
   ) : null;
