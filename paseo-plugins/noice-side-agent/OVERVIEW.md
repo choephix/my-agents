@@ -211,9 +211,12 @@ OMP sees them as `report_to_parent` / `tangent_progress`, Codex as
 - **`report_to_parent { summary, result, files? }`**: one-line summary, the
   answer in Markdown, absolute paths of created or changed files. It does not
   send anything yet: the report goes out when the turn ends, as above, with
-  `<summary>\n\n<result>\n\nFiles:\n- \`<path>\`` as the answer. So the row's
-  first line is the summary, the opened row shows summary, result and files,
-  and the parent model reads the same text. Text the tangent writes after the
+  `<summary>\n\n<result>\n\nFiles:\n- \`<path>\`` as the answer, which is the
+  text the parent model reads. The row keeps the summary in its own `summary`
+  field: the row's line shows it, closed and opened, and the opened body holds
+  result and files only (also what **Copy result** copies). Rows without the
+  field (final-reply reports, rows from before it, report messages drawn after
+  a daemon restart) show the answer's first line as before. Text the tangent writes after the
   call is ignored. **A later call in the same turn replaces the earlier one**;
   a call after the tangent has reported (label no longer `pending`) is rejected
   with an error and changes nothing.

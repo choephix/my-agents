@@ -54,8 +54,10 @@ export type ParsedReport = {
   status: "done" | "failed" | "stopped" | "archived";
   /** `formatDuration` text. */
   took: string;
-  /** done: the reply; failed: the error; otherwise empty. */
+  /** done: the reply (without `summary`, when set); failed: the error; otherwise empty. */
   body: string;
+  /** A `report_to_parent` summary line; only rows the server wrote, never parsed reports. */
+  summary?: string;
   link: string;
   agentId: string;
   serverId: string;

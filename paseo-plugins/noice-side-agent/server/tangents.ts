@@ -173,7 +173,8 @@ export class TangentWatcher {
     this.#rows.delete(childId);
     const explicit = this.#reports.get(childId);
     this.#reports.delete(childId);
-    const reply = outcome.kind !== "completed" ? "" : explicit ? explicitReply(explicit) : await this.port.finalReply(childId);
+    const parts = outcome.kind === "completed" && explicit ? explicitReply(explicit) : undefined;
+    const reply = parts ? `${parts.summary}\n\n${parts.body}` : outcome.kind === "completed" ? await this.port.finalReply(childId) : "";
     const report = formatTangentReport({
       title: tangent.title, durationMs: this.now() - tangent.startedAt, outcome, reply, link: await this.port.link(childId),
     });
@@ -185,8 +186,10 @@ export class TangentWatcher {
     // The row becomes the report (or appears now, if the parent's timeline lost it); the report message then draws nothing.
     const row = parseTangentReports(report)?.[0];
     if (row) {
-      const body = row.body.length > ROW_BODY_LIMIT ? `${row.body.slice(0, ROW_BODY_LIMIT)}\n\n*(Cut at ${ROW_BODY_LIMIT} characters; the tangent has the whole answer.)*` : row.body;
-      const epoch = await this.port.writeRow(parent.id, childId, { ...row, body })
+      // An explicit report's row keeps its summary apart, so the opened row shows it once.
+      const full = parts?.body ?? row.body;
+      const body = full.length > ROW_BODY_LIMIT ? `${full.slice(0, ROW_BODY_LIMIT)}\n\n*(Cut at ${ROW_BODY_LIMIT} characters; the tangent has the whole answer.)*` : full;
+      const epoch = await this.port.writeRow(parent.id, childId, { ...row, body, ...(parts ? { summary: parts.summary } : {}) })
         .catch(error => void console.error(`noice-side-agent: tangent ${childId} row failed; its report shows instead.`, error));
       await this.port.markRow(childId, epoch ?? "none");
     }

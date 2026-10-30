@@ -18,6 +18,7 @@ export const ReportRowData = z.object({
   status: z.enum(["done", "failed", "stopped", "archived"]),
   took: z.string(),
   body: z.string(),
+  summary: z.string().optional(),
   link: z.string(),
   agentId: z.string(),
   serverId: z.string(),
@@ -61,8 +62,9 @@ function withAlpha(color: string, alpha: number): string {
   return `#${full}${Math.round(alpha * 255).toString(16).padStart(2, "0")}`;
 }
 
-/** The answer's (or error's) first line with a letter or digit (not a lone emoji), without the common Markdown marks. */
-function peek({ status, body }: ReportRowData): string {
+/** The summary, else the answer's (or error's) first line with a letter or digit (not a lone emoji), without the common Markdown marks. */
+function peek({ status, body, summary }: ReportRowData): string {
+  if (summary) return summary;
   if (status === "stopped" || status === "archived") return "";
   // The first matching line only: no copy of a long answer.
   const line = /^.*[\p{L}\p{N}].*$/mu.exec(body)?.[0].trim() ?? "";
@@ -152,7 +154,7 @@ function ReportLine({ report, theme, openAgent }: { report: ReportRowData; theme
   const failed = report.status === "failed";
   const lineColor = failed ? theme.colors.statusDanger : muted;
   const title = shortTitle(report.title);
-  const peekText = useMemo(() => peek(report), [report.status, report.body]);
+  const peekText = useMemo(() => peek(report), [report.status, report.body, report.summary]);
   const copy = () =>
     copyText(report.body).then(
       () => setCopied(true),
@@ -174,7 +176,7 @@ function ReportLine({ report, theme, openAgent }: { report: ReportRowData; theme
         <Text numberOfLines={1} style={[SMALL, styles.title, { color: muted, opacity: 0.75 }]}>{title}</Text>
         <Text style={[SMALL, { color: muted, opacity: 0.5 }]}>·</Text>
         <Text style={[SMALL, styles.status, { color: lineColor }]}>{`${VERBS[report.status]} ${report.took}`}</Text>
-        {peekText && !open ? (
+        {peekText && (!open || report.summary) ? (
           <>
             <Text style={[SMALL, { color: muted, opacity: 0.5 }]}>·</Text>
             <Text numberOfLines={1} style={[SMALL, styles.flex, { color: lineColor, opacity: 0.8 }]}>{peekText}</Text>
