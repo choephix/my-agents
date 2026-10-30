@@ -44,6 +44,10 @@ Paseo's markers (checked live). Colours are mixes of the bubble's text colour, s
 (checked in T3 Chat dark and Paseo Light). Turning the plugin off removes every trace at once
 without a reload (checked).
 
+Paseo 0.14 wraps the message text in two views of its own (`MessagePreview`, the "Show more"
+cap), so the bubble is not the text's parent: `client/bubble.ts` finds it as the user-message
+column's child that holds the text. Slash commands and the skill tint both mark that bubble.
+
 **Slash commands** (Stefan's pick from a local mock page). A one-line message that starts with
 `/name` loses its bubble: just the command, right-aligned, muted, in the code font. Paseo's time,
 rewind and copy row moves onto the command's line, left of it (on hover on desktop, always at narrow
@@ -76,7 +80,8 @@ The bubble shows the message as the agent received it. OMP sends a loaded skill 
   as one piece, the skill text exactly as OMP sent it (read from OMP's session file): Paseo's code
   size, lines 1.5× that, at most 320 px tall and scrolling, with the skill-directory lines pinned
   under the scroll area. While anything is open the bubble is at least half the chat wide (320 px
-  on a narrow window), so a short message doesn't squeeze it into a thin column.
+  on a narrow window), so a short message doesn't squeeze it into a thin column. Paseo 0.14's
+  240 px "Show more" cap on long messages is lifted while something is open (checked live on 0.14).
 - Below it, your text as the agent read it after `User:`, starting with a small-caps `USER`. OMP
   cuts the `/skill:` token out and joins the text around it with one space (`please use /skill:pith
   to reply` reaches the agent as `please use to reply`), so that's what shows. If the text starts

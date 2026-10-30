@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import { bubbleOf } from "./bubble";
 
 // Slash commands (Stefan's pick from a local mock page). Web and desktop only.
 //
@@ -64,11 +65,12 @@ export function startCommandStyling(): CommandStyler {
   };
 
   const styleBubble = (text: HTMLElement) => {
-    const bubble = text.parentElement;
-    if (!bubble) return;
+    const bubble = bubbleOf(text);
+    const body = text.parentElement;
+    if (!bubble || !body) return;
     const raw = (text.textContent ?? "").trim();
-    // Pictures or attached files keep the bubble: they need its frame.
-    const onlyText = [...bubble.children].every((child) => child === text || child.hasAttribute("data-ump-view"));
+    // Pictures or attached files (the text's siblings) keep the bubble: they need its frame.
+    const onlyText = [...body.children].every((child) => child === text || child.hasAttribute("data-ump-view"));
     if (enabled && onlyText && !raw.includes("\n") && isCommand(raw)) {
       bubble.setAttribute("data-ump-cmd", "");
       bubble.setAttribute("data-pmono", "");
@@ -201,7 +203,7 @@ const MIX = (percent: number) => `color-mix(in srgb, currentColor ${percent}%, t
 const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const CSS = `
 [data-ump-cmd] { background: transparent !important; padding: 2px 4px !important; }
-[data-ump-cmd] > [data-message-text] { font-family: ${MONO} !important; font-size: 13.5px !important; opacity: 0.62; }
+[data-ump-cmd] [data-message-text] { font-family: ${MONO} !important; font-size: 13.5px !important; opacity: 0.62; }
 [data-ump-cmd-line] { flex-direction: row-reverse !important; align-items: center !important; gap: 10px; }
 [data-ump-cmd-line] > [data-testid="user-message-trailing-row"] { margin-top: 0 !important; }
 [data-ump-cmd-src], [data-ump-cmd-hide] { display: none !important; }

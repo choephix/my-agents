@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import type { FileMentionRecord } from "../shared/skills";
 import { tagList, type Preferences } from "../shared/preferences";
+import { bubbleOf, BUBBLE } from "./bubble";
 import { isPlain, parseBlocks, segment, type Block, type Inline, type Segment } from "./parse";
 import { SKILL_TOKEN } from "./skill-parse";
 import type { SkillStore, SkillView } from "./skills";
@@ -108,7 +109,7 @@ export function startPolishing(onFocus: () => void, skills: SkillStore): Polishe
     view.setAttribute("data-ump-view", "");
     view.replaceChildren(...renderView(tree, source, skill, mention));
     if (source.nextSibling !== view) source.after(view);
-    const bubble = source.parentElement;
+    const bubble = bubbleOf(source);
     if (entry && entry.bubble !== bubble) unmarkBubble(entry.bubble);
     if (skill) bubble?.setAttribute("data-ump-skill", skill.status);
     else bubble?.removeAttribute("data-ump-skill");
@@ -515,8 +516,12 @@ const CSS = `
    narrow window), so a short message doesn't squeeze the opened text into a thin column. Paseo's
    bubble sits in a content-sized column inside the full-width message row: widen that column, then
    let the bubble fill it. */
-[data-testid="user-message"] > :has(> * > [data-ump-view] > .ump-sk[data-open]) { min-width: min(100%, max(50%, 320px)) !important; }
-:has(> [data-ump-view] > .ump-sk[data-open]) { align-self: stretch !important; }
+[data-testid="user-message"] > :has([data-ump-view] > .ump-sk[data-open]) { min-width: min(100%, max(50%, 320px)) !important; }
+${BUBBLE}:has([data-ump-view] > .ump-sk[data-open]) { align-self: stretch !important; }
+/* Paseo 0.14 caps a message at 240 px behind "Show more" (MessagePreview: its frame, the frame's
+   fade, then the button). An opened skill or file already scrolls inside its own 320 px. */
+${BUBBLE}:has(.ump-sk[data-open]) > :first-child { max-height: none !important; }
+${BUBBLE}:has(.ump-sk[data-open]) > :not(:first-child), ${BUBBLE}:has(.ump-sk[data-open]) > :first-child > :not(:first-child) { display: none !important; }
 .ump-sk { border-radius: 8px; overflow: hidden; }
 .ump-skh { display: flex; align-items: center; gap: 6px; height: 26px; box-sizing: border-box; padding: 0 8px; font-size: 12px; line-height: 16px; cursor: pointer; user-select: none; -webkit-user-select: none; white-space: nowrap; }
 .ump-skh:hover { background: ${MIX(7)}; }
@@ -553,7 +558,7 @@ const CSS = `
 .ump-head, .ump-skh, .ump-skn { transition: background-color 120ms ease, color 120ms ease; }
 .ump-body, .ump-foot, .ump-skp, .ump-skt { transition: opacity 140ms ease; }
 @starting-style { .ump-body, .ump-foot, .ump-skp, .ump-skt { opacity: 0; } }
-:has(> [data-ump-view]) { transition: background-color 160ms ease; }
-[data-testid="user-message"] > :has(> * > [data-ump-view]) { transition: min-width 160ms ease; }
-@media (prefers-reduced-motion: reduce) { .ump *, :has(> [data-ump-view]), [data-testid="user-message"] > * { transition: none !important; } }
+${BUBBLE}:has([data-ump-view]) { transition: background-color 160ms ease; }
+[data-testid="user-message"] > :has([data-ump-view]) { transition: min-width 160ms ease; }
+@media (prefers-reduced-motion: reduce) { .ump *, ${BUBBLE}:has([data-ump-view]), [data-testid="user-message"] > * { transition: none !important; } }
 `;
