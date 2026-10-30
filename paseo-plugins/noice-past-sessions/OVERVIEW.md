@@ -118,6 +118,8 @@ always, so those rows stand out without hovering, and the one-line tail keeps on
   no header buttons and their explorer has only Changes/Files, so there the way in stays the
   sidebar row and the Command Center. Settings → **Show header button** (on by default) hides the
   button in every workspace header at once (see "Settings").
+- Command Center → **Find chat by what I said** opens a screen that searches your own messages
+  (see "Find chat by what I said").
 
 ## Toolbar
 
@@ -219,6 +221,33 @@ The caches keep every session seen and are never trimmed, so each entry is kept 
 preview copied out of its message, which V8 would otherwise keep alive whole. Every OMP session on
 the machine at once (4,821 on 2026-10-29) took 33.4 MB of heap before (20.5 MB of heads, 12.9 MB of
 tail summaries), 9.7 MB after (6.3 + 3.4).
+
+## Find chat by what I said
+
+Finds a chat by something you typed into it, across every OMP chat on the host, in Paseo or not
+(`client/find-said.tsx`, `server/said.ts`, RPC `past-sessions.find-said`).
+
+- **Way in:** Command Center (⌘K / Ctrl+K, global, works anywhere) → **Find chat by what I said**.
+  The screen remembers the last search until the app reloads.
+- **Matching:** your messages only, not replies. Every word must appear in the same message, any
+  order, case-insensitive; at least 2 characters. Harness wrappers (`<system-reminder>` and the
+  like) are stripped first. The newest 50 chats are shown, each with its newest matching message,
+  words highlighted, and a count when more of its messages match.
+- **Copies:** `/prose` and forks start a new session file that copies the old messages and names
+  its source as `parentSession`. A whole family is one row ("also in 25 copies"), on the copy most
+  worth opening: a live tab, then an archived agent, then the newest file.
+- **Open** (click or Enter on the first row): a live tab opens; an archived agent is restored;
+  a chat Paseo never opened is imported, and the daemon picks the workspace from its folder.
+- **Which files:** top-level session files in the same folders as the list (see "Which OMP
+  sessions"); subagent transcripts are skipped. Claude Code and Codex aren't searched.
+- **Index:** user messages only, in `~/.paseo/plugin-data/past-sessions/said-index.json`
+  (25.5 MB for 5,071 chats and about 42,000 messages). The first search builds it (7–12 s);
+  meanwhile the screen shows progress. Later, a search re-checks file sizes at most every 10 s and
+  reads only what was appended; a file that shrank or was rewritten is read again whole. After
+  5 minutes without a search the index leaves memory.
+- **Cost:** nothing between searches: no watchers, no timers. Loading the index file takes about
+  0.5 s, a search 15–30 ms. While loaded the plugin process holds about 56 MB more heap.
+- **Off:** disable the plugin. The index file can be deleted any time; the next search rebuilds it.
 
 ## Limits
 

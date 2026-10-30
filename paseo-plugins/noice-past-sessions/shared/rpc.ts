@@ -130,3 +130,54 @@ export const starAndArchive = defineRpc({
   input: z.object({ agentId: z.string() }),
   output: MarkKeys,
 });
+
+/** One chat where a user message holds every word of the needle. */
+export const SaidHitSchema = z.object({
+  /** The OMP session file; what an import takes. */
+  file: z.string(),
+  sessionId: z.string(),
+  /** Paseo provider that imports the session: `omp`, or a provider using that OMP profile. */
+  provider: z.string(),
+  cwd: z.string(),
+  title: z.string(),
+  /** The Paseo agent that owns the session; null when the session was never opened in Paseo. */
+  agent: z
+    .object({ id: z.string(), archived: z.boolean(), workspaceName: z.string().nullable() })
+    .nullable(),
+  /** When the newest matching message was sent, ISO. Hits are sorted by this, newest first. */
+  at: z.string(),
+  /** That message around the first match, whitespace collapsed. */
+  snippet: z.string(),
+  /** `[start, end)` ranges in `snippet` where a needle word occurs. */
+  marks: z.array(z.tuple([z.number(), z.number()])),
+  /** Matching user messages in this chat. */
+  matches: z.number(),
+  /** Other matching chats of the same family (`/prose` copies, forks); this row is the one to open. */
+  copies: z.number(),
+});
+export type SaidHit = z.infer<typeof SaidHitSchema>;
+
+/**
+ * Chats by what Stefan said: user messages of top-level OMP sessions holding every whitespace-
+ * separated word of `needle` (case-insensitive, any order). An empty needle only warms the index.
+ * While the index is being built, answers `indexing` with progress; ask again.
+ */
+export const findSaid = defineRpc({
+  name: "past-sessions.find-said",
+  input: z.object({ needle: z.string() }),
+  output: z.discriminatedUnion("state", [
+    z.object({ state: z.literal("indexing"), done: z.number(), total: z.number() }),
+    z.object({
+      state: z.literal("ready"),
+      hits: z.array(SaidHitSchema),
+      /** Chats with a match; `hits` keeps the newest 50. */
+      chats: z.number(),
+      /** The daemon user's home, so folders can be shown as `~/…`. */
+      home: z.string(),
+      indexedChats: z.number(),
+      indexedMessages: z.number(),
+      elapsedMs: z.number(),
+    }),
+  ]),
+});
+export type FindSaidResult = z.output<typeof findSaid.output>;

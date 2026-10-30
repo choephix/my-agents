@@ -15,6 +15,8 @@ export interface SessionHead {
   createdAt: string | null;
   title: string | null;
   firstPrompt: string | null;
+  /** The session file this one was copied from (`/prose`, forks), when OMP recorded one. */
+  parentSession?: string;
 }
 
 export interface OmpSession extends SessionHead {
@@ -66,7 +68,7 @@ function messageText(content: unknown): string | null {
  * record per file), and the rest of the 64 KB is often large tool output.
  */
 export function parseSessionHead(chunk: string): SessionHead | null {
-  let header: { sessionId: string; cwd: string; createdAt: string | null } | null = null;
+  let header: { sessionId: string; cwd: string; createdAt: string | null; parentSession?: string } | null = null;
   let pinnedTitle: string | null = null;
   let laterTitle: string | null = null;
   let firstPrompt: string | null = null;
@@ -82,7 +84,8 @@ export function parseSessionHead(chunk: string): SessionHead | null {
         const sessionId = nonEmpty(entry.id);
         const cwd = nonEmpty(entry.cwd);
         if (!header && sessionId && cwd) {
-          header = { sessionId, cwd, createdAt: nonEmpty(entry.timestamp) };
+          const parentSession = nonEmpty(entry.parentSession);
+          header = { sessionId, cwd, createdAt: nonEmpty(entry.timestamp), ...(parentSession ? { parentSession } : {}) };
         }
         break;
       }
@@ -109,7 +112,7 @@ export function parseSessionHead(chunk: string): SessionHead | null {
   return { ...header, title: pinnedTitle ?? laterTitle, firstPrompt };
 }
 
-async function readHead(file: string): Promise<string> {
+export async function readHead(file: string): Promise<string> {
   const handle = await open(file, "r");
   try {
     const buffer = Buffer.alloc(HEAD_BYTES);
@@ -146,7 +149,7 @@ export interface ScanStats {
 const READ_CONCURRENCY = 64;
 
 /** `map` with at most `limit` calls in flight, results in input order. */
-async function mapLimited<T, R>(items: T[], limit: number, map: (item: T) => Promise<R>): Promise<R[]> {
+export async function mapLimited<T, R>(items: T[], limit: number, map: (item: T) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
   let next = 0;
   const worker = async () => {

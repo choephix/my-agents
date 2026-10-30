@@ -6,6 +6,7 @@ import type {
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
 import { startHeaderButtons } from "./client/header-buttons";
+import { FIND_SAID_SCREEN, FindSaidScreen } from "./client/find-said";
 import { PastSessionsList } from "./client/past-sessions-list";
 import { lastScreenParams, PastSessionsScreen } from "./client/screen";
 import { createSettingsScreen } from "./client/settings-screen";
@@ -54,6 +55,17 @@ export default function contribute(client: PluginClientContext) {
       context: "workspace",
       locations: ["workspace", "explorer"],
       Component: WorkspacePanel,
+    }),
+    client.addScreen({ id: FIND_SAID_SCREEN, title: "Find chat by what I said", Component: FindSaidScreen }),
+    client.addCommandCenterItem({
+      id: FIND_SAID_SCREEN,
+      title: "Find chat by what I said",
+      icon: "TextSearch",
+      keywords: ["search", "find", "said", "wrote", "typed", "message", "prompt", "text", "needle", "chat", "tab"],
+      context: "global",
+      onSelect({ openScreen }) {
+        openScreen({ screenId: FIND_SAID_SCREEN });
+      },
     }),
     client.addCommandCenterItem({
       id: "open-panel",

@@ -97,7 +97,7 @@ export async function withPreviews(entries: PastSession[]): Promise<PastSession[
   return out.sort(byNewest);
 }
 
-async function listAllWorkspaces(paseo: Paseo) {
+export async function listAllWorkspaces(paseo: Paseo) {
   const all = [];
   let cursor: string | undefined;
   do {
@@ -114,7 +114,7 @@ export async function workspaceFolder(paseo: Paseo, workspaceId: string): Promis
   return workspace ? (workspace.workspaceDirectory ?? workspace.projectRootPath) : null;
 }
 
-async function listAllAgents(paseo: Paseo) {
+export async function listAllAgents(paseo: Paseo) {
   const all = [];
   let cursor: string | undefined;
   do {
