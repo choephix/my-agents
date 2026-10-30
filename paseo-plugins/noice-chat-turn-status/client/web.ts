@@ -526,6 +526,8 @@ interface FooterState {
   hold?: { row: string; since: number };
   /** The warming opacity and colour last written, so a render that changes nothing writes nothing. */
   warm?: string;
+  /** Paseo's elapsed-time font and colour are known (it mounts a moment after the footer). */
+  timeRead?: true;
   light: boolean;
 }
 
@@ -553,10 +555,9 @@ export function startIndicator(): Indicator {
   let disposed = false;
   const states = new WeakMap<El, FooterState>();
 
-  /** Colours and font are read once, before any of our styles change the elapsed text. */
-  const setup = (footer: El, loader: El, elapsed: El | null): FooterState => {
+  /** Colours are read once, before any of our styles apply. */
+  const setup = (footer: El, loader: El): FooterState => {
     const scroll = footer.closest(SCROLL);
-    const time = elapsed ? window.getComputedStyle(elapsed) : null;
     let ink = "";
     const leaves = loader.querySelectorAll("div");
     for (let i = 0; i < leaves.length && !ink; i++) {
@@ -565,16 +566,26 @@ export function startIndicator(): Indicator {
     }
     const fg = ink || (scroll ? window.getComputedStyle(scroll).color : "currentColor");
     footer.style.setProperty("--spn-fg", fg);
-    footer.style.setProperty("--spn-muted", time?.color ?? fg);
+    footer.style.setProperty("--spn-muted", fg);
     footer.style.setProperty("--spn-bg", firstOpaqueBackground(footer));
-    if (time) {
-      footer.style.setProperty("--spn-lh", time.lineHeight === "normal" ? "1.4em" : time.lineHeight);
-      footer.style.setProperty("--spn-font", `${time.fontWeight} ${time.fontSize} ${time.fontFamily}`);
-    }
     loader.setAttribute("data-spn-loader", "");
     const state: FooterState = { light: !isLightInk(fg) };
     states.set(footer, state);
     return state;
+  };
+
+  /** The live label and our time copies use Paseo's elapsed-time font and colour. Paseo 0.14 mounts
+   *  that text only once the turn's start time arrives, after the footer itself, so it is read the
+   *  first time it is there, with our time styles lifted for the read. */
+  const readTime = (footer: El, elapsed: El, state: FooterState) => {
+    const ours = footer.getAttribute("data-spn-time");
+    if (ours) footer.removeAttribute("data-spn-time");
+    const time = window.getComputedStyle(elapsed);
+    footer.style.setProperty("--spn-muted", time.color);
+    footer.style.setProperty("--spn-lh", time.lineHeight === "normal" ? "1.4em" : time.lineHeight);
+    footer.style.setProperty("--spn-font", `${time.fontWeight} ${time.fontSize} ${time.fontFamily}`);
+    if (ours) footer.setAttribute("data-spn-time", ours);
+    state.timeRead = true;
   };
 
   const renderFooter = (footer: El, prefs: Preferences) => {
@@ -582,7 +593,8 @@ export function startIndicator(): Indicator {
     const loader = content?.firstElementChild;
     if (!content || !loader) return;
     const elapsed = footer.querySelector(ELAPSED);
-    const state = states.get(footer) ?? setup(footer, loader, elapsed);
+    const state = states.get(footer) ?? setup(footer, loader);
+    if (elapsed && !state.timeRead) readTime(footer, elapsed, state);
 
     setAttribute(footer, "data-spn-spinner", prefs.spinner);
     if (state.spinnerId !== prefs.spinner) {
@@ -596,7 +608,8 @@ export function startIndicator(): Indicator {
       state.live?.dispose();
       state.live = undefined;
     }
-    if (prefs.live !== "off") {
+    // Until Paseo's elapsed text is there, the label would have no font of its own.
+    if (prefs.live !== "off" && state.timeRead) {
       if (!state.live) {
         state.live = new LiveLabel(prefs.live);
         state.live.el.setAttribute("style", "font: var(--spn-font)");

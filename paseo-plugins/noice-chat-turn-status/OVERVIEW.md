@@ -38,6 +38,10 @@ real turn. Saved per host; other open windows pick it up on focus.
   `[data-history-row-id]` row of the same `[data-testid="agent-chat-scroll"]`
   (`tool-call-badge`/`tool-call-group` name + summary + icon). The same controllers drive the
   settings demos.
+- Paseo 0.14 mounts the footer before the turn's start time is known, so the elapsed text appears a
+  moment later. Its font and colour (used by the live label and our time copies) are read the first
+  time it is there; until then no live label is drawn, since it would fall back to the page's 16 px
+  body font (seen live as an oversized white "Working").
 - `client/settings.tsx`: the settings screen (React Native tiles with empty spans the web module fills).
 - Elements it adds carry `data-spn-own`, so their own animations never wake the page observer.
   Footers are picked up from the nodes Paseo adds, and a frame redraws them only when a footer
