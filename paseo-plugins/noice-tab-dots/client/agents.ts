@@ -75,6 +75,15 @@ export function watchAgents(
           if (info) agents.set(id, info);
           else agents.delete(id);
           onChange(agents);
+          // A deleted agent reaches other apps only as "closed", never as "remove".
+          // Ask once whether it still exists; drop it if the daemon doesn't know it.
+          if (info?.status === "closed") {
+            source.ref(id).refresh().then((found) => {
+              if (found || lifetime.signal.aborted || agents.get(id) !== info) return;
+              agents.delete(id);
+              onChange(agents);
+            }, () => {});
+          }
         },
       });
     })

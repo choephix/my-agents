@@ -47,5 +47,6 @@ Measured on Paseo 0.12.0 in the web app (40 sidebar rows, about 100 agents, 10 o
 - Row dots are web and desktop only: Paseo has no plugin slot in sidebar rows, so they are added to the page directly.
 - Opening a tab, from a row dot or the phone sheet, goes through a plugin screen (Paseo lets only plugin screens open a tab), so you may see it for a moment. The phone sheet was tested at phone width in the web app; not yet on the iOS or Android apps. Workspace names in the sheet load in the background as soon as the Unread row shows.
 - "Mark as read" on a workspace leaves permission requests flagged until you answer them, so amber dots stay.
+- An agent deleted with `paseo delete` reaches other open apps only as "closed", never as removed (Paseo 0.13–0.14). On every "closed" update the plugin asks the daemon whether that agent still exists and drops its dot if not. An agent deleted while already unloaded sends nothing at all, so its dot stays until the page reloads. Paseo's own app keeps such an agent as a broken tab either way.
 - Tested on Paseo 0.12.0 in the web app, grouped by project and by status.
 - It reads Paseo's internal tab layout from the browser's storage and the row's internal structure. A Paseo update can change either: the order then falls back to Paseo's default, or the dots stop showing. The sidebar itself keeps working.
