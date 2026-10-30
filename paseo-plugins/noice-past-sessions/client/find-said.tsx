@@ -188,9 +188,28 @@ export function FindSaidScreen({ theme, layout, navigation }: PluginScreenProps)
   );
 }
 
-function Marked({ snippet, marks, styles }: { snippet: string; marks: [number, number][]; styles: Styles }) {
+/** One-line snippets keep at most this many characters before the first match, so it stays visible. */
+const ONE_LINE_LEAD = 20;
+
+function Marked({
+  snippet,
+  marks,
+  styles,
+  oneLine,
+}: {
+  snippet: string;
+  marks: [number, number][];
+  styles: Styles;
+  oneLine: boolean;
+}) {
   const parts: { text: string; mark: boolean }[] = [];
   let cursor = 0;
+  const first = marks[0]?.[0] ?? 0;
+  if (oneLine && first > ONE_LINE_LEAD) {
+    const space = snippet.indexOf(" ", first - ONE_LINE_LEAD);
+    cursor = space >= 0 && space < first ? space + 1 : first;
+    parts.push({ text: "…", mark: false });
+  }
   for (const [start, end] of marks) {
     if (start > cursor) parts.push({ text: snippet.slice(cursor, start), mark: false });
     parts.push({ text: snippet.slice(start, end), mark: true });
@@ -255,14 +274,18 @@ function HitRow({
           {place}
           {more}
         </Text>
-        {messages.map((message, index) => (
-          <Text key={index} style={styles.snippet} numberOfLines={messages.length > 1 ? 2 : 3}>
-            {messages.length > 1 ? <Text style={styles.snippetTime}>{relativeTime(message.at, now)} · </Text> : null}
-            <Marked snippet={message.snippet} marks={message.marks} styles={styles} />
-          </Text>
-        ))}
+        {messages.map((message, index) => {
+          const many = messages.length > 1;
+          const oneLine = many && !expanded;
+          return (
+            <Text key={index} style={styles.snippet} numberOfLines={oneLine ? 1 : many ? 2 : 3}>
+              {many ? <Text style={styles.snippetTime}>{relativeTime(message.at, now)} · </Text> : null}
+              <Marked snippet={message.snippet} marks={message.marks} styles={styles} oneLine={oneLine} />
+            </Text>
+          );
+        })}
       </Interactive>
-      {hidden > 0 || expanded ? (
+      {hit.matches > 1 || expanded ? (
         <Interactive
           accessibilityRole="button"
           onPress={onToggle}
@@ -277,7 +300,9 @@ function HitRow({
               ? `Show fewer · the newest ${messages.length} of ${hit.matches} shown`
               : expanded
                 ? "Show fewer"
-                : `Show ${hidden} more`}
+                : hidden > 0
+                  ? `Show ${hidden} more`
+                  : "Show more"}
           </Text>
         </Interactive>
       ) : null}

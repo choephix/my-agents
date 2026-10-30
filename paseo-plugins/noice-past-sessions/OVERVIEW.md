@@ -237,8 +237,10 @@ Finds a chat by something you typed into it, across every OMP chat on the host, 
   text, stored exactly like typed ones (`attribution: "user"`), so they are searched too. The
   newest 50 chats are shown.
 - **Rows:** each row lists up to 9 matching messages, newest first, each with its time and the
-  words highlighted. **Show N more** under the row asks the server again for all of them (up to
-  200); **Show fewer** goes back. A new search drops the expansions and scrolls to the top.
+  words highlighted, one line each (cut to keep the first match in view); a row with a single
+  match shows up to 3 lines. **Show more** / **Show N more** under a row with several matches
+  gives each message 2 lines and asks the server for all of them (up to 200); **Show fewer**
+  goes back. A new search drops the expansions and scrolls to the top.
 - **Copies:** `/prose` and forks start a new session file that copies the old messages and names
   its source as `parentSession`. A whole family is one row ("also in 25 copies"), on the copy most
   worth opening: a live tab, then an archived agent, then the newest file. The row's messages come
