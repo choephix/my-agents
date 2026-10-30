@@ -1,6 +1,7 @@
 import { settingsRpc } from "@getpaseo/plugin";
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { Platform } from "react-native";
+import { startAgentMessageStyling } from "./client/agent-messages";
 import { rememberOutput, startCommandStyling } from "./client/commands";
 import { createSettingsScreen } from "./client/settings";
 import { createSkillStore } from "./client/skills";
@@ -23,9 +24,11 @@ export default function contribute(client: PluginClientContext) {
   const skills = createSkillStore(client);
   const polisher = startPolishing(refresh, skills);
   const commands = startCommandStyling();
+  const agents = startAgentMessageStyling();
   const apply = (values: Preferences) => {
     polisher.apply(values);
     commands.setEnabled(values.commands);
+    agents.setEnabled(values.agentMessages);
   };
   const screen = client.addSettingsScreen({ id: "polish", title: "My messages", icon: "MessageSquareText", Component: createSettingsScreen(apply) });
   if (Platform.OS !== "web") return screen;
@@ -59,5 +62,6 @@ export default function contribute(client: PluginClientContext) {
     polisher.dispose();
     skills.dispose();
     commands.dispose();
+    agents.dispose();
   };
 }

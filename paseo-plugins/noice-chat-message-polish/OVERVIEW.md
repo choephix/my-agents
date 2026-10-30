@@ -1,6 +1,7 @@
 Makes your own sent messages nicer in the Paseo web and desktop apps: pasted tag blocks fold into
-one-line fold rows, Markdown renders, slash commands go quiet, and a `/skill:` message shows what
-the agent actually got. The phone apps are unchanged.
+one-line fold rows, Markdown renders, slash commands go quiet, a `/skill:` message shows what
+the agent actually got, and messages from other agents stop looking like yours. The phone apps are
+unchanged.
 
 **Fold rows.** A block such as `<attachments>…</attachments>`, `<summary>`, `<context>` or
 `<paste>` becomes one 24 px monospace row (11 px text) that shows the tags as written, attributes included,
@@ -106,8 +107,18 @@ The bubble shows the message as the agent received it. OMP sends a loaded skill 
   `@starting-style`), the bubble eases to its wider width and to its skill tint (160 ms; measured
   163 → 402 px in about 170 ms). Closing is instant. Off when the system asks for reduced motion.
 
-Paseo 0.12 shows messages from other agents (Dispatcher etc.) as a "Message received" row, not as
-your bubble, so `<paseo-system>` envelopes need nothing here (checked live).
+**Messages from agents** (Stefan's pick E from a local mock page,
+`<webshare-origin>/pages/agent-message-mocks/`). Paseo 0.13 draws a message another agent sent
+(`paseo agent send`) as your bubble with a muted "Sent by <agent>" above it, easy to mistake for
+your own. Here the bubble takes a tint of the theme accent (14% `--colors-accent-bright` over
+`--colors-surface1`) and "Sent by <agent>" moves inside it as an accent header with the agent's
+icon. Your own bubbles keep Paseo's colour. CSS only: the header is Paseo's own button, so clicking
+it still opens the sender's chat; time, copy and the long-message fade keep working (the fade takes
+the tint). It finds them by Paseo's markup: the sender button is the first child of the
+user-message column. An agent that sends without its ID (`env -u PASEO_AGENT_ID`) arrives as a
+plain user message and stays untinted. Setting: **Mark messages from agents** (on by default).
+Checked live 2026-10-30 on Paseo 0.13.0, desktop and 390 px; the long-message fade was checked
+only by its computed colour, no long agent message was at hand.
 
 Screenshots (`screenshots/`): `before-mixed.webp` → `after-mixed.webp` / `after-mixed-open.webp`,
 `before-nested-long.webp` → `after-nested-long-open.webp` (120-line paste open, nested `<context>`,

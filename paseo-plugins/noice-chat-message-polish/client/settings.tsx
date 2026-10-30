@@ -4,8 +4,8 @@ import { SettingsAction, SettingsCard, SettingsInput, SettingsRow, SettingsSecti
 import { DEFAULTS, preferences, type Preferences } from "../shared/preferences";
 
 const INFO =
-  "Your own sent messages in the web and desktop apps. Copy and rewind always use the original " +
-  "text. Phone apps are unchanged.";
+  "Your own sent messages, and messages other agents send, in the web and desktop apps. Copy and " +
+  "rewind always use the original text. Phone apps are unchanged.";
 const SAVE_DELAY_MS = 600;
 
 export function createSettingsScreen(apply: (values: Preferences) => void) {
@@ -56,6 +56,9 @@ export function createSettingsScreen(apply: (values: Preferences) => void) {
           <SettingsSwitch label="Show skills as the agent got them" hint="A /skill: message gets a tinted bubble and a header that opens the skill text OMP sent. @files show what was attached."
             value={current.skills} disabled={settings.saving}
             onValueChange={(skills) => save({ ...current, skills })} />
+          <SettingsSwitch label="Mark messages from agents" hint="A message another agent sent gets a tinted bubble with the sender's name inside, so it doesn't look like yours."
+            value={current.agentMessages} disabled={settings.saving}
+            onValueChange={(agentMessages) => save({ ...current, agentMessages })} />
         </SettingsCard>
       </SettingsSection>
       <SettingsSection title="Tags · comma-separated">

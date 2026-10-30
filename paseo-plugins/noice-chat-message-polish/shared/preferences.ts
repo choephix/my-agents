@@ -13,6 +13,7 @@ export const preferences = defineSettings({
     markdown: z.boolean().default(true),
     commands: z.boolean().default(true),
     skills: z.boolean().default(true),
+    agentMessages: z.boolean().default(true),
     alwaysFold: z.string().default(DEFAULT_ALWAYS_FOLD),
     neverFold: z.string().default(DEFAULT_NEVER_FOLD),
   }),
