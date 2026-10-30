@@ -231,8 +231,10 @@ Finds a chat by something you typed into it, across every OMP chat on the host, 
   The screen remembers the last search until the app reloads.
 - **Matching:** your messages only, not replies. Every word must appear in the same message, any
   order, case-insensitive; at least 2 characters. Harness wrappers (`<system-reminder>` and the
-  like) are stripped first. The newest 50 chats are shown, each with its newest matching message,
-  words highlighted, and a count when more of its messages match.
+  like) are stripped first, with one exception: dictated messages keep the text inside
+  `<spoken-input>` (the voice-mode `<instruction>` after it is dropped). Messages other agents
+  send (`<paseo-system kind="agent-message">`) are stripped. The newest 50 chats are shown, each
+  with its newest matching message, words highlighted, and a count when more of its messages match.
 - **Copies:** `/prose` and forks start a new session file that copies the old messages and names
   its source as `parentSession`. A whole family is one row ("also in 25 copies"), on the copy most
   worth opening: a live tab, then an archived agent, then the newest file.

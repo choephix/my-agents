@@ -12,7 +12,7 @@ import { stripWrappers } from "./preview";
 
 type Paseo = PluginHandlerContext["paseo"];
 
-const INDEX_VERSION = 1;
+const INDEX_VERSION = 2;
 const CHUNK_BYTES = 4 * 1024 * 1024;
 /** Files read at once: each holds a CHUNK_BYTES buffer. */
 const READ_CONCURRENCY = 8;
@@ -56,6 +56,10 @@ interface Owner {
   updatedAt: string;
 }
 
+// Paseo's voice mode stores what you dictated inside `<spoken-input>`, then an `<instruction>` for
+// the model. The dictated text is yours; the generic wrapper strip would drop it with the tag.
+const SPOKEN = /<spoken-input>([\s\S]*?)<\/spoken-input>(?:\s*<instruction>[\s\S]*?<\/instruction>)?/g;
+
 function said(content: unknown): string | null {
   const text =
     typeof content === "string"
@@ -65,7 +69,7 @@ function said(content: unknown): string | null {
             .flatMap((part) => (part && part.type === "text" && typeof part.text === "string" ? [part.text] : []))
             .join("\n")
         : "";
-  const stripped = stripWrappers(text).trim();
+  const stripped = stripWrappers(text.replace(SPOKEN, " $1 ")).trim();
   return stripped || null;
 }
 
