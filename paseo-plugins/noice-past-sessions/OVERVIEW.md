@@ -233,11 +233,16 @@ Finds a chat by something you typed into it, across every OMP chat on the host, 
   order, case-insensitive; at least 2 characters. Harness wrappers (`<system-reminder>` and the
   like) are stripped first, with one exception: dictated messages keep the text inside
   `<spoken-input>` (the voice-mode `<instruction>` after it is dropped). Messages other agents
-  send (`<paseo-system kind="agent-message">`) are stripped. The newest 50 chats are shown, each
-  with its newest matching message, words highlighted, and a count when more of its messages match.
+  send (`<paseo-system kind="agent-message">`) are stripped. Some agent messages arrive as plain
+  text, stored exactly like typed ones (`attribution: "user"`), so they are searched too. The
+  newest 50 chats are shown.
+- **Rows:** each row lists up to 9 matching messages, newest first, each with its time and the
+  words highlighted. **Show N more** under the row asks the server again for all of them (up to
+  200); **Show fewer** goes back. A new search drops the expansions and scrolls to the top.
 - **Copies:** `/prose` and forks start a new session file that copies the old messages and names
   its source as `parentSession`. A whole family is one row ("also in 25 copies"), on the copy most
-  worth opening: a live tab, then an archived agent, then the newest file.
+  worth opening: a live tab, then an archived agent, then the newest file. The row's messages come
+  from every copy, each text once, at its earliest time.
 - **Open** (click or Enter on the first row): a live tab opens; an archived agent is restored;
   a chat Paseo never opened is imported, and the daemon picks the workspace from its folder.
 - **Which files:** top-level session files in the same folders as the list (see "Which OMP

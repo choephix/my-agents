@@ -28,7 +28,7 @@ export default function contribute(server: PluginServerContext) {
     said.forgetOwners();
     return reopened;
   });
-  server.handle(findSaid, ({ needle }, { paseo }) => said.search(needle, paseo));
+  server.handle(findSaid, ({ needle, expand }, { paseo }) => said.search(needle, paseo, expand));
   server.handle(listMarks, () => markKeys(marks));
   server.handle(setMark, async ({ key, mark, on }) => {
     await marks[mark].set(key, on);

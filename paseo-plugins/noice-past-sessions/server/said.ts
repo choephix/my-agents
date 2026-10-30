@@ -25,6 +25,9 @@ const RECHECK_MS = 10_000;
 const UNLOAD_MS = 5 * 60_000;
 const OWNERS_FRESH_MS = 15_000;
 const MAX_HITS = 50;
+/** Matching messages a row shows; a row the screen expanded gets up to MAX_EXPANDED_MESSAGES. */
+const SHOWN_MESSAGES = 9;
+const MAX_EXPANDED_MESSAGES = 200;
 /** A search waits this long for the index; past it, it answers with progress. */
 const ANSWER_WAIT_MS = 300;
 
@@ -203,7 +206,7 @@ export class SaidIndex {
 
   constructor(private readonly file: string) {}
 
-  async search(needle: string, paseo: Paseo): Promise<FindSaidResult> {
+  async search(needle: string, paseo: Paseo, expand: readonly string[] = []): Promise<FindSaidResult> {
     const started = performance.now();
     this.#touch();
     const fresh = this.#ensureFresh(paseo);
@@ -216,23 +219,18 @@ export class SaidIndex {
     const words = [...new Set(needle.toLowerCase().split(/\s+/).filter(Boolean))];
     let indexedChats = 0;
     let indexedMessages = 0;
-    const found: { session: SaidSession; best: SaidMessage; count: number }[] = [];
+    const found: { session: SaidSession; matched: SaidMessage[] }[] = [];
     for (const session of sessions.values()) {
       if (!session.sessionId) continue;
       indexedChats += 1;
       indexedMessages += session.messages.length;
       if (!words.length) continue;
-      let best: SaidMessage | null = null;
-      let count = 0;
-      for (const message of session.messages) {
+      const matched = session.messages.filter((message) => {
         const lower = message[1].toLowerCase();
-        if (!words.every((word) => lower.includes(word))) continue;
-        count += 1;
-        if (!best || message[0] >= best[0]) best = message;
-      }
-      if (best) found.push({ session, best, count });
+        return words.every((word) => lower.includes(word));
+      });
+      if (matched.length) found.push({ session, matched });
     }
-    found.sort((a, b) => b.best[0] - a.best[0]);
     const owners = found.length ? await this.#ownerMap(paseo) : new Map<string, Owner>();
     // `/prose` and forks start a new session file that copies the old one's messages (with new
     // timestamps) and names it as `parentSession`, by path or by id. A family of copies gets one
@@ -250,21 +248,32 @@ export class SaidIndex {
         root = next;
       }
     };
-    const rows = new Map<string, { session: SaidSession; best: SaidMessage; count: number; owner: Owner | null; rank: number; copies: number }>();
+    const rows = new Map<string, { session: SaidSession; owner: Owner | null; rank: number; copies: number; sent: Map<string, number> }>();
     for (const item of found) {
       const owner = owners.get(item.session.sessionId ?? "") ?? owners.get(item.session.file) ?? null;
-      const candidate = { ...item, owner, rank: owner ? (owner.archived ? 1 : 2) : 0, copies: 0 };
+      const rank = owner ? (owner.archived ? 1 : 2) : 0;
       const key = rootOf(item.session.file);
-      const row = rows.get(key);
+      let row = rows.get(key);
       if (!row) {
-        rows.set(key, candidate);
-        continue;
+        row = { session: item.session, owner, rank, copies: -1, sent: new Map() };
+        rows.set(key, row);
+      } else if (rank > row.rank || (rank === row.rank && item.session.mtimeMs > row.session.mtimeMs)) {
+        Object.assign(row, { session: item.session, owner, rank });
       }
-      const better =
-        candidate.rank > row.rank || (candidate.rank === row.rank && item.session.mtimeMs > row.session.mtimeMs);
-      rows.set(key, better ? { ...candidate, copies: row.copies + 1 } : { ...row, copies: row.copies + 1 });
+      row.copies += 1;
+      // Copies repeat their source's messages: keep each text once, at its earliest time.
+      for (const [at, text] of item.matched) {
+        const known = row.sent.get(text);
+        if (known === undefined || at < known) row.sent.set(text, at);
+      }
     }
-    const hits = [...rows.values()].slice(0, MAX_HITS).map(({ session, best, count, owner, copies }): SaidHit => {
+    const ranked = [...rows.values()].map((row) => ({
+      ...row,
+      messages: [...row.sent].map(([text, at]): SaidMessage => [at, text]).sort((a, b) => b[0] - a[0]),
+    }));
+    ranked.sort((a, b) => b.messages[0][0] - a.messages[0][0]);
+    const hits = ranked.slice(0, MAX_HITS).map(({ session, owner, copies, messages }): SaidHit => {
+      const shown = expand.includes(session.file) ? MAX_EXPANDED_MESSAGES : SHOWN_MESSAGES;
       return {
         file: session.file,
         sessionId: session.sessionId ?? "",
@@ -272,9 +281,9 @@ export class SaidIndex {
         cwd: session.cwd,
         title: cleanTitle(owner?.title) ?? session.title ?? "Empty session",
         agent: owner ? { id: owner.id, archived: owner.archived, workspaceName: owner.workspaceName } : null,
-        at: new Date(best[0]).toISOString(),
-        ...snippetAround(best[1], words),
-        matches: count,
+        at: new Date(messages[0][0]).toISOString(),
+        messages: messages.slice(0, shown).map(([at, text]) => ({ at: new Date(at).toISOString(), ...snippetAround(text, words) })),
+        matches: messages.length,
         copies,
       };
     });

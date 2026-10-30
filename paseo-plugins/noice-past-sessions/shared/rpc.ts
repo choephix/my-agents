@@ -146,11 +146,17 @@ export const SaidHitSchema = z.object({
     .nullable(),
   /** When the newest matching message was sent, ISO. Hits are sorted by this, newest first. */
   at: z.string(),
-  /** That message around the first match, whitespace collapsed. */
-  snippet: z.string(),
-  /** `[start, end)` ranges in `snippet` where a needle word occurs. */
-  marks: z.array(z.tuple([z.number(), z.number()])),
-  /** Matching user messages in this chat. */
+  /** Matching messages, newest first: up to 9, or up to 200 when the row is in `expand`. */
+  messages: z.array(
+    z.object({
+      at: z.string(),
+      /** The message around the first match, whitespace collapsed. */
+      snippet: z.string(),
+      /** `[start, end)` ranges in `snippet` where a needle word occurs. */
+      marks: z.array(z.tuple([z.number(), z.number()])),
+    }),
+  ),
+  /** Matching user messages in this chat and its copies, each text counted once. */
   matches: z.number(),
   /** Other matching chats of the same family (`/prose` copies, forks); this row is the one to open. */
   copies: z.number(),
@@ -164,7 +170,8 @@ export type SaidHit = z.infer<typeof SaidHitSchema>;
  */
 export const findSaid = defineRpc({
   name: "past-sessions.find-said",
-  input: z.object({ needle: z.string() }),
+  /** `expand`: hit `file`s whose rows show all their matches. */
+  input: z.object({ needle: z.string(), expand: z.array(z.string()).default([]) }),
   output: z.discriminatedUnion("state", [
     z.object({ state: z.literal("indexing"), done: z.number(), total: z.number() }),
     z.object({

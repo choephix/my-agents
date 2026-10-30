@@ -18,6 +18,8 @@ const SMALL = { fontSize: 12, lineHeight: 17 } as const;
 const DEBOUNCE_MS = 200;
 /** Shorter needles match nearly everything. */
 const MIN_NEEDLE = 2;
+/** Matching messages a row shows before "Show N more"; the server sends this many. */
+const SHOWN_MESSAGES = 9;
 
 /** The last needle, so reopening the command shows it again; until the app reloads. */
 let lastNeedle = "";
@@ -55,10 +57,16 @@ export function FindSaidScreen({ theme, layout, navigation }: PluginScreenProps)
   const queryClient = useQueryClient();
   const toast = useToast();
 
+  // Rows showing all their matches; reset by a new needle.
+  const [expanded, setExpanded] = useState<{ needle: string; files: string[] }>({ needle: "", files: [] });
+  const expand = expanded.needle === searched ? expanded.files : [];
+  const toggle = (file: string) =>
+    setExpanded({ needle: searched, files: expand.includes(file) ? expand.filter((f) => f !== file) : [...expand, file] });
+
   // An empty needle only loads the index, so the first real search finds it warm.
   const result = useQuery({
-    queryKey: ["find-said", searched],
-    queryFn: () => find({ needle: searched }),
+    queryKey: ["find-said", searched, expand],
+    queryFn: () => find({ needle: searched, expand }),
     placeholderData: keepPreviousData,
     staleTime: 10_000,
     refetchInterval: (current) => (current.state.data?.state === "indexing" ? 1000 : false),
@@ -158,6 +166,8 @@ export function FindSaidScreen({ theme, layout, navigation }: PluginScreenProps)
         </View>
       </View>
       <FlatList
+        // A new search starts at the top instead of the old one's scroll position.
+        key={searched}
         data={hits}
         keyExtractor={(hit: SaidHit) => hit.file}
         keyboardShouldPersistTaps="handled"
@@ -168,12 +178,30 @@ export function FindSaidScreen({ theme, layout, navigation }: PluginScreenProps)
             place={placeOf(item, home)}
             styles={styles}
             disabled={open.isPending}
+            expanded={expand.includes(item.file)}
             onPress={() => open.mutate(item)}
+            onToggle={() => toggle(item.file)}
           />
         )}
       />
     </View>
   );
+}
+
+function Marked({ snippet, marks, styles }: { snippet: string; marks: [number, number][]; styles: Styles }) {
+  const parts: { text: string; mark: boolean }[] = [];
+  let cursor = 0;
+  for (const [start, end] of marks) {
+    if (start > cursor) parts.push({ text: snippet.slice(cursor, start), mark: false });
+    parts.push({ text: snippet.slice(start, end), mark: true });
+    cursor = end;
+  }
+  if (cursor < snippet.length) parts.push({ text: snippet.slice(cursor), mark: false });
+  return parts.map((part, index) => (
+    <Text key={index} style={part.mark ? styles.mark : null}>
+      {part.text}
+    </Text>
+  ));
 }
 
 function HitRow({
@@ -182,60 +210,78 @@ function HitRow({
   place,
   styles,
   disabled,
+  expanded,
   onPress,
+  onToggle,
 }: {
   hit: SaidHit;
   divider: boolean;
   place: string;
   styles: Styles;
   disabled: boolean;
+  expanded: boolean;
   onPress(): void;
+  onToggle(): void;
 }) {
-  const parts: { text: string; mark: boolean }[] = [];
-  let cursor = 0;
-  for (const [start, end] of hit.marks) {
-    if (start > cursor) parts.push({ text: hit.snippet.slice(cursor, start), mark: false });
-    parts.push({ text: hit.snippet.slice(start, end), mark: true });
-    cursor = end;
-  }
-  if (cursor < hit.snippet.length) parts.push({ text: hit.snippet.slice(cursor), mark: false });
+  const now = Date.now();
+  const messages = expanded ? hit.messages : hit.messages.slice(0, SHOWN_MESSAGES);
+  const hidden = hit.matches - messages.length;
   const more =
     (hit.matches > 1 ? ` · ${hit.matches} messages match` : "") +
     (hit.copies ? ` · also in ${plural(hit.copies, "copy", "copies")}` : "");
   return (
-    <Interactive
-      accessibilityRole="button"
-      accessibilityLabel={`Open ${hit.title}`}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ hovered, pressed, focused }) => [
-        styles.row,
-        divider ? styles.rowDivider : null,
-        hovered ? styles.rowHovered : null,
-        pressed ? styles.rowPressed : null,
-        focused ? styles.focusRingInset : null,
-      ]}
-    >
-      <View style={styles.line}>
-        <Text style={styles.title} numberOfLines={1}>
-          {hit.title}
-        </Text>
-        <View ref={tooltip(absoluteTime(hit.at))}>
-          <Text style={styles.meta}>{relativeTime(hit.at, Date.now())}</Text>
+    <View style={divider ? styles.rowDivider : null}>
+      <Interactive
+        accessibilityRole="button"
+        accessibilityLabel={`Open ${hit.title}`}
+        disabled={disabled}
+        onPress={onPress}
+        style={({ hovered, pressed, focused }) => [
+          styles.row,
+          hovered ? styles.rowHovered : null,
+          pressed ? styles.rowPressed : null,
+          focused ? styles.focusRingInset : null,
+        ]}
+      >
+        <View style={styles.line}>
+          <Text style={styles.title} numberOfLines={1}>
+            {hit.title}
+          </Text>
+          <View ref={tooltip(absoluteTime(hit.at))}>
+            <Text style={styles.meta}>{relativeTime(hit.at, now)}</Text>
+          </View>
         </View>
-      </View>
-      <Text style={styles.meta} numberOfLines={1}>
-        {place}
-        {more}
-      </Text>
-      <Text style={styles.snippet} numberOfLines={3}>
-        {parts.map((part, index) => (
-          <Text key={index} style={part.mark ? styles.mark : null}>
-            {part.text}
+        <Text style={styles.meta} numberOfLines={1}>
+          {place}
+          {more}
+        </Text>
+        {messages.map((message, index) => (
+          <Text key={index} style={styles.snippet} numberOfLines={messages.length > 1 ? 2 : 3}>
+            {messages.length > 1 ? <Text style={styles.snippetTime}>{relativeTime(message.at, now)} · </Text> : null}
+            <Marked snippet={message.snippet} marks={message.marks} styles={styles} />
           </Text>
         ))}
-      </Text>
-    </Interactive>
+      </Interactive>
+      {hidden > 0 || expanded ? (
+        <Interactive
+          accessibilityRole="button"
+          onPress={onToggle}
+          style={({ hovered, focused }) => [
+            styles.toggle,
+            hovered ? styles.rowHovered : null,
+            focused ? styles.focusRingInset : null,
+          ]}
+        >
+          <Text style={styles.toggleText}>
+            {expanded && hidden > 0
+              ? `Show fewer · the newest ${messages.length} of ${hit.matches} shown`
+              : expanded
+                ? "Show fewer"
+                : `Show ${hidden} more`}
+          </Text>
+        </Interactive>
+      ) : null}
+    </View>
   );
 }
 
@@ -279,5 +325,8 @@ function createStyles(theme: PluginTheme, compact: boolean) {
     meta: muted,
     snippet: { ...SMALL, color: colors.foreground, opacity: 0.85, marginTop: 3 },
     mark: { backgroundColor: colors.surface2, fontWeight: "600" },
+    snippetTime: { color: colors.foregroundMuted },
+    toggle: { paddingHorizontal: gutter, paddingTop: 2, paddingBottom: 8, alignSelf: "flex-start", borderRadius: 4 },
+    toggleText: { ...SMALL, color: colors.accent },
   });
 }
