@@ -1,0 +1,193 @@
+<!doctype html>
+<!--
+  noice-filter-presets: the sidebar row while presets load, before vs after.
+  Frame A is the old switcher (a "Loading filter presets…" line, then the row),
+  frame B the new one (All at once; two faint static pills hold the rest's place
+  and the row keeps its last height). Styles copy client/switcher.tsx.
+
+  "Replay load" (situation controls) runs a 1.5 s load in every frame, then
+  says per frame how far the workspace list below moved. The plugin's own
+  host-side gap (no row at all until Paseo has loaded the plugin) is not shown.
+-->
+<html lang="en" data-mock-data data-mock-title="Filter presets · loading"
+      data-viewports="desktop phone"
+      data-regions="sidebar"
+      data-scales="2 1 3"
+      data-frames="A B"
+      data-states="load: loaded=Loaded | loading=Loading | failed=Failed to load; saved: all=All was the last choice | preset=A preset was the last choice; presets: few=Few presets | many=Many presets (wraps)">
+<head>
+<meta charset="utf-8">
+<title>Filter presets · loading, before vs after</title>
+<link rel="stylesheet" href="/pages/paseo-base/kit/paseo.css">
+<script src="/pages/paseo-base/kit/dev.js" defer></script>
+<style>
+  /* client/switcher.tsx, react-native-web output. */
+  .fp-row { display: flex; flex-wrap: wrap; align-content: flex-start; column-gap: 14px; margin: 2px 16px; }
+  .fp-chip { padding: 3px 0 2px; border: 0; border-bottom: 2px solid transparent; background: none; cursor: pointer;
+    font: 500 9.5px/12px var(--font-ui); letter-spacing: 0.8px; text-transform: uppercase; color: var(--c-foreground-muted); }
+  .fp-chip:hover { color: var(--c-foreground); }
+  .fp-chip.is-on { font-weight: 600; color: var(--c-foreground); border-bottom-color: var(--c-accent); }
+  .fp-label { padding-top: 3px; font: 500 9.5px/12px var(--font-ui); letter-spacing: 0.8px; text-transform: uppercase; color: var(--c-foreground-muted); }
+  .fp-pill { width: 28px; height: 6px; margin-top: 6px; border-radius: 3px; background: var(--c-surface2); }
+  .fp-pill + .fp-pill { width: 36px; }
+  /* Before: one RN Text, 11 px, padding 6, line height left to the font. */
+  .fp-old { padding: 6px; font-size: 11px; line-height: normal; color: var(--c-foreground-muted); }
+  .fp-hidden { display: none !important; }
+
+  /* Measurement shown after a replay: mock-only, pinned over the History row's empty right end. */
+  .sidebar { position: relative; }
+  .fp-badge { position: absolute; top: 40px; right: 12px; z-index: 30; padding: 4px 8px; border-radius: 6px;
+    font: 600 12px/16px var(--font-ui); color: #F5B544; background: #F5B5441F; border: 1px dashed #F5B54499; }
+  .fp-badge.is-still { color: #58F287; background: #58F2871A; border-color: #58F28799; }
+</style>
+</head>
+<body>
+
+<div class="app" data-section="sidebar" data-title="Sidebar"
+     data-variants="A: Before — a “Loading…” line, then the row | B: After — All at once; faint pills hold the rest">
+
+  <aside class="sidebar" data-viewport="wide" data-region="sidebar">
+    <nav class="sb-nav">
+      <div class="sb-row"><i data-icon="plus"></i>New workspace</div>
+      <div class="sb-row"><i data-icon="history"></i>History</div>
+      <div class="sb-row"><i data-icon="search"></i>Search</div>
+      <div class="sb-row"><i data-icon="calendar-clock"></i>Schedules</div>
+      <div class="slot" data-slot="sidebar-header"></div>
+    </nav>
+    <div class="sb-scroll">
+      <div class="sb-section-header">Workspaces <button class="icon-btn"><i data-icon="settings-2" data-size="14"></i></button></div>
+      <template data-each="projectGroups">
+        <div class="sb-project" data-attrs="data-project=items.0.project"><span class="proj-icon" data-class="has-icon=projIcon" data-attrs="style=projStyle" data-text="initial"></span><span data-text="name"></span></div>
+        <template data-each="items">
+          <div class="sb-ws" data-pick="ws" data-class="is-selected=selected" data-attrs="data-project=project"><span data-attrs="class=dotClass"></span><span class="sb-ws-title" data-text="title"></span><span class="sb-ws-meta" data-text="meta"></span></div>
+        </template>
+      </template>
+    </div>
+    <div class="sb-footer">
+      <button class="icon-btn"><i data-icon="folder-plus"></i></button>
+      <button class="icon-btn"><i data-icon="circle-gauge"></i></button>
+      <button class="icon-btn"><i data-icon="server"></i></button>
+      <span class="spacer"></span>
+      <button class="icon-btn"><i data-icon="circle-question-mark"></i></button>
+      <button class="icon-btn"><i data-icon="settings"></i></button>
+    </div>
+  </aside>
+  <main class="main" data-viewport="wide"></main>
+
+  <!-- Phone: the drawer is the sidebar. -->
+  <div class="drawer" data-viewport="phone" data-region="sidebar">
+    <nav class="sb-nav">
+      <div class="sb-row" style="justify-content:space-between"><span style="display:flex;gap:8px;align-items:center"><i data-icon="plus"></i>New workspace</span><i data-icon="x"></i></div>
+      <div class="sb-row"><i data-icon="history"></i>History</div>
+      <div class="sb-row"><i data-icon="search"></i>Search</div>
+      <div class="sb-row"><i data-icon="calendar-clock"></i>Schedules</div>
+      <div class="slot" data-slot="sidebar-header"></div>
+    </nav>
+    <div class="sb-scroll">
+      <div class="sb-section-header">Workspaces <button class="icon-btn"><i data-icon="settings-2" data-size="14"></i></button></div>
+      <template data-each="drawer.projectGroups">
+        <div class="sb-project" data-attrs="data-project=items.0.project"><span class="proj-icon" data-class="has-icon=projIcon" data-attrs="style=projStyle" data-text="initial"></span><span data-text="name"></span></div>
+        <template data-each="items">
+          <div class="sb-ws" data-pick="ws-phone" data-class="is-selected=selected" data-attrs="data-project=project"><span data-attrs="class=dotClass"></span><span class="sb-ws-title" data-text="title"></span><span class="sb-ws-meta" data-text="meta"></span></div>
+        </template>
+      </template>
+    </div>
+    <div class="sb-footer">
+      <button class="icon-btn"><i data-icon="folder-plus"></i></button>
+      <button class="icon-btn"><i data-icon="circle-gauge"></i></button>
+      <button class="icon-btn"><i data-icon="server"></i></button>
+      <span class="spacer"></span>
+      <button class="icon-btn"><i data-icon="circle-question-mark"></i></button>
+      <button class="icon-btn"><i data-icon="settings"></i></button>
+    </div>
+  </div>
+
+  <aside data-notes>
+    <p>Press <b>Replay load</b> in the situation controls: every frame loads for 1.5 s, then a badge says how far the workspace list moved.</p>
+    <p><b>Before</b>: a muted “Loading filter presets…” line, 6 px inset, then the row at 16 px; the line and the row differ in height, so the list moves.</p>
+    <p><b>After</b>: All is drawn at once, in place, underlined when it is the saved choice. Two faint static pills stand where the other presets will be; nothing animates. The row keeps the height it had last time, so presets that wrap to a second line don't push the list either.</p>
+    <p><b>A preset was the last choice</b>: while loading, nothing is underlined; the list is already filtered by the remembered stylesheet, and the preset's underline arrives with its button.</p>
+  </aside>
+</div>
+
+<script>
+  const LOAD_MS = 1500;
+  // "Many presets": fictional extras so the row wraps.
+  const EXTRA = [{ id: "open-source", name: "Open source" }, { id: "side", name: "Side projects" }, { id: "clients", name: "Clients" }];
+  // The plugin's remembered row height (localStorage), per sidebar here: B keeps it free while loading.
+  const lastHeight = new WeakMap();
+
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text) n.textContent = text;
+    return n;
+  };
+  const chip = (c, on) => el("button", "fp-chip" + (on ? " is-on" : ""), c.name);
+
+  function choices(data, many) {
+    const matched = new Set(data.presets.flatMap((p) => p.projects));
+    return [
+      { id: "all", name: "All" },
+      ...data.presets, ...(many ? EXTRA : []),
+      ...(data.workspaces.some((w) => !matched.has(w.project)) ? [{ id: "other", name: "Other" }] : []),
+    ];
+  }
+
+  function row(after, load, list, saved, slot) {
+    if (!after && load !== "loaded") return el("div", "fp-old", load === "failed" ? "Filter presets unavailable" : "Loading filter presets…");
+    const r = el("div", "fp-row");
+    if (load === "loaded") {
+      r.append(...list.map((c) => chip(c, c.id === saved)));
+      return r;
+    }
+    r.append(chip(list[0], load === "failed" || saved === "all"));
+    if (load === "failed") r.append(el("span", "fp-label", "Presets unavailable"));
+    else r.append(el("i", "fp-pill"), el("i", "fp-pill"));
+    if (lastHeight.has(slot)) r.style.minHeight = lastHeight.get(slot) + "px";
+    return r;
+  }
+
+  function listTop(frameEl) {
+    return [...frameEl.querySelectorAll(".sb-scroll")].find((n) => n.getClientRects().length)?.offsetTop;
+  }
+
+  document.addEventListener("mockready", () => {
+    MockKit.onFrame((f) => {
+      const { load, saved: savedAxis, presets } = MockKit.state.states;
+      const data = MockKit.data();
+      const preset = savedAxis === "preset" ? data.presets[0] : null;
+      for (const slot of f.el.querySelectorAll('[data-slot="sidebar-header"]')) {
+        if (f.base) { slot.replaceChildren(); continue; }
+        const r = row(f.variant === "B", load, choices(data, presets === "many"), preset?.id ?? "all", slot);
+        slot.replaceChildren(r);
+        if (load === "loaded" && r.offsetHeight) lastHeight.set(slot, r.offsetHeight);
+      }
+      // The saved preset's stylesheet filters the list from page load on, in both frames.
+      for (const n of f.el.querySelectorAll("[data-project]")) n.classList.toggle("fp-hidden", !!preset && !preset.projects.includes(n.dataset.project));
+    });
+
+    let timer;
+    const replay = el("button", "kit-cycle-btn", `Replay load (${LOAD_MS / 1000} s)`);
+    replay.addEventListener("click", () => {
+      clearTimeout(timer);
+      document.querySelectorAll(".fp-badge").forEach((b) => b.remove());
+      MockKit.set({ states: { ...MockKit.state.states, load: "loaded" } });
+      MockKit.set({ states: { ...MockKit.state.states, load: "loading" } });
+      const tops = MockKit.frames.map((f) => listTop(f.el));
+      timer = setTimeout(() => {
+        MockKit.set({ states: { ...MockKit.state.states, load: "loaded" } });
+        MockKit.frames.forEach((f, i) => {
+          const moved = listTop(f.el) - tops[i];
+          const side = [...f.el.querySelectorAll(".sidebar, .drawer")].find((n) => n.getClientRects().length);
+          if (!side || Number.isNaN(moved)) return;
+          const badge = el("div", "fp-badge" + (moved ? "" : " is-still"), moved ? `List moved ${Math.abs(moved)} px ${moved > 0 ? "down" : "up"}` : "Nothing moved");
+          side.append(badge);
+        });
+      }, LOAD_MS);
+    });
+    MockKit.addSituationControl(replay);
+  });
+</script>
+</body>
+</html>
