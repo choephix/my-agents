@@ -20,6 +20,8 @@ declare const localStorage: {
 const storageKey = "paseo-plugin:filter-presets:selected";
 // Last stylesheet per host, applied before the definitions and projects arrive after a page load.
 const cssCacheKey = "paseo-plugin:filter-presets:css";
+// Last height of the button row, held free while it loads (presets can wrap to several lines).
+const rowHeightKey = "paseo-plugin:filter-presets:row-height";
 
 export function readSelection(): string {
   if (Platform.OS !== "web") return "all";
@@ -29,6 +31,16 @@ export function readSelection(): string {
 export function writeSelection(id: string): void {
   if (Platform.OS !== "web") return;
   try { localStorage.setItem(storageKey, id); } catch { /* Private browsing can deny storage. */ }
+}
+
+export function readRowHeight(): number | undefined {
+  if (Platform.OS !== "web") return undefined;
+  try { return Number(localStorage.getItem(rowHeightKey)) || undefined; } catch { return undefined; }
+}
+
+export function writeRowHeight(height: number): void {
+  if (Platform.OS !== "web") return;
+  try { localStorage.setItem(rowHeightKey, String(height)); } catch { /* Private browsing can deny storage. */ }
 }
 
 export interface WorkspaceRef { id: string; projectId: string }
