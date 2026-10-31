@@ -1,7 +1,7 @@
 import { Platform } from "react-native";
 import type { FileMentionRecord } from "../shared/skills";
 import { tagList, type Preferences } from "../shared/preferences";
-import { bubbleOf, BUBBLE } from "./bubble";
+import { bubbleOf } from "./bubble";
 import { isPlain, parseBlocks, segment, type Block, type Inline, type Segment } from "./parse";
 import { SKILL_TOKEN } from "./skill-parse";
 import type { SkillStore, SkillView } from "./skills";
@@ -75,6 +75,9 @@ export function startPolishing(onFocus: () => void, skills: SkillStore): Polishe
   const unmarkBubble = (bubble: HTMLElement | null) => {
     bubble?.removeAttribute("data-ump-skill");
     bubble?.removeAttribute("data-ump-only");
+    bubble?.removeAttribute("data-ump-bubble");
+    bubble?.parentElement?.removeAttribute("data-ump-col");
+    syncOpen(bubble, false);
   };
 
   const restore = (source: HTMLElement) => {
@@ -114,6 +117,9 @@ export function startPolishing(onFocus: () => void, skills: SkillStore): Polishe
     if (skill) bubble?.setAttribute("data-ump-skill", skill.status);
     else bubble?.removeAttribute("data-ump-skill");
     bubble?.toggleAttribute("data-ump-only", !!skill && skill.status !== "unknown" && !text);
+    bubble?.setAttribute("data-ump-bubble", "");
+    bubble?.parentElement?.setAttribute("data-ump-col", "");
+    syncOpen(bubble);
     if (!entry) drawn.set(source, { key, view, ariaHidden: source.getAttribute("aria-hidden"), bubble });
     else Object.assign(entry, { key, bubble });
     source.setAttribute("data-ump-src", "");
@@ -320,6 +326,14 @@ const baseName = (path: string) => path.slice(path.lastIndexOf("/") + 1) || path
 
 interface Piece { kind: "skill" | "none" | "file"; icon: string; label: string; sub?: string; title?: string; startOpen: boolean; remember(open: boolean): void; fill(box: HTMLElement): void }
 
+/** Marks the bubble and its column while one of the bubble's skill/file rows is open. The CSS keys
+ *  on these attributes instead of `:has()`: a `:has()` rule is tested against every element of the
+ *  page on each style recalc, which made every chat switch spend hundreds of ms in style. */
+function syncOpen(bubble: Element | null, open = !!bubble?.querySelector("[data-ump-view] > .ump-sk[data-open]")): void {
+  bubble?.toggleAttribute("data-ump-open", open);
+  bubble?.parentElement?.toggleAttribute("data-ump-open", open);
+}
+
 /** A header that opens in place as one piece, like the fold rows: it stays put, its text steps down, the chevron goes full strength. */
 function renderPiece(piece: Piece): HTMLElement {
   const head = el("div", { class: "ump-skh", role: "button", tabindex: "0", "data-paseo-markdown-ignore": "true" }, [
@@ -340,6 +354,7 @@ function renderPiece(piece: Piece): HTMLElement {
     const open = !box.hasAttribute("data-open");
     setOpen(open);
     piece.remember(open);
+    syncOpen(box.closest("[data-ump-bubble]"));
   };
   setOpen(piece.startOpen);
   head.addEventListener("click", toggle);
@@ -516,12 +531,12 @@ const CSS = `
    narrow window), so a short message doesn't squeeze the opened text into a thin column. Paseo's
    bubble sits in a content-sized column inside the full-width message row: widen that column, then
    let the bubble fill it. */
-[data-testid="user-message"] > :has([data-ump-view] > .ump-sk[data-open]) { min-width: min(100%, max(50%, 320px)) !important; }
-${BUBBLE}:has([data-ump-view] > .ump-sk[data-open]) { align-self: stretch !important; }
+[data-testid="user-message"] > [data-ump-open] { min-width: min(100%, max(50%, 320px)) !important; }
+[data-ump-bubble][data-ump-open] { align-self: stretch !important; }
 /* Paseo 0.14 caps a message at 240 px behind "Show more" (MessagePreview: its frame, the frame's
    fade, then the button). An opened skill or file already scrolls inside its own 320 px. */
-${BUBBLE}:has(.ump-sk[data-open]) > :first-child { max-height: none !important; }
-${BUBBLE}:has(.ump-sk[data-open]) > :not(:first-child), ${BUBBLE}:has(.ump-sk[data-open]) > :first-child > :not(:first-child) { display: none !important; }
+[data-ump-bubble][data-ump-open] > :first-child { max-height: none !important; }
+[data-ump-bubble][data-ump-open] > :not(:first-child), [data-ump-bubble][data-ump-open] > :first-child > :not(:first-child) { display: none !important; }
 .ump-sk { border-radius: 8px; overflow: hidden; }
 .ump-skh { display: flex; align-items: center; gap: 6px; height: 26px; box-sizing: border-box; padding: 0 8px; font-size: 12px; line-height: 16px; cursor: pointer; user-select: none; -webkit-user-select: none; white-space: nowrap; }
 .ump-skh:hover { background: ${MIX(7)}; }
@@ -558,7 +573,7 @@ ${BUBBLE}:has(.ump-sk[data-open]) > :not(:first-child), ${BUBBLE}:has(.ump-sk[da
 .ump-head, .ump-skh, .ump-skn { transition: background-color 120ms ease, color 120ms ease; }
 .ump-body, .ump-foot, .ump-skp, .ump-skt { transition: opacity 140ms ease; }
 @starting-style { .ump-body, .ump-foot, .ump-skp, .ump-skt { opacity: 0; } }
-${BUBBLE}:has([data-ump-view]) { transition: background-color 160ms ease; }
-[data-testid="user-message"] > :has([data-ump-view]) { transition: min-width 160ms ease; }
-@media (prefers-reduced-motion: reduce) { .ump *, ${BUBBLE}:has([data-ump-view]), [data-testid="user-message"] > * { transition: none !important; } }
+[data-ump-bubble] { transition: background-color 160ms ease; }
+[data-ump-col] { transition: min-width 160ms ease; }
+@media (prefers-reduced-motion: reduce) { .ump *, [data-ump-bubble], [data-testid="user-message"] > * { transition: none !important; } }
 `;

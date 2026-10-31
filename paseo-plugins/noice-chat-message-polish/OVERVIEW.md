@@ -47,6 +47,11 @@ without a reload (checked).
 Paseo 0.14 wraps the message text in two views of its own (`MessagePreview`, the "Show more"
 cap), so the bubble is not the text's parent: `client/bubble.ts` finds it as the user-message
 column's child that holds the text. Slash commands and the skill tint both mark that bubble.
+A drawn bubble gets `data-ump-bubble` and its column `data-ump-col`; while a skill or file row in
+it is open, both get `data-ump-open`. The CSS keys on these attributes, not on `:has()`: Chromium
+tests a `:has()` rule against every element of the page on each style update, and with the old
+rules a chat switch spent ~620 ms in style instead of ~165 ms (measured 2026-11-01, web app,
+median of 4: content on screen after 491 → 328 ms).
 
 **Slash commands** (Stefan's pick from a local mock page). A one-line message that starts with
 `/name` loses its bubble: just the command, right-aligned, muted, in the code font. Paseo's time,
