@@ -78,7 +78,7 @@ Not adopted: tabs that existed before Titles was loaded with this version
 
 Four triggers:
 
-- **Retitle pill** (phone layouts: the native apps and windows under 600 px wide): a label-only **Retitle** pill above every chat's composer, beside Paseo's own pills. One tap. Paseo 0.14 gives plugins no slot in the tab's own menu (tab switcher → ⋮ beside the tab), and its header buttons belong to the workspace, not to the open tab, so the composer is the closest place that knows which tab is meant. Wider windows show no pill and don't follow the agent list for it; the pills come and go as the window crosses 600 px.
+- **Retitle pill** (phone layouts: the native apps and windows under 600 px wide): a **Retitle** pill above every chat's composer, beside Paseo's own pills: label only on web; the native apps can't hide Paseo's icon slot, so there it shows a `Type` icon. One tap. Paseo 0.14 gives plugins no slot in the tab's own menu (tab switcher → ⋮ beside the tab), and its header buttons belong to the workspace, not to the open tab, so the composer is the closest place that knows which tab is meant. Wider windows show no pill and don't follow the agent list for it; the pills come and go as the window crosses 600 px.
 - **Ctrl+Shift+Alt+T** (web and desktop): applies to the selected agent tab of the pane you last clicked or focused (or the only pane). Terminal tabs, open dialogs, AltGr and IME input are left alone.
 - **Ctrl+K / ⌘K → Retitle this tab.** On phones the Command Center is ☰ → **Search**.
 - **`/retitle`** in the composer. It's a plugin command, so nothing is sent to the agent.

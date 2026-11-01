@@ -1,6 +1,7 @@
 import { ActivityIndicator, Dimensions, Platform, View } from "react-native";
 import type { PluginButtonIconProps, PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
 import { useToast, type ToastApi, type ToastOptions, type ToastVariant } from "@getpaseo/plugin/client/react-native";
+import { Icon } from "@getpaseo/plugin/client/ui";
 import { useEffect } from "react";
 import { retitle, retitleWorkspace } from "./shared/rpc";
 import { TitlesSettings } from "./client/settings";
@@ -133,7 +134,7 @@ export default function contribute(client: PluginClientContext) {
     else if (feedback.variant === "error") throw new Error(feedback.text);
   };
 
-  // Phone layouts: a label-only "Retitle" pill on every chat's composer. Paseo
+  // Phone layouts: a "Retitle" pill on every chat's composer (label only on web; native can't hide the icon slot, so it gets an icon). Paseo
   // 0.14 gives plugins no slot in the tab's own menu (tab switcher ⋮), and its
   // header buttons are per workspace, blind to which tab is open. Wide layouts
   // get no pills and no agent subscription.
@@ -144,7 +145,7 @@ export default function contribute(client: PluginClientContext) {
       shown.set(agentId, { toast, color });
       return () => { if (shown.get(agentId)?.toast === toast) shown.delete(agentId); };
     }, [agentId, toast, color]);
-    return <View testID={PILL} />;
+    return <View testID={PILL}>{web ? null : <Icon name="Type" size={props.size} color={color} />}</View>;
   };
   const chats = new Map<string, string>(); // agent → workspace, open chats only
   const pills = new Map<string, { workspaceId: string; registration: PluginButtonRegistration }>();

@@ -1,7 +1,8 @@
 import { settingsRpc } from "@getpaseo/plugin";
 import type { PluginButtonIconProps, PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
+import { Icon } from "@getpaseo/plugin/client/ui";
 import { useEffect, useRef } from "react";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { createCommandsPopover, reopenOnFilterEscape } from "./client/popover";
 import { createSettingsScreen } from "./client/settings";
 import { hideIconSlot, trackPill } from "./client/web";
@@ -17,7 +18,7 @@ interface AgentSummary {
   internal?: boolean;
 }
 
-/** No visible icon (Stefan: label only). On web the empty node hides Paseo's icon slot and tells where this chat's message box is. */
+/** Label only on web, where the empty node hides Paseo's icon slot and tells where this chat's message box is. Native can't hide the slot, so it gets the icon. */
 function PillAnchor(props: PluginButtonIconProps) {
   const agentId = props.context === "agent" ? props.agentId : "";
   const ref = useRef<View>(null);
@@ -25,7 +26,7 @@ function PillAnchor(props: PluginButtonIconProps) {
     hideIconSlot(ref.current);
     return trackPill(agentId, ref.current);
   }, [agentId]);
-  return <View ref={ref} />;
+  return <View ref={ref}>{Platform.OS !== "web" && <Icon name="SquareSlash" size={props.size} color={props.color} />}</View>;
 }
 
 export default function contribute(client: PluginClientContext) {

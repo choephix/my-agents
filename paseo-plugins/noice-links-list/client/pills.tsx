@@ -1,6 +1,7 @@
 import type { PluginButtonIconProps, PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
+import { Icon } from "@getpaseo/plugin/client/ui";
 import { useEffect, useRef } from "react";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { linksForAgent } from "../shared/links";
 import type { AgentListener, AgentSummary } from "./agents";
 import { createLinksPopover } from "./popover";
@@ -14,7 +15,7 @@ export function linksLabel(count: number | null): string {
 }
 
 /**
- * One `N links` composer pill per chat, worded like Paseo's own pills (`5 subagents`), no icon,
+ * One `N links` composer pill per chat, worded like Paseo's own pills (`5 subagents`), no icon on web,
  * hidden while the chat has no links. A chat's links are fetched when its pill first shows (the
  * pill's icon slot mounting is the signal; until then it reads `links`), again when its agent
  * finishes a turn while the pill shows or is hidden for having none, and on opening the popover.
@@ -38,8 +39,8 @@ export function startPills(client: PluginClientContext): { agents: AgentListener
   const visibleOf = (agentId: string) => enabled && countOf(agentId) !== 0;
 
   /**
-   * Paseo requires an icon and always draws a 16 px slot for it. This component draws nothing and,
-   * on web, hides that slot so the pill reads like Paseo's text-only pills. Native keeps an empty slot.
+   * Paseo requires an icon and always draws a 16 px slot for it. On web this component hides that
+   * slot so the pill reads like Paseo's text-only pills; native can't hide it, so it draws the icon.
    * It stays mounted because its mount tells us the chat is on screen.
    */
   function PillIcon(props: PluginButtonIconProps) {
@@ -56,7 +57,7 @@ export function startPills(client: PluginClientContext): { agents: AgentListener
         else onScreen.delete(agentId);
       };
     }, [agentId]);
-    return <View ref={ref} />;
+    return <View ref={ref}>{Platform.OS !== "web" && <Icon name="Link" size={props.size} color={props.color} />}</View>;
   }
   const Content = createLinksPopover(store);
 

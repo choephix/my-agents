@@ -1,4 +1,4 @@
-A `cmds` composer pill (label only, no icon) in every chat, any provider. It lists your reusable prompt files from `.agents/commands/*.md` and puts one into the chat with a click. The design was selected from a local mock page.
+A `cmds` composer pill in every chat, any provider: label only on web/desktop; the native apps can't hide Paseo's icon slot, so there it shows a `SquareSlash` icon. It lists your reusable prompt files from `.agents/commands/*.md` and puts one into the chat with a click. The design was selected from a local mock page.
 
 ## What it does
 
