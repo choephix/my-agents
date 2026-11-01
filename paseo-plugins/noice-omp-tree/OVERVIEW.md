@@ -44,10 +44,19 @@ cannot load it fails at once with a toast naming the overlay (no reload, no wait
   (`paseo.parent-agent-id`), same model/mode/thinking. The original is untouched.
 
 **Phones** (native apps and Paseo's compact web layout): no message icons (no DOM / no pane to
-match rows to a chat). Every OMP chat gets the **Tree** pill; after going back it reads
-`↩ N set aside`. Its sheet has the offer (Summarize them with focus field, Undo, ×, progress with
-Cancel), the branch list, and **Go back to** (your own messages, newest first; restarts before that
-message and copies it).
+match rows to a chat). The branch list has the offer (Summarize them with focus field, Undo, ×,
+progress with Cancel), the branches, and **Go back to** (your own messages, newest first; restarts
+before that message and copies it).
+- Under 600 px wide (phone layouts, the native phone apps) there is no Tree pill. The workspace ⋯
+  menu has a **Branches (/tree)** row listing the workspace's OMP chats, newest first, with their
+  state (`Pricing · 3 branches`, `· ↩ 4 set aside`, `· switching…`, `· summarizing…`); picking one
+  opens its list in that menu's bottom sheet (a workspace with one OMP chat opens it directly).
+  Paseo lists plugin header buttons there on phones, and a header button doesn't know which tab is
+  open, hence the list of chats. `/tree` still opens the sheet; the chat's pill then shows behind it
+  while it is up, and in the native apps for a moment to show a toast (the pill is the only
+  per-chat host).
+- Wider native windows (tablets) keep the Tree pill on every OMP chat; after going back it reads
+  `↩ N set aside`, and it opens the same list as a sheet.
 
 Busy agents are refused ("The agent is busy. Try again when it has finished.").
 
@@ -56,9 +65,10 @@ Busy agents are refused ("The agent is busy. Try again when it has finished.").
 Settings → Plugins → noice-omp-tree → Session tree (`shared/settings.ts`, all on by default). The
 client reads them with the chat list (every 5 s; at once on the client that saves), so changes
 apply without a reload. `/tree` works whatever is off.
-- **Show composer pill**: off hides the Tree pill. It still appears while the branch list that
-  `/tree` opened is up, and in the phone apps for a moment to show a toast: Paseo mounts no hidden
-  pill and the pill is the only per-chat plugin host for the sheet and phone toasts.
+- **Show composer pill**: off hides the Tree pill, and the phone ⋯ → Branches row. The pill still
+  appears while the branch list that `/tree` opened is up, and in the phone apps for a moment to
+  show a toast: Paseo mounts no hidden pill and the pill is the only per-chat plugin host for the
+  sheet and phone toasts.
 - **Show branch buttons on messages**: the Continue / Re-ask icons (web and desktop).
 - **Branch menu on right-click**: off leaves the browser's menu (web and desktop).
 - **Summarize when going back**: Continue from here, Re-ask and branch switches put a summary of
@@ -125,8 +135,9 @@ apply without a reload. `/tree` works whatever is off.
 ## Files
 
 `index.server.ts`, `server/` (tree model + test, extension link, daemon client, branch copy),
-`index.client.tsx`, `client/` (store, web DOM layer, RN sheet + pill, summary row, clipboard,
-settings screen), `shared/tree.ts` (RPC contracts), `shared/settings.ts` (settings). Typecheck
+`index.client.tsx`, `client/` (store, web DOM layer, RN sheet + pill + ⋯ menu page, summary row,
+clipboard, settings screen, `phone-menu.tsx`: the ⋯ menu row, shared with other noice plugins),
+`shared/tree.ts` (RPC contracts), `shared/settings.ts` (settings). Typecheck
 `npm run typecheck`, tests `npm test`.
 Apply edits with `paseo plugin reload noice-omp-tree`.
 

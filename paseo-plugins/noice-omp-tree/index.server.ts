@@ -286,7 +286,7 @@ export default function contribute(server: PluginServerContext) {
         if (!facts) return undefined;
         const offer = await shownOffer(agent.id, facts.offer);
         return {
-          agentId: agent.id, workspaceId: agent.workspaceId, branches: facts.branches,
+          agentId: agent.id, workspaceId: agent.workspaceId, title: agent.title, createdAt: agent.createdAt, branches: facts.branches,
           offer: offer?.setAside ?? null, phase: ops.get(agent.id)?.phase ?? null,
         } satisfies ChatSummary;
       }),

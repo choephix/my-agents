@@ -6,7 +6,8 @@ import {
   treeCancel, treeChats, treeDismiss, treeGoto, treeOpenTab, treeState, treeSummarize, treeSummary,
 } from "./shared/tree";
 import { TreeStore } from "./client/store";
-import { createPillIcon } from "./client/sheet";
+import { createBranchPopover, createPillIcon } from "./client/sheet";
+import { type MenuChat, popoverFor, startPhoneMenu, tabTitle } from "./client/phone-menu";
 import { createSummaryRow } from "./client/summary-row";
 import { startWeb } from "./client/web";
 import { createSettingsScreen } from "./client/settings-screen";
@@ -41,14 +42,20 @@ export default function contribute(client: PluginClientContext) {
   // One muted "Tree · N" pill per chat with more than one branch. The native apps and Paseo's compact
   // (phone) web layout have no message icons, so there every OMP chat gets the pill, and it carries
   // the "set aside" offer. Settings → Show composer pill off keeps only the pills that host a sheet or toast.
+  // Phone layouts: ⋯ (workspace menu) → Branches → the workspace's OMP chats opens the branch list
+  // there, and pills appear only to host; the setting off removes the menu row too.
   const pills = new Map<string, { registration: PluginButtonRegistration; label: string }>();
   /** Workspaces of chats that asked for the sheet with /tree before the next chat list arrived. */
   const workspaceOf = new Map<string, string>();
+  const BranchPopover = createBranchPopover(store);
+  const menu = startPhoneMenu(client, { id: "tree", title: "Branches (/tree)", icon: "GitBranch" }, () => syncPills());
   function syncPills() {
     const snapshot = store.getSnapshot();
     // Needed only until the chat list knows the chat, and only while its sheet is asked for.
     for (const agentId of workspaceOf.keys()) if (snapshot.chats.has(agentId) || !snapshot.forced.has(agentId)) workspaceOf.delete(agentId);
     const wanted = new Map<string, { workspaceId: string; label: string }>();
+    const menuChats: MenuChat[] = [];
+    const pillOff = snapshot.display?.showComposerPill === false;
     for (const agentId of new Set([...snapshot.chats.keys(), ...snapshot.forced])) {
       const chat = snapshot.chats.get(agentId);
       const workspaceId = chat?.workspaceId ?? workspaceOf.get(agentId);
@@ -57,9 +64,13 @@ export default function contribute(client: PluginClientContext) {
       const phase = chat?.phase ?? (starting ? (starting === "summarize" ? "summarizing" : "switching") : null);
       const branches = chat?.branches ?? 1;
       const touch = NATIVE || snapshot.compact;
-      // Pill off: it still appears while it hosts this chat's branch sheet (/tree) or, on phones, a
-      // toast, because Paseo does not mount a hidden pill's icon and has no other per-chat host.
-      const shown = snapshot.display?.showComposerPill === false
+      if (chat && !pillOff) {
+        const state = phase === "summarizing" ? " · summarizing…" : phase ? " · switching…" : chat.offer ? ` · ↩ ${chat.offer} set aside` : branches > 1 ? ` · ${branches} branches` : "";
+        menuChats.push({ agentId, workspaceId, title: tabTitle(chat.title) + state, createdAt: chat.createdAt, behavior: popoverFor(BranchPopover, agentId, workspaceId) });
+      }
+      // Pill off or phone layout: it still appears while it hosts this chat's branch sheet (/tree) or,
+      // on native, a toast, because Paseo does not mount a hidden pill's icon and has no other per-chat host.
+      const shown = pillOff || menu.compact
         ? snapshot.forced.has(agentId) || (NATIVE && snapshot.notices.some(notice => notice.agentId === agentId))
         : branches > 1 || phase || snapshot.forced.has(agentId) || touch;
       if (!shown) continue;
@@ -72,6 +83,7 @@ export default function contribute(client: PluginClientContext) {
             : branches > 1 ? `Tree · ${branches}` : "Tree";
       wanted.set(agentId, { workspaceId, label });
     }
+    menu.set(menuChats);
     for (const [agentId, pill] of pills) {
       if (wanted.has(agentId)) continue;
       pill.registration.remove();
@@ -133,6 +145,7 @@ export default function contribute(client: PluginClientContext) {
     cleanups.forEach(cleanup => void cleanup());
     unsubscribe();
     store.dispose();
+    menu.stop();
     pills.forEach(pill => pill.registration.remove());
   };
 }

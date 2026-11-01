@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { PluginButtonIconProps } from "@getpaseo/plugin/client";
+import type { PluginButtonContentProps, PluginButtonIconProps } from "@getpaseo/plugin/client";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { type ComponentType, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -165,11 +165,13 @@ function BranchRow({ branch, onPress, theme }: { branch: Branch; onPress?: () =>
   );
 }
 
-/** Branch list: one row per branch; touch layouts also get the offer and "Go back to" (they have no message icons). */
-function BranchSheet({ agentId, store, theme, touch }: { agentId: string; store: TreeStore; theme: PluginTheme; touch: boolean }) {
+/**
+ * Branch list: one row per branch; touch layouts also get the offer and "Go back to" (they have no
+ * message icons). Inside the sheet, or a page of the phone ⋯ menu.
+ */
+function BranchPanel({ agentId, store, theme, touch, onClose }: { agentId: string; store: TreeStore; theme: PluginTheme; touch: boolean; onClose(): void }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const toast = useToast();
-  const open = snapshot.sheetAgentId === agentId;
   const state = snapshot.states.get(agentId);
   const muted = theme.colors.foregroundMuted;
   const branches = state?.branches ?? [];
@@ -189,62 +191,80 @@ function BranchSheet({ agentId, store, theme, touch }: { agentId: string; store:
   }
 
   return (
+    <>
+      <View style={styles.titleRow}>
+        <Text style={[SMALL, styles.flex, { color: muted }]}>
+          {branches.length > 1 ? `${branches.length} branches in this chat` : "Only one branch so far"}
+        </Text>
+        <Pressable accessibilityLabel="Close" onPress={onClose} hitSlop={6} style={styles.iconButton}>
+          <Icon name="X" size={13} color={muted} />
+        </Pressable>
+      </View>
+      {!state ? (
+        <ActivityIndicator style={styles.loading} color={muted} />
+      ) : !state.supported ? (
+        <Text style={[BODY, styles.note, { color: muted }]}>Branches work only in OMP chats.</Text>
+      ) : (
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          {touch ? <OfferBlock agentId={agentId} state={state} store={store} theme={theme} touch={touch} /> : null}
+          {branches.map(branch => (
+            <BranchRow
+              key={branch.target ?? "pending"}
+              branch={branch}
+              theme={theme}
+              onPress={branch.current || state.op ? undefined : () => switchTo(branch)}
+            />
+          ))}
+          {touch && mine.length ? (
+            <>
+              <Text style={[SMALL, styles.heading, { color: muted }]}>GO BACK TO</Text>
+              <Text style={[SMALL, styles.note, { color: muted }]}>
+                Restarts from before that message and copies it, so you can paste, edit and resend.
+              </Text>
+              {mine.map(turn => (
+                <Pressable
+                  key={turn.userId}
+                  accessibilityRole="button"
+                  disabled={!!state.op}
+                  onPress={() => reask(turn)}
+                  style={({ hovered }: Hover) => [styles.branch, hovered && { backgroundColor: theme.colors.surface2 }]}
+                >
+                  <View style={[styles.dot, { borderColor: muted, borderStyle: "dashed" }]} />
+                  <View style={styles.flex}>
+                    <Text numberOfLines={1} style={[BODY, { color: theme.colors.foreground }]}>{turn.userText!.replace(/\s+/g, " ").trim()}</Text>
+                    <Text style={[SMALL, { color: muted }]}>{clock(turn.userTime)}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </>
+          ) : null}
+        </ScrollView>
+      )}
+    </>
+  );
+}
+
+function BranchSheet({ agentId, store, theme, touch }: { agentId: string; store: TreeStore; theme: PluginTheme; touch: boolean }) {
+  const open = useSyncExternalStore(store.subscribe, () => store.getSnapshot().sheetAgentId === agentId);
+  return (
     <Modal transparent visible={open} animationType={touch ? "slide" : "fade"} onRequestClose={() => store.closeSheet()} statusBarTranslucent>
       <View style={[styles.overlay, touch ? styles.overlayTouch : styles.overlayDesktop]}>
         <Pressable accessibilityLabel="Close" style={styles.backdrop} onPress={() => store.closeSheet()} />
         <View style={[styles.frame, touch ? styles.frameTouch : styles.frameDesktop, { backgroundColor: theme.colors.surface1, borderColor: theme.colors.border }]}>
-          <View style={styles.titleRow}>
-            <Text style={[SMALL, styles.flex, { color: muted }]}>
-              {branches.length > 1 ? `${branches.length} branches in this chat` : "Only one branch so far"}
-            </Text>
-            <Pressable accessibilityLabel="Close" onPress={() => store.closeSheet()} hitSlop={6} style={styles.iconButton}>
-              <Icon name="X" size={13} color={muted} />
-            </Pressable>
-          </View>
-          {!state ? (
-            <ActivityIndicator style={styles.loading} color={muted} />
-          ) : !state.supported ? (
-            <Text style={[BODY, styles.note, { color: muted }]}>Branches work only in OMP chats.</Text>
-          ) : (
-            <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-              {touch ? <OfferBlock agentId={agentId} state={state} store={store} theme={theme} touch={touch} /> : null}
-              {branches.map(branch => (
-                <BranchRow
-                  key={branch.target ?? "pending"}
-                  branch={branch}
-                  theme={theme}
-                  onPress={branch.current || state.op ? undefined : () => switchTo(branch)}
-                />
-              ))}
-              {touch && mine.length ? (
-                <>
-                  <Text style={[SMALL, styles.heading, { color: muted }]}>GO BACK TO</Text>
-                  <Text style={[SMALL, styles.note, { color: muted }]}>
-                    Restarts from before that message and copies it, so you can paste, edit and resend.
-                  </Text>
-                  {mine.map(turn => (
-                    <Pressable
-                      key={turn.userId}
-                      accessibilityRole="button"
-                      disabled={!!state.op}
-                      onPress={() => reask(turn)}
-                      style={({ hovered }: Hover) => [styles.branch, hovered && { backgroundColor: theme.colors.surface2 }]}
-                    >
-                      <View style={[styles.dot, { borderColor: muted, borderStyle: "dashed" }]} />
-                      <View style={styles.flex}>
-                        <Text numberOfLines={1} style={[BODY, { color: theme.colors.foreground }]}>{turn.userText!.replace(/\s+/g, " ").trim()}</Text>
-                        <Text style={[SMALL, { color: muted }]}>{clock(turn.userTime)}</Text>
-                      </View>
-                    </Pressable>
-                  ))}
-                </>
-              ) : null}
-            </ScrollView>
-          )}
+          <BranchPanel agentId={agentId} store={store} theme={theme} touch={touch} onClose={() => store.closeSheet()} />
         </View>
       </View>
     </Modal>
   );
+}
+
+/** A chat's branches as a page of the phone ⋯ menu (Paseo's bottom sheet), instead of the sheet. */
+export function createBranchPopover(store: TreeStore): ComponentType<PluginButtonContentProps> {
+  return function BranchPopover(props: PluginButtonContentProps) {
+    const agentId = props.context === "agent" ? props.agentId : "";
+    useEffect(() => store.watch(agentId), [agentId]);
+    return <BranchPanel agentId={agentId} store={store} theme={props.theme} touch onClose={props.close} />;
+  };
 }
 
 /** Native and touch: notices become Paseo toasts (web desktop shows its own, next to the chat). */

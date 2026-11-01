@@ -75,6 +75,9 @@ export type TreeState = z.infer<typeof TreeStateSchema>;
 export const ChatSummarySchema = z.object({
   agentId: z.string(),
   workspaceId: z.string(),
+  /** For the phone ⋯ menu's list of chats. */
+  title: z.string().nullable(),
+  createdAt: z.string(),
   branches: z.number(),
   offer: z.number().nullable(),
   phase: OpSchema.shape.phase.nullable(),
