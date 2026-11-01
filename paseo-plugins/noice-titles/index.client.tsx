@@ -1,5 +1,5 @@
-import { ActivityIndicator, Platform } from "react-native";
-import type { PluginButtonIconProps, PluginClientContext } from "@getpaseo/plugin/client";
+import { ActivityIndicator, Dimensions, Platform, View } from "react-native";
+import type { PluginButtonIconProps, PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
 import { useToast, type ToastApi, type ToastOptions, type ToastVariant } from "@getpaseo/plugin/client/react-native";
 import { useEffect } from "react";
 import { retitle, retitleWorkspace } from "./shared/rpc";
@@ -8,6 +8,9 @@ import { TitlesSettings } from "./client/settings";
 const TAB = '[data-testid^="workspace-tab-agent_"][aria-selected="true"]';
 const PANE = '[data-testid^="workspace-pane-"]';
 const LENDER = "noice-titles-retitling-pill";
+const PILL = "noice-titles-retitle-pill";
+// Paseo's compact layout (phones, narrow windows) is below its md breakpoint.
+const COMPACT_WIDTH = 600;
 const web = Platform.OS === "web" && typeof document !== "undefined";
 
 // While Claude thinks, a spinner replaces the icon of the agent's tab (every
@@ -25,42 +28,49 @@ const tabVisible = (agentId: string) =>
 
 export default function contribute(client: PluginClientContext) {
   const running = new Set<string>();
-  // Web only: the tab spinners, and hiding the toast-lending pill (below).
+  // Web only: the tab spinners, hiding the toast-lending pill (below) and the Retitle pill's empty icon slot.
   const style = web ? document.head.appendChild(document.createElement("style")) : null;
   const paint = () => {
     if (style) style.textContent = [
       "@keyframes titles-retitling-spin { to { transform: rotate(360deg); } }",
       `button:has([data-testid="${LENDER}"]) { display: none; }`,
+      `div:has(> [data-testid="${PILL}"]) { display: none; }`,
       ...[...running].map(tabSpinner),
     ].join("\n");
   };
   paint();
+  const retitlingToast = (toast: ToastApi, color: string, text: string) =>
+    // `icon` isn't in the plugin's ToastOptions type, but the host passes options through; without it the toast is text-only.
+    toast.show(text, { durationMs: 30_000, icon: <ActivityIndicator size="small" color={color} testID="noice-titles-retitling-toast" /> } as ToastOptions);
+  // Chats whose Retitle pill is on screen, with the toast its icon lends.
+  const shown = new Map<string, { toast: ToastApi; color: string }>();
 
   // Feedback never enters the conversation. The indicator starts in the same
   // tick as the trigger: the tab spinner where the agent's tab is on screen,
   // otherwise (phone layouts, native apps) a "Retitling…" toast. The outcome
   // toast replaces either in the same tick the check ends. Toasts are a
-  // hook-only API, so a composer pill's icon component lends one; on web that
-  // pill is hidden, on native it shows a spinner of its own.
+  // hook-only API, so a composer pill's icon component lends one: the chat's
+  // Retitle pill when it's on screen, else a pill added for the run (hidden on
+  // web; on native it shows a spinner of its own).
   const run = async (agentId: string, workspaceId: () => Promise<string | undefined>) => {
     if (running.has(agentId)) return;
     running.add(agentId);
     paint();
     const announce = !web || !tabVisible(agentId);
-    const lent: { toast?: ToastApi } = {};
+    const onScreen = shown.get(agentId);
+    const lent: { toast?: ToastApi } = { toast: onScreen?.toast };
+    if (onScreen && announce) retitlingToast(onScreen.toast, onScreen.color, "Retitling…");
     const Lender = ({ size, color }: PluginButtonIconProps) => {
       const toast = useToast();
       lent.toast = toast;
       useEffect(() => {
-        if (!announce || !running.has(agentId)) return;
-        // `icon` isn't in the plugin's ToastOptions type, but the host passes options through; without it the toast is text-only.
-        toast.show("Retitling…", { durationMs: 30_000, icon: <ActivityIndicator size="small" color={color} testID="noice-titles-retitling-toast" /> } as ToastOptions);
+        if (announce && running.has(agentId)) retitlingToast(toast, color, "Retitling…");
       }, [toast]);
       return <ActivityIndicator size={size} color={color} testID={LENDER} />;
     };
     let pill: { remove(): void } | undefined;
     let finished = false;
-    void workspaceId().then(id => {
+    if (!onScreen) void workspaceId().then(id => {
       if (!id || finished) return;
       pill = client.addComposerPill({
         id: `retitling-${agentId}`, workspaceId: id, agentId,
@@ -99,8 +109,7 @@ export default function contribute(client: PluginClientContext) {
       const toast = useToast();
       lent.toast = toast;
       useEffect(() => {
-        if (!retitling.has(workspaceId)) return;
-        toast.show("Retitling workspace…", { durationMs: 30_000, icon: <ActivityIndicator size="small" color={color} testID="noice-titles-retitling-toast" /> } as ToastOptions);
+        if (retitling.has(workspaceId)) retitlingToast(toast, color, "Retitling workspace…");
       }, [toast]);
       return <ActivityIndicator size={size} color={color} testID={LENDER} />;
     };
@@ -124,6 +133,72 @@ export default function contribute(client: PluginClientContext) {
     else if (feedback.variant === "error") throw new Error(feedback.text);
   };
 
+  // Phone layouts: a label-only "Retitle" pill on every chat's composer. Paseo
+  // 0.14 gives plugins no slot in the tab's own menu (tab switcher ⋮), and its
+  // header buttons are per workspace, blind to which tab is open. Wide layouts
+  // get no pills and no agent subscription.
+  const RetitlePillIcon = ({ color, ...props }: PluginButtonIconProps) => {
+    const toast = useToast();
+    const agentId = props.context === "agent" ? props.agentId : "";
+    useEffect(() => {
+      shown.set(agentId, { toast, color });
+      return () => { if (shown.get(agentId)?.toast === toast) shown.delete(agentId); };
+    }, [agentId, toast, color]);
+    return <View testID={PILL} />;
+  };
+  const chats = new Map<string, string>(); // agent → workspace, open chats only
+  const pills = new Map<string, { workspaceId: string; registration: PluginButtonRegistration }>();
+  let compact = Dimensions.get("window").width < COMPACT_WIDTH;
+  const syncPill = (agentId: string) => {
+    const workspaceId = compact ? chats.get(agentId) : undefined;
+    const pill = pills.get(agentId);
+    if (pill?.workspaceId === workspaceId) return;
+    pill?.registration.remove();
+    pills.delete(agentId);
+    if (workspaceId) pills.set(agentId, { workspaceId, registration: client.addComposerPill({
+      id: "retitle", workspaceId, agentId,
+      button: { title: "Retitle this tab", label: "Retitle", icon: RetitlePillIcon, behavior: { kind: "action", onPress: () => run(agentId, async () => workspaceId) } },
+    }) });
+  };
+  type Chat = { id: string; workspaceId?: string | null; archivedAt?: string | null; internal?: boolean };
+  const observe = (agent: Chat) => {
+    if (agent.workspaceId && !agent.archivedAt && !agent.internal) chats.set(agent.id, agent.workspaceId);
+    else chats.delete(agent.id);
+    syncPill(agent.id);
+  };
+  const lifetime = new AbortController();
+  let following = false;
+  const follow = () => {
+    if (following) return;
+    following = true;
+    void client.paseo.agents.list({ subscribe: {}, signal: lifetime.signal }).then(({ entries, subscription }) => {
+      if (lifetime.signal.aborted) return;
+      const replace = (list: readonly { agent: Chat }[]) => {
+        const ids = new Set(list.map(({ agent }) => agent.id));
+        for (const agentId of [...chats.keys()]) if (!ids.has(agentId)) observe({ id: agentId });
+        list.forEach(({ agent }) => observe(agent));
+      };
+      replace(entries);
+      subscription.subscribe({
+        snapshot: snapshot => replace(snapshot.entries),
+        update: message => {
+          if (message.type !== "agent_update") return;
+          if (message.payload.kind === "remove") observe({ id: message.payload.agentId });
+          else observe(message.payload.agent);
+        },
+      });
+    }).catch((error: unknown) => {
+      if (!lifetime.signal.aborted) console.warn("noice-titles: agent subscription failed", error);
+    });
+  };
+  if (compact) follow();
+  const resize = Dimensions.addEventListener("change", ({ window }) => {
+    if (compact === window.width < COMPACT_WIDTH) return;
+    compact = !compact;
+    if (compact) follow();
+    for (const agentId of chats.keys()) syncPill(agentId);
+  });
+
   const cleanups = [
     // Command Center requires a built-in glyph; tab and workspace icons are left alone except for the spinner.
     client.addCommandCenterItem({ id: "retitle", title: "Retitle this tab", icon: "Type", keywords: ["title", "rename", "tab"], context: "agent", onSelect: ({ agent, workspace }) => run(agent.id, async () => workspace.id) }),
@@ -132,6 +207,7 @@ export default function contribute(client: PluginClientContext) {
     client.addSlashCommand({ name: "retitle-workspace", description: "Give this workspace a new title", argumentHint: "", context: "agent", onSubmit: ({ agent, workspace }) => runWorkspace(workspace.id, agent.id) }),
     client.addSettingsScreen({ id: "automatic", title: "Titles", icon: "Type", Component: TitlesSettings }),
     () => style?.remove(),
+    () => { lifetime.abort(); resize.remove(); pills.forEach(pill => pill.registration.remove()); },
   ];
 
   if (Platform.OS === "web") {

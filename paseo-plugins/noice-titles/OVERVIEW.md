@@ -76,8 +76,9 @@ Not adopted: tabs that existed before Titles was loaded with this version
 
 ## Retitle on demand
 
-Three triggers:
+Four triggers:
 
+- **Retitle pill** (phone layouts: the native apps and windows under 600 px wide): a label-only **Retitle** pill above every chat's composer, beside Paseo's own pills. One tap. Paseo 0.14 gives plugins no slot in the tab's own menu (tab switcher → ⋮ beside the tab), and its header buttons belong to the workspace, not to the open tab, so the composer is the closest place that knows which tab is meant. Wider windows show no pill and don't follow the agent list for it; the pills come and go as the window crosses 600 px.
 - **Ctrl+Shift+Alt+T** (web and desktop): applies to the selected agent tab of the pane you last clicked or focused (or the only pane). Terminal tabs, open dialogs, AltGr and IME input are left alone.
 - **Ctrl+K / ⌘K → Retitle this tab.** On phones the Command Center is ☰ → **Search**.
 - **`/retitle`** in the composer. It's a plugin command, so nothing is sent to the agent.
@@ -114,9 +115,12 @@ check of the same tab runs waits for it (2–3 s) and then names the tab. Two
 clients retitling the same tab at once get `Already retitling this tab`.
 
 Toasts are a hook-only plugin API, so a composer pill's icon component lends
-one. On web that pill is hidden by CSS (`button:has([data-testid="noice-titles-retitling-pill"])`);
-on native apps it can't be hidden, so a faint **Retitling…** pill also sits
-above the composer there. The Retitling… toast's spinner uses the host's
+one. On phone layouts the chat's Retitle pill lends it, and while a check runs
+the pill shows Paseo's own spinner. Elsewhere a pill is added for the run: on
+web it is hidden by CSS (`button:has([data-testid="noice-titles-retitling-pill"])`);
+on native apps it can't be hidden, so a faint **Retitling…** pill sits above
+the composer there when the chat's Retitle pill isn't on screen. The
+Retitling… toast's spinner uses the host's
 `icon` toast option, which the plugin's `ToastOptions` type doesn't declare;
 if a Paseo version drops it, the toast is text-only.
 
@@ -331,7 +335,7 @@ paseo plugin disable noice-titles
 - `server/timeline.ts`: recent and opening timeline reads, first-prompt lines.
 - `server/workspaces.ts`: workspace titling (creation tracking, title-change subscription, sibling lookups, the `retitle-workspace` RPC, ownership file).
 - `index.server.ts`: automatic titling after each reply, the `retitle` RPC, the sibling lookup with its first-prompt cache; registers workspace titling.
-- `index.client.tsx`, `client/settings.tsx`: the tab and workspace triggers, the tab spinner, the toasts, the settings screen.
+- `index.client.tsx`, `client/settings.tsx`: the tab and workspace triggers (phone Retitle pills included), the tab spinner, the toasts, the settings screen.
 
 `npm test` runs 15 tests on the pure policy. `tests/agent-titles.test.mjs` (8):
 the placeholder rule, which titles automatic titling may touch (hand names
