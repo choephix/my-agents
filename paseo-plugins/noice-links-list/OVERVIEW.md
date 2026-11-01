@@ -10,7 +10,7 @@ A **links** pill in each chat's composer, next to btw and the other pills. It co
 
 ## Workspace links page
 
-An icon-only **link** button in each workspace's header (Lucide link icon, tooltip "Links in this workspace") opens that workspace's links as a tab in its main area, next to its chats. Paseo shows plugin header buttons on wide layouts only: from 1100 px it shows three plugin buttons, below that one plus a `⋯` overflow, and its phone layout (below 720 px) has no plugin header buttons at all, so on phones the page can't be opened yet (see Limits). **Show header button** (see Settings) turns it off.
+An icon-only **link** button in each workspace's header (Lucide link icon, tooltip "Links in this workspace") opens that workspace's links as a tab in its main area, next to its chats. It is off by default: switch on **Show header button** (see Settings). Paseo shows plugin header buttons on wide layouts only: from 1100 px it shows three plugin buttons, below that one plus a `⋯` overflow, and its phone layout (below 720 px) has no plugin header buttons at all, so on phones the page can't be opened yet (see Limits).
 
 ![Links page, Flat, dark](screenshots/workspace-flat-dark.webp)
 
@@ -87,7 +87,7 @@ The links page asks `links.for-workspace` (`server/service.ts`): one `agents.lis
 Settings → Plugins → noice-links-list → **Mentioned links** (route `/settings/hosts/<server>/plugins/noice-links-list/header`):
 
 - **Buttons** (switches, applied on save without a reload; other devices pick them up when the app returns to the foreground):
-  - **Show header button** (on by default): the links button in every workspace's header. Off removes it from all of them.
+  - **Show header button** (off by default): the links button in every workspace's header. On adds it to all of them. A setting saved before this default changed keeps its saved value.
   - **Show composer pill** (on by default): the `N links` pill in every chat's composer, and the ⋯ → Mentioned links row on phones. Off hides them everywhere and fetches nothing for them; on brings them back.
 - **Webshare** (text fields, one Save button): maps files in the webshare folder to URLs on the webshare origin, so they are Web or Images rows that open in the browser instead of Files rows that copy their path.
   - **Webshare origin** (empty by default): the public HTTP(S) origin, e.g. `http://localhost:8080`. Empty turns the mapping off.

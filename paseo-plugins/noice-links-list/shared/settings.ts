@@ -2,15 +2,15 @@ import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 
 /**
- * `showHeaderButton`: the links button in each workspace's header. `showComposerPill`: the
- * `N links` pill in each chat's composer. Both on by default.
+ * `showHeaderButton`: the links button in each workspace's header, off by default. `showComposerPill`:
+ * the `N links` pill in each chat's composer, on by default.
  */
 export const headerSettings = defineSettings({
   id: "header",
   scope: "host",
   version: 1,
   schema: z.object({
-    showHeaderButton: z.boolean().default(true),
+    showHeaderButton: z.boolean().default(false),
     showComposerPill: z.boolean().default(true),
   }),
 });

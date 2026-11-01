@@ -49,7 +49,8 @@ export function startWorkspaceLinks(client: PluginClientContext, pills: { setVis
 
   // Header buttons, one per workspace, following the daemon's workspace directory.
   const buttons = new Map<string, PluginButtonRegistration>();
-  let visible = true;
+  // Hidden until the setting is read (off by default), so a switched-off button never flashes.
+  let visible = false;
   const add = (workspaceId: string) => {
     if (buttons.has(workspaceId)) return;
     try {
@@ -126,7 +127,7 @@ export function startWorkspaceLinks(client: PluginClientContext, pills: { setVis
     client.rpc(settingsRpc(headerSettings.id).read, {}).then(
       (result) => {
         const parsed = result.status === "ready" ? headerSettings.schema.safeParse(result.values) : null;
-        apply(parsed?.success ? parsed.data : { showHeaderButton: true, showComposerPill: true });
+        apply(parsed?.success ? parsed.data : { showHeaderButton: false, showComposerPill: true });
       },
       (error: unknown) => console.warn("[noice-links-list] reading settings failed", error),
     );
