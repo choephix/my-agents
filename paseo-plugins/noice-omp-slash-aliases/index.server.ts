@@ -1,9 +1,12 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
+import type { PaseoApi } from "@getpaseo/client";
 import { btwAsk, btwChats, btwDismiss, btwList } from "./shared/btw";
+import { instructionsGet, instructionsSet } from "./shared/instructions";
 import { preferences } from "./shared/preferences";
 import { ompProviders } from "./shared/providers";
 import { tanStatus } from "./shared/tan";
 import { btwRoot, dismissEntry, listEntries, markedPids, pruneOutbox, summarizeChats } from "./server/btw-outbox";
+import { instructionsFile, readInstructions, removeInstructions, writeInstructions } from "./server/instructions";
 import { btwReady, isAlive, isOmpRpcHost, listProcesses, type ProcessInfo, processStartedAt } from "./server/omp-processes";
 import { readOmpProviders } from "./server/providers";
 import { deriveState, nearestTangent, TanSessions } from "./server/tan-sessions";
@@ -56,6 +59,26 @@ export default function contribute(server: PluginServerContext) {
     return {};
   });
 
+  /** The instructions file of an OMP chat's current session (`persistence.nativeHandle`). */
+  async function chatInstructions(paseo: PaseoApi, agentId: string): Promise<string> {
+    const agent = (await paseo.agents.ref(agentId).refresh().catch(() => undefined))?.agent;
+    if (!agent || agent.archivedAt) throw new Error("This chat is no longer available.");
+    if (!(await readOmpProviders()).includes(agent.provider)) throw new Error("Instructions work only in OMP chats.");
+    const file = agent.persistence?.nativeHandle ? instructionsFile(agent.persistence.nativeHandle) : undefined;
+    if (!file) throw new Error("This chat has no OMP session yet. Send a message first.");
+    return file;
+  }
+  server.handle(instructionsGet, async ({ agentId }, { paseo }) => ({ text: await readInstructions(await chatInstructions(paseo, agentId)) }));
+  server.handle(instructionsSet, async ({ agentId, text }, { paseo }) => {
+    await writeInstructions(await chatInstructions(paseo, agentId), text);
+    return {};
+  });
+  const offArchived = server.on("agent.archived", async ({ agent }, { paseo }) => {
+    const handle = (await paseo.agents.ref(agent.id).refresh().catch(() => undefined))?.agent.persistence?.nativeHandle;
+    const file = handle ? instructionsFile(handle) : undefined;
+    if (file) await removeInstructions(file);
+  });
+
   const sessions = new TanSessions();
   let processes: { at: number; list: Promise<ProcessInfo[]> } | undefined;
   async function currentProcesses(): Promise<ProcessInfo[]> {
@@ -86,5 +109,8 @@ export default function contribute(server: PluginServerContext) {
   const prune = () => void pruneOutbox(root, isAlive).catch(error => console.error("/btw outbox prune failed", error));
   prune();
   const timer = setInterval(prune, PRUNE_EVERY_MS);
-  return () => clearInterval(timer);
+  return () => {
+    clearInterval(timer);
+    offArchived();
+  };
 }

@@ -1,4 +1,4 @@
-OMP slash commands for Paseo's `omp` provider: `/omfg <correction>`, `/queue <message>`, `/btw <question>` and, when switched on, `/tan <work>`. None of them cancels a running reply. All of them need the OMP extension `headless-builtins` (`~/workspace/my-agents/.omp/extensions/headless-builtins/`, symlinked into `~/.omp/agent/extensions/`).
+OMP slash commands for Paseo's `omp` provider: `/omfg <correction>`, `/queue <message>`, `/btw <question>`, `/instructions [text]` and, when switched on, `/tan <work>`. None of them cancels a running reply. `/omfg`, `/queue`, `/btw` and `/tan` need the OMP extension `headless-builtins` (`~/workspace/my-agents/.omp/extensions/headless-builtins/`, symlinked into `~/.omp/agent/extensions/`); `/instructions` and the `Instructions` pill need the OMP extension `session-instructions` (same place).
 
 ## Settings
 
@@ -33,13 +33,24 @@ OMP slash commands for Paseo's `omp` provider: `/omfg <correction>`, `/queue <me
 
 Clients: web, desktop, iOS and Android. Only the public plugin API is used (slash commands, composer pills, `Modal`, timeline transformers and renderers, and plugin RPC), and the Markdown renderer is plain React Native. It was tested live on the web only. Refresh or reopen an open app after installing or updating the plugin.
 
-"OMP chats" means provider `omp` and every custom provider in `~/.paseo/config.json` whose `extends` chain reaches `omp` (e.g. `omp-nilo`, the nilo profile). Only the daemon side can read that config, so it answers `providers.omp` and checks it again before `/btw`; the client asks once and asks again about a provider it hasn't seen. That profile needs the `headless-builtins` symlink too (`~/.omp/profiles/nilo/agent/extensions/`). Other providers get the original slash command unchanged. Plugin commands win collisions with provider commands, and Paseo's built-in client commands win over plugins. These commands do not run with attachments (a Paseo limit).
+"OMP chats" means provider `omp` and every custom provider in `~/.paseo/config.json` whose `extends` chain reaches `omp` (e.g. `omp-nilo`, the nilo profile). Only the daemon side can read that config, so it answers `providers.omp` and checks it again before `/btw`; the client asks once and asks again about a provider it hasn't seen. That profile needs the `headless-builtins` and `session-instructions` symlinks too (`~/.omp/profiles/nilo/agent/extensions/`). Other providers get the original slash command unchanged. Plugin commands win collisions with provider commands, and Paseo's built-in client commands win over plugins. These commands do not run with attachments (a Paseo limit).
+
+## Instructions for a chat
+
+Text appended to one chat's system prompt on every turn, e.g. a long brief or a role. Unlike text in a message, it survives compaction.
+
+- Every OMP chat has an `Instructions` composer pill (tooltip "Instructions for this chat"). While the chat has none, the pill is dimmed (on web the whole pill, in the native apps its icon); once set, its icon is full colour. It opens a popover (a bottom sheet on phones) with a text box, Clear and Save, and one quiet line: "Added to this chat's system prompt from the next turn. Each edit makes the model re-read the chat once." The popover reads the text afresh each time it opens.
+- `/instructions <text>` replaces the chat's instructions without opening anything; the pill brightens. A bare `/instructions` opens the same editor as a modal (Paseo commands cannot open a pill's popover, so the pill's icon hosts the modal, as with `/btw`). Neither adds a message to the chat.
+- Storage: `~/.omp/agent/session-instructions/<OMP session id>.md`, the id taken from the chat's session file (Paseo's `persistence.nativeHandle`) by the daemon side (`instructions.get`, `instructions.set`). Clear writes an empty file instead of deleting it, so a copied chat does not take its source's text back. Archiving the chat deletes its file (`agent.archived` hook).
+- The OMP extension `session-instructions` reads the file on every turn and appends it under `## Instructions for this chat`. Copies of a chat (`/prose`, forks) start with their source's instructions; subagents and tangents get none. Details: `~/workspace/my-agents/.omp/extensions/session-instructions/OVERVIEW.md`.
+- Other clients see a change made elsewhere when they next show the chat or open the popover; nothing polls.
 
 ## Limits
 
 - `/btw`: one question at a time per chat. This is OMP's own rule; a second question shows "A /btw question is still running; cancel it first". There are no follow-ups on an answer yet; OMP's engine supports them, but this UI does not. If an OMP process dies mid-answer, the answer shows as interrupted after 10 minutes. Answers and markers are kept for 7 days.
 - Paseo's message-navigation rail (the small marks at the left edge) still counts the hidden `/follow-up /btw` message. Until a freshly loaded app has loaded its plugins, that message is briefly visible. `paseo logs` also shows it.
 - Desktop web: once the sheet is open, the pill's "By the way (/btw)" tooltip can show next to it. The sheet is rendered inside the pill (the only per-chat plugin UI), so React passes hover events from the sheet up to the pill's tooltip trigger. The plugin cannot turn the tooltip off.
+- Desktop web: the `/instructions` modal can show the pill's "Instructions for this chat" tooltip next to it, for the same reason.
 - The sheet is drawn by the plugin with React Native's `Modal`, not Paseo's sheet. On phones it is a plain panel without swipe-to-close, and it uses Paseo's default UI font, so a custom UI font set in Paseo's settings is not applied there.
 - `/tan` has no MCP tools.
 - `/tan`: OMP's "Background job bg_N has completed. Resume your work using the result below." notice stays under the row. Paseo 0.12 does not let plugins transform notifications (transformer item types: user and assistant messages, reasoning, tool calls, todos, errors, compaction), and the notice comes from OMP itself. Paseo also keeps only its first line; the full result is in the row.
