@@ -94,6 +94,11 @@ stays (allowed fallback).
 - **Hidden threads**: History lists no background-workspace agents. `noice-past-sessions` lists
   Paseo agents without `includeBackground` and OMP files under `~/.omp`; thread session files go
   to `~/.paseo/plugin-data/noice-bots/sessions` (`PI_CODING_AGENT_SESSION_DIR`).
+- **Start-up**: on load Bots settles turns that ended while it was down, starts queued threads,
+  sweeps read-only threads (then hourly) and switches hubs at midnight. A starting daemon loads its
+  plugins before it writes its address to `paseo.pid`, so this step retries its connection with
+  backoff (250 ms doubling to 5 s) for up to two minutes, then logs one line and gives up until
+  the next plugin reload.
 
 ## Sidebar
 

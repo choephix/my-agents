@@ -8,7 +8,7 @@ import {
   COUNTS_LABEL, DAY_KIND, defaultFolder, defaultName, EMOJI_LABEL, HUB_LABEL, PLUGIN_ID, PROVIDER_ID, ROLE_LABEL, THREAD_KIND, THREAD_LABEL,
   type Bot, type BotInput, type Day, type Message, type Thread,
 } from "../shared/contracts";
-import { daemon, paseoHome } from "./daemon";
+import { daemon, daemonAtStart, paseoHome } from "./daemon";
 import { dayOf, mediaDir, sessionsDir, Store } from "./store";
 
 export interface Limits { maxRunning: number; readOnlyDays: number; botsFolder: string }
@@ -56,7 +56,8 @@ export class Bots {
       }
     }
     // Turns that ended while this process was down.
-    const client = await daemon();
+    const client = await daemonAtStart();
+    if (!client) return;
     for (const thread of [...this.#active.values()].filter(thread => thread.status === "running")) {
       const agent = (await client.fetchAgent(thread.id).catch(() => null))?.agent;
       if (agent?.status === "running" || agent?.status === "initializing") continue;

@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -37,7 +38,30 @@ export function daemon(): Promise<DaemonClient> {
   return client;
 }
 
+let closed = false;
+
+/**
+ * `daemon()` for the start-up step. A daemon that is starting loads its plugins before it writes
+ * its address to `paseo.pid`, so the first tries fail; retry with backoff for up to two minutes.
+ */
+export async function daemonAtStart(): Promise<DaemonClient | null> {
+  const started = Date.now();
+  for (let wait = 250; !closed; wait = Math.min(wait * 2, 5_000)) {
+    try {
+      return await daemon();
+    } catch (error) {
+      if (Date.now() - started > 120_000) {
+        console.error(`noice-bots: gave up reaching this daemon after 2 minutes; reload the plugin to retry (${error instanceof Error ? error.message : String(error)})`);
+        return null;
+      }
+      await sleep(wait);
+    }
+  }
+  return null;
+}
+
 export async function closeDaemon(): Promise<void> {
+  closed = true;
   const current = client;
   client = null;
   await (await current?.catch(() => null))?.close();
