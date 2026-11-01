@@ -7,6 +7,8 @@ import { z } from "zod";
 const root = () => join(paseoHome(), "plugin-data", "noice-bots");
 /** Threads' OMP session files: kept apart from ~/.omp, so session lists and searches don't show threads. */
 export const sessionsDir = () => join(root(), "sessions");
+/** Images sent with a question, one folder per thread. */
+export const mediaDir = (threadId: string) => join(root(), "media", threadId);
 /** Local calendar day, `YYYY-MM-DD`. */
 export const dayOf = (ms: number) => new Date(ms).toLocaleDateString("sv-SE");
 
@@ -79,12 +81,15 @@ export class Store {
     await this.#write(join(root(), "copies", `${thread.id}.json`), () => ({ botId: thread.botId, day: dayOf(thread.createdAt), messages }));
   }
 
-  /** Drops a bot's day files and the saved copies of the given threads; `bots.json` is the caller's. */
+  /** Drops a bot's day files and the saved copies and images of the given threads; `bots.json` is the caller's. */
   async removeThreads(botId: string, threadIds: readonly string[]): Promise<void> {
     await Promise.all(this.#writes.values());
     for (const key of this.#days.keys()) if (key.startsWith(`${botId}/`)) this.#days.delete(key);
     await rm(join(root(), "threads", botId), { recursive: true, force: true });
-    for (const id of threadIds) await rm(join(root(), "copies", `${id}.json`), { force: true });
+    for (const id of threadIds) {
+      await rm(join(root(), "copies", `${id}.json`), { force: true });
+      await rm(mediaDir(id), { recursive: true, force: true });
+    }
   }
 
   #copy(id: string): Promise<Copy | undefined> {

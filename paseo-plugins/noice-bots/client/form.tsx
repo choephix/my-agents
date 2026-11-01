@@ -3,7 +3,7 @@ import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { TextInput } from "@getpaseo/plugin/client/ui";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { createBot, defaultFolder, defaultName, deleteBot, getBot, settings, updateBot, type BotInput } from "../shared/contracts";
+import { createBot, defaultFolder, defaultName, deleteBot, getBot, listProviders, settings, updateBot, type BotInput } from "../shared/contracts";
 import { humanError } from "./errors";
 
 const PICKS = ["🦊", "🐱", "🐼", "🐸", "🐻", "🦁", "🐨", "🐯", "🐵", "🐺"];
@@ -15,7 +15,10 @@ export function BotForm({ botId, theme, close, onCreated, onDeleted }: { botId?:
   const update = useRpc(updateBot);
   const remove = useRpc(deleteBot);
   const load = useRpc(getBot);
-  const [draft, setDraft] = useState<BotInput | null>(botId ? null : { name: "", emoji: "🐻", cwd: "", prompt: "" });
+  const providers = useRpc(listProviders);
+  const [draft, setDraft] = useState<BotInput | null>(botId ? null : { name: "", emoji: "🐻", cwd: "", prompt: "", provider: "omp" });
+  /** OMP and the providers that extend it; the picker shows only when there is a choice. */
+  const [choices, setChoices] = useState<{ id: string; label: string }[]>([]);
   /** The bot as stored, for the delete question. */
   const [stored, setStored] = useState<{ name: string; emoji: string; cwd: string; threads: number } | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -26,9 +29,10 @@ export function BotForm({ botId, theme, close, onCreated, onDeleted }: { botId?:
   const prefs = useSettings(settings);
   const botsFolder = prefs.status === "ready" ? prefs.values.botsFolder : "~/bots";
   useEffect(() => {
+    providers({}).then(setChoices, () => setChoices([]));
     if (botId) load({ id: botId }).then(bot => {
       if (!bot) return setState("This bot no longer exists.");
-      setDraft({ name: bot.name, emoji: bot.emoji, cwd: bot.cwd, prompt: bot.prompt });
+      setDraft({ name: bot.name, emoji: bot.emoji, cwd: bot.cwd, prompt: bot.prompt, provider: bot.provider });
       setStored(bot);
     }, error => setState(humanError(error)));
   }, [botId]);
@@ -102,6 +106,20 @@ export function BotForm({ botId, theme, close, onCreated, onDeleted }: { botId?:
         <TextInput value={draft.cwd} onChangeText={cwd => set({ cwd })} placeholder={defaultFolder(botsFolder, name)} placeholderTextColor={colors.foregroundMuted} style={input} autoCapitalize="none" autoCorrect={false} />
         <Text style={hint}>Created if it doesn't exist. The model and thinking level are picked in the bot's message box, like any chat.</Text>
       </View>
+      {choices.length > 1 ? (
+        <View>
+          <Text style={label}>Runs on</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+            {choices.map(choice => (
+              <Pressable key={choice.id} accessibilityRole="button" accessibilityLabel={`Runs on ${choice.label}`} onPress={() => set({ provider: choice.id })}
+                style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: draft.provider === choice.id ? colors.surface2 : "transparent" }}>
+                <Text style={{ color: colors.foreground, fontSize: 13 }}>{choice.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={hint}>OMP or a provider built on it, with its own profile. Applies to new threads.</Text>
+        </View>
+      ) : null}
       <View>
         <Text style={label}>System prompt</Text>
         <TextInput multiline value={draft.prompt} onChangeText={prompt => set({ prompt })}

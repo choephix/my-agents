@@ -1,21 +1,26 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { extname, join, resolve } from "node:path";
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { ProviderEvent, ProviderSessionConfig } from "@getpaseo/plugin/server/provider";
 import {
   COUNTS_LABEL, DAY_KIND, defaultFolder, defaultName, EMOJI_LABEL, HUB_LABEL, PLUGIN_ID, PROVIDER_ID, ROLE_LABEL, THREAD_KIND, THREAD_LABEL,
   type Bot, type BotInput, type Day, type Message, type Thread,
 } from "../shared/contracts";
-import { daemon } from "./daemon";
-import { dayOf, sessionsDir, Store } from "./store";
+import { daemon, paseoHome } from "./daemon";
+import { dayOf, mediaDir, sessionsDir, Store } from "./store";
 
 export interface Limits { maxRunning: number; readOnlyDays: number; botsFolder: string }
 
 interface HubSession { botId: string; emit(event: ProviderEvent): void; config: ProviderSessionConfig }
+/** What came with a hub message besides its text. */
+export interface Attached { images: { data: string; mimeType: string }[]; files: string[] }
 
 const PROGRESS_HINT = "\n\nWhile you work on something that takes more than a few steps, call thread_progress with a few words on what you are doing.";
+/** Images a thread sees as well as gets the path of, by file extension. */
+const IMAGE_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
+const extensionOf = (mimeType: string) => mimeType.split("/")[1]?.replace("jpeg", "jpg").replace(/[^a-z0-9].*$/, "") || "bin";
 /** Characters of the first answer kept on the hub's row. */
 const ANSWER_LIMIT = 1500;
 
@@ -71,11 +76,11 @@ export class Bots {
   }
 
   async #createBot(raw: BotInput): Promise<Bot> {
-    const input = await completeBot(raw, (await this.limits()).botsFolder);
+    const input = await this.#complete(raw);
     // The same form sent again within a few minutes (a second tap, or a retry whose first answer
     // never showed) gets the bot already made.
-    const same = this.store.bots.find(bot => Date.now() - bot.createdAt < 300_000
-      && bot.name === input.name && bot.emoji === input.emoji && bot.cwd === input.cwd && bot.prompt === input.prompt);
+    const same = this.store.bots.find(bot => Date.now() - bot.createdAt < 300_000 && bot.name === input.name && bot.emoji === input.emoji
+      && bot.cwd === input.cwd && bot.prompt === input.prompt && bot.provider === input.provider);
     if (same) return same;
     const client = await daemon();
     const id = randomUUID();
@@ -140,7 +145,7 @@ export class Bots {
 
   async updateBot(id: string, raw: BotInput): Promise<void> {
     const bot = this.#bot(id);
-    const input = await completeBot(raw, (await this.limits()).botsFolder);
+    const input = await this.#complete(raw);
     Object.assign(bot, input);
     await this.store.saveBots();
     const client = await daemon();
@@ -198,6 +203,27 @@ export class Bots {
     const rest = await client.fetchWorkspaces({ includeBackground: true, filter: { projectId, includeBackground: true }, page: { limit: 1 } });
     if (rest.entries.length === 0) await client.removeProject(projectId).catch(error => console.error(`noice-bots: removing ${bot.name}'s empty project failed`, error));
   }
+
+  /** `completeBot`, and the provider must be one `providers` lists. */
+  async #complete(raw: BotInput): Promise<BotInput> {
+    const providers = await this.providers();
+    if (!providers.some(provider => provider.id === raw.provider)) {
+      throw new Error(`Threads can't run on "${raw.provider}". Pick one of: ${providers.map(provider => provider.id).join(", ")}.`);
+    }
+    return completeBot(raw, (await this.limits()).botsFolder);
+  }
+
+  /** OMP and the enabled providers that extend it (from the daemon's config file, as the API doesn't say). */
+  async providers(): Promise<{ id: string; label: string }[]> {
+    const config = JSON.parse(await readFile(join(paseoHome(), "config.json"), "utf8").catch(() => "{}"));
+    const configured: Record<string, { extends?: string }> = config?.agents?.providers ?? {};
+    const { entries } = await (await daemon()).getProvidersSnapshot();
+    return entries
+      .filter(entry => entry.enabled && (entry.provider === "omp" || configured[entry.provider]?.extends === "omp"))
+      .map(entry => ({ id: entry.provider, label: entry.label ?? entry.provider }));
+  }
+
+  providerOf(botId: string): string { return this.store.bot(botId)?.provider ?? "omp"; }
 
   #bot(id: string): Bot {
     const bot = this.store.bot(id);
@@ -268,17 +294,27 @@ export class Bots {
   }
 
   /** A hub message: becomes a new thread with the hub's model, thinking and mode. The hub's own turn is over at once. */
-  async ask(sessionId: string, clientMessageId: string, text: string): Promise<void> {
+  async ask(sessionId: string, clientMessageId: string, text: string, attached: Attached): Promise<void> {
     const hub = this.#hubs.get(sessionId);
     if (!hub) throw new Error(`Unknown hub session ${sessionId}`);
     const bot = this.#bot(hub.botId);
     const id = randomUUID();
-    hub.emit({ type: "timeline.item", sessionId, item: { type: "user_message", id: `question-${id}`, text, clientMessageId } });
+    // Images go to disk first: a queued thread starts later, and the thread may keep them.
+    const files = [...attached.files];
+    if (attached.images.length) await mkdir(mediaDir(id), { recursive: true });
+    for (const [index, image] of attached.images.entries()) {
+      const file = join(mediaDir(id), `${index + 1}.${extensionOf(image.mimeType)}`);
+      await writeFile(file, Buffer.from(image.data, "base64"));
+      files.push(file);
+    }
+    const shown = files.length ? `${text}${text ? "\n" : ""}📎 ${files.length} attached` : text;
+    hub.emit({ type: "timeline.item", sessionId, item: { type: "user_message", id: `question-${id}`, text: shown, clientMessageId } });
     hub.emit({ type: "session.prompt_result", sessionId, clientMessageId, result: { type: "completed" } });
     const thread: Thread = {
-      id, botId: bot.id, workspaceId: bot.workspaceId, title: titleOf(text), question: text, answer: "", status: "queued",
+      id, botId: bot.id, workspaceId: bot.workspaceId, title: titleOf(text) || "📎 Attachment", question: text, answer: "", status: "queued",
       createdAt: Date.now(), startedAt: null, endedAt: null, followUps: 0, note: "", unread: false, readOnly: false,
       model: hub.config.model, thinking: hub.config.thinkingOption, mode: hub.config.mode,
+      ...(files.length ? { files } : {}),
     };
     this.#active.set(id, thread);
     await this.store.add(thread);
@@ -305,14 +341,21 @@ export class Bots {
     thread.status = "running";
     thread.startedAt = Date.now();
     this.#changed(thread);
+    const files = thread.files ?? [];
+    const images = await Promise.all(files.flatMap(file => {
+      const mimeType = IMAGE_TYPES[extname(file).slice(1).toLowerCase()];
+      return mimeType ? [readFile(file).then(bytes => ({ data: bytes.toString("base64"), mimeType }))] : [];
+    }));
+    const listed = files.length ? `${thread.question}\n\nAttached (saved on disk):\n${files.map(file => `- ${file}`).join("\n")}`.trim() : thread.question;
     await (await daemon()).createAgent({
       agentId: thread.id,
       workspaceId: bot.workspaceId,
       config: {
-        provider: "omp", cwd: bot.cwd, title: thread.title, systemPrompt: bot.prompt + PROGRESS_HINT,
+        provider: bot.provider, cwd: bot.cwd, title: thread.title, systemPrompt: bot.prompt + PROGRESS_HINT,
         ...(thread.model ? { model: thread.model } : {}), ...(thread.thinking ? { thinkingOptionId: thread.thinking } : {}), ...(thread.mode ? { modeId: thread.mode } : {}),
       },
-      initialPrompt: thread.question,
+      initialPrompt: listed,
+      ...(images.length ? { images } : {}),
       labels: { [THREAD_LABEL]: bot.id },
     });
   }

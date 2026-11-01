@@ -50,6 +50,8 @@ export const Thread = z.object({
   model: z.string().optional(),
   thinking: z.string().optional(),
   mode: z.string().optional(),
+  /** Images and files sent with the question, on disk; the thread is told their paths and sees the images. */
+  files: z.array(z.string()).optional(),
 });
 export type Thread = z.infer<typeof Thread>;
 
@@ -65,6 +67,8 @@ export const BotInput = z.object({
   emoji: z.string().trim().max(16),
   cwd: z.string().trim(),
   prompt: z.string(),
+  /** Threads run on OMP or a provider that extends it (they need its system prompt and session folder). */
+  provider: z.string().trim().default("omp"),
 });
 export type BotInput = z.infer<typeof BotInput>;
 
@@ -97,3 +101,5 @@ export const searchThreads = defineRpc({
 export const markAllRead = defineRpc({ name: "bots.mark-read", input: z.object({ botId: z.string() }), output: z.object({}) });
 /** The user opened a thread's chat: it stays up after its turn until the tab is closed. */
 export const openedThread = defineRpc({ name: "bots.opened", input: z.object({ id: z.string() }), output: z.object({}) });
+/** OMP and the providers that extend it, enabled on this daemon: what a bot's threads can run on. */
+export const listProviders = defineRpc({ name: "bots.providers", input: z.object({}), output: z.array(z.object({ id: z.string(), label: z.string() })) });

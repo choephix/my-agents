@@ -5,11 +5,14 @@ workspace's `.scratch/paseo-bots/map.md`.
 
 ## Pieces
 
-- **Bot**: name, emoji, **Works in** folder, system prompt (`bots.json`). Each bot owns a
+- **Bot**: name, emoji, **Works in** folder, **Runs on** provider, system prompt (`bots.json`). Each bot owns a
   background workspace (`background: true`), so its agents stay out of the sidebar and History.
   No field is required: an empty name becomes the emoji's animal (🐸 → Frog, else
   "Bot"), an empty folder `<Folder for new bots>/<name>` (setting, default `~/bots`), and a missing folder is created (relative
   paths start at home). Errors show the server's sentence, without Paseo's `requestType=…` tail.
+- **Runs on**: `omp` (default) or an enabled provider whose `config.json` entry has `extends: "omp"`
+  (e.g. `omp-nilo`, OMP with another profile). The API doesn't report `extends`, so the server
+  reads the daemon's `config.json`. The picker shows only when there is more than one.
 - **Delete bot** (Edit form, bottom left; one confirm step): stops running threads, then archives
   and deletes every thread agent and the hub (archiving first, as Paseo tells only the deleting
   connection about a delete; an archive reaches every client, so tabs close and the strip updates
@@ -18,11 +21,17 @@ workspace's `.scratch/paseo-bots/map.md`.
   then opens the next bot's hub, else the most recently active workspace.
 - **Hub**: an agent of the plugin's provider `bots` in that workspace. It runs no model: a message
   becomes a thread, the hub's own turn ends at once, and the thread shows as a plugin row.
-  The hub's model, thinking and mode pickers list OMP's (`listProviderModels("omp")`); the pick
-  is committed per hub and copied onto each new thread. Default: Claude Opus 5.5
-  (`anthropic/claude-opus-5-5`) at high thinking; OMP's default if the catalog lacks it.
-- **Thread**: an OMP agent (`provider: "omp"`) with the bot's prompt plus a hint to call
-  `thread_progress`, labelled `noice-bots.thread=<botId>`. Its id is the thread id.
+  The hub's model, thinking and mode pickers list the bot's provider's
+  (`listProviderModels(<provider>)`); the pick is committed per hub and copied onto each new
+  thread. Default: Claude Opus 5.5 (`anthropic/claude-opus-5-5`) at high thinking; the provider's
+  default if the catalog lacks it.
+- **Attachments**: the hub takes images (`prompt.image`) and uploaded files. Images are written to
+  `media/<thread>/<n>.<ext>` before the thread is queued; the thread gets the images and, under
+  its question, the paths of everything attached. The hub row says `📎 N attached`; a message
+  with only attachments is titled `📎 Attachment`.
+- **Thread**: an agent of the bot's provider with the bot's prompt plus a hint to call
+  `thread_progress`, labelled `noice-bots.thread=<botId>`. Its id is the thread id. An agent a
+  thread starts (Paseo's `create_agent`) stays up when the thread sleeps (lab, 2026-11-01).
 
 ## Hub rows
 
@@ -96,7 +105,8 @@ added there. Cost: every agent on the daemon reopens when this plugin reloads.
 ## Storage (`~/.paseo/plugin-data/noice-bots/`)
 
 `bots.json`; `threads/<bot>/<YYYY-MM-DD>.json` (rows; a day loads on demand and stays cached);
-`copies/<thread>.json` (saved copy and where its row lives); `sessions/` (thread OMP sessions).
+`copies/<thread>.json` (saved copy and where its row lives); `media/<thread>/` (attached images);
+`sessions/` (thread OMP sessions).
 
 ## Measured cost of a fresh thread (lab, Claude Haiku 5.5, 2026-11-01)
 
@@ -114,8 +124,8 @@ an hour with no thread, the next one pays like the first.
   Writer…") are Paseo's.
 - A running thread is a tab in the bot's workspace (Paseo shows every unarchived agent as one); it
   goes when the thread sleeps.
-- Codex ignores Paseo's per-agent system prompt, so threads are OMP only. Tool calls aren't in the
-  saved copy.
+- Codex ignores Paseo's per-agent system prompt, so threads run on OMP providers only. Tool calls
+  aren't in the saved copy.
 
 ## Screenshots
 

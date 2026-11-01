@@ -4,12 +4,12 @@ import {
 import type { Bots } from "./bots";
 import { daemon } from "./daemon";
 
-const CAPABILITIES = ["prompt.message", "session.configure", "session.persistence", "timeline.plugin"] as const;
+const CAPABILITIES = ["prompt.message", "prompt.image", "session.configure", "session.persistence", "timeline.plugin"] as const;
 
-/** The models, thinking levels and modes of OMP, which every thread runs on. */
-async function ompCatalog(): Promise<ProviderCatalog> {
+/** The models, thinking levels and modes of the OMP provider a bot's threads run on. */
+async function ompCatalog(provider: string): Promise<ProviderCatalog> {
   const client = await daemon();
-  const [{ models = [] }, { modes = [] }] = await Promise.all([client.listProviderModels("omp"), client.listProviderModes("omp")]);
+  const [{ models = [] }, { modes = [] }] = await Promise.all([client.listProviderModels(provider), client.listProviderModes(provider)]);
   return {
     models: models.map(({ id, label, description, isDefault, thinkingOptions, defaultThinkingOptionId }) => ({
       id, label, description, isDefault, defaultThinkingOptionId,
@@ -39,16 +39,17 @@ export function hubProvider(bots: Bots): ProviderRegistration {
       const listeners = new Set<(event: ProviderEvent) => void>();
       const sessions = new Set<string>();
       const emit = (event: ProviderEvent) => { for (const listener of listeners) listener(event); };
-      let catalog: Promise<ProviderCatalog> | null = null;
-      const loadCatalog = () => {
-        catalog ??= ompCatalog();
-        catalog.catch(() => { catalog = null; });
+      const catalogs = new Map<string, Promise<ProviderCatalog>>();
+      const loadCatalog = (provider: string) => {
+        const catalog = catalogs.get(provider) ?? ompCatalog(provider);
+        catalogs.set(provider, catalog);
+        catalog.catch(() => catalogs.delete(provider));
         return catalog;
       };
       /** Commits what new threads will use: the picked model, else Opus 5.5 at high (else OMP's default and its default thinking level). */
       const configState = async (sessionId: string): Promise<ProviderConfigState> => {
-        const { models, modes } = await loadCatalog();
         const hub = bots.hub(sessionId)!;
+        const { models, modes } = await loadCatalog(bots.providerOf(hub.botId));
         const picked = models.find(entry => entry.id === hub.config.model);
         const model = picked ?? models.find(entry => entry.id === DEFAULT_MODEL) ?? models.find(entry => entry.isDefault) ?? models[0];
         const preferred = picked ? hub.config.thinkingOption : DEFAULT_THINKING;
@@ -61,7 +62,7 @@ export function hubProvider(bots: Bots): ProviderRegistration {
       async function handle(input: ProviderInput): Promise<void> {
         switch (input.type) {
           case "catalog":
-            emit({ type: "catalog", requestId: input.requestId, catalog: await loadCatalog() });
+            emit({ type: "catalog", requestId: input.requestId, catalog: await loadCatalog(bots.store.bots.find(bot => bot.cwd === input.cwd)?.provider ?? "omp") });
             return;
           case "session.open": {
             const persisted = input.persistence?.data as { botId?: unknown } | undefined;
@@ -93,8 +94,11 @@ export function hubProvider(bots: Bots): ProviderRegistration {
               emit({ type: "session.prompt_result", sessionId: input.sessionId, clientMessageId: prompt.clientMessageId, result: { type: "failed", error: { message: "The hub takes plain messages." } } });
               return;
             }
-            const text = prompt.input.content.flatMap(part => (part.type === "text" ? [part.text] : [])).join("\n").trim();
-            await bots.ask(input.sessionId, prompt.clientMessageId, text);
+            const { content } = prompt.input;
+            const text = content.flatMap(part => (part.type === "text" ? [part.text] : [])).join("\n").trim();
+            const images = content.flatMap(part => (part.type === "image" ? [{ data: part.data, mimeType: part.mimeType }] : []));
+            const files = content.flatMap(part => (part.type === "uploaded_file" ? [part.path] : []));
+            await bots.ask(input.sessionId, prompt.clientMessageId, text, { images, files });
             return;
           }
           case "session.interrupt":
