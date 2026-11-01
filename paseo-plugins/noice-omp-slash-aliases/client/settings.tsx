@@ -28,6 +28,9 @@ export function createSettingsScreen(onSaved: (values: Preferences) => void) {
         <SettingsSwitch label="/tan command" hint="Offers /tan and runs OMP's background tangent without interrupting the reply. Off: /tan is not in the / menu; typed anyway, OMP still starts the tangent but a running reply is cut off. Earlier /tan rows show either way."
           value={settings.values.tan} disabled={settings.saving} error={settings.saveError}
           onValueChange={tan => save({ tan })} />
+        <SettingsSwitch label="Instructions header button" hint="Web and desktop: the workspace header button for instructions for the next chat. Off: arm them from the + Instructions pill beside a new chat's composer. The iOS and Android apps always have the button."
+          value={settings.values.nextChatHeaderButton} disabled={settings.saving}
+          onValueChange={nextChatHeaderButton => save({ nextChatHeaderButton })} />
       </SettingsCard>
     </SettingsSection>;
   };

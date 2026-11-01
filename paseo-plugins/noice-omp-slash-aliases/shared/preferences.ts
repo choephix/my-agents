@@ -8,6 +8,8 @@ export const preferences = defineSettings({
   schema: z.object({
     /** The `/tan` composer alias. Off: not offered; existing /tan rows still render. */
     tan: z.boolean().default(false),
+    /** Web: the "Instructions for the next chat" workspace header button. Native apps always have it. */
+    nextChatHeaderButton: z.boolean().default(false),
   }),
 });
 export type Preferences = z.output<typeof preferences.schema>;

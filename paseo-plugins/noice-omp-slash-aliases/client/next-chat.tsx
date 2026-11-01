@@ -1,20 +1,15 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginButtonContentProps, PluginButtonIconProps, PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
-import { Icon, Modal, TextInput } from "@getpaseo/plugin/client/react-native";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { AppState, Platform, Pressable, Text, View } from "react-native";
 import { nextChatArmed, nextChatGet, nextChatSet } from "../shared/next-chat";
-import { type DraftButtons, watchDraftComposers } from "./draft-button";
+import { startDraftButtons } from "./draft-button";
 import { BODY } from "./markdown-view";
 import { tabTitle } from "./phone-menu";
 
 const TITLE = "Instructions for the next chat";
 const SMALL = { fontSize: 12, lineHeight: 16 };
-const stop = (event: { stopPropagation(): void }) => event.stopPropagation();
-/** Web event props (React DOM names) that stop at the wrapper; React Native's types omit them. */
-const ISOLATE = Object.fromEntries(
-  ["onClick", "onPointerDown", "onPointerUp", "onPointerOver", "onPointerOut", "onMouseDown", "onMouseUp", "onMouseOver", "onMouseOut", "onKeyDown", "onKeyUp", "onTouchStart", "onTouchEnd"].map(name => [name, stop]),
-);
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
@@ -43,15 +38,16 @@ function Button({ theme, label, primary, disabled, onPress }: { theme: PluginThe
 }
 
 /**
- * A header button per workspace (on phones a row of the workspace ⋯ menu): text armed there goes
- * into the system prompt of the next chat started in that workspace, once, within 30 minutes. The
- * daemon side keeps the text and puts it in (`agent.create` hook); this side shows which
- * workspaces are armed: read at start, when the app returns to the foreground, after a chat
- * appears in an armed workspace, and on each open of the editor. Expiry is timed locally.
- * On wide web layouts the button's icon also puts an `Instructions` button beside draft composers
- * (`draft-button.ts`) and hosts the editor it opens, as a modal.
+ * Text armed per workspace goes into the system prompt of the next chat started there, once,
+ * within 30 minutes. The daemon side keeps the text and puts it in (`agent.create` hook); this side
+ * shows which workspaces are armed: read at start, when the app returns to the foreground, after a
+ * chat appears in an armed workspace, and on each open of an editor. Expiry is timed locally.
+ *
+ * Web: an `Instructions` pill beside each draft composer (`draft-button.ts`); the workspace header
+ * button only with Settings → "Instructions header button" (off by default). Native apps have no
+ * draft pill, so they always get the header button (on phones a row of the workspace ⋯ menu).
  */
-export function startNextChat(client: PluginClientContext): { chatCreated(workspaceId: string): void; stop(): void } {
+export function startNextChat(client: PluginClientContext): { chatCreated(workspaceId: string): void; setHeaderButton(show: boolean): void; stop(): void } {
   const expiries = new Map<string, number>();
   const buttons = new Map<string, { registration: PluginButtonRegistration; armed: boolean }>();
   const listeners = new Set<() => void>();
@@ -59,12 +55,8 @@ export function startNextChat(client: PluginClientContext): { chatCreated(worksp
     listeners.add(listener);
     return () => void listeners.delete(listener);
   };
-  /** The workspace whose editor a draft composer's button opened. */
-  let editing: string | null = null;
-  const edit = (workspaceId: string | null) => {
-    editing = workspaceId;
-    listeners.forEach(listener => listener());
-  };
+  // Web: hidden until the setting is read, so a switched-off button never flashes.
+  let headerVisible = Platform.OS !== "web";
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
   const apply = () => {
     const now = Date.now();
@@ -76,6 +68,7 @@ export function startNextChat(client: PluginClientContext): { chatCreated(worksp
       button.registration.update(armed ? { title: `${TITLE} · armed`, label: "Instructions ✓" } : { title: TITLE, label: undefined });
     }
     listeners.forEach(listener => listener());
+    drafts?.relabel();
     clearTimeout(expiryTimer);
     const next = Math.min(...expiries.values());
     if (Number.isFinite(next)) expiryTimer = setTimeout(apply, next - now + 500);
@@ -162,45 +155,23 @@ export function startNextChat(client: PluginClientContext): { chatCreated(worksp
   function Popover({ workspaceId, theme, layout, close }: PluginButtonContentProps) {
     return <Editor workspaceId={workspaceId} theme={theme} compact={layout.compact} close={close} />;
   }
-  function HeaderIcon({ workspaceId, theme, layout, size, color }: PluginButtonIconProps) {
+  function HeaderIcon({ workspaceId, theme, size, color }: PluginButtonIconProps) {
     const armed = useSyncExternalStore(subscribe, () => expiries.has(workspaceId));
-    const open = useSyncExternalStore(subscribe, () => editing === workspaceId);
-    const ref = useRef<View>(null);
-    const drafts = useRef<DraftButtons>(undefined);
-    useEffect(() => {
-      const anchor = ref.current as unknown as HTMLElement | null;
-      if (Platform.OS !== "web" || layout.compact || !anchor) return;
-      drafts.current = watchDraftComposers(anchor, () => edit(workspaceId));
-      return () => {
-        drafts.current?.stop();
-        drafts.current = undefined;
-      };
-    }, [workspaceId, layout.compact]);
-    useEffect(() => drafts.current?.setArmed(armed, theme.colors.accent), [armed, theme.colors.accent, workspaceId, layout.compact]);
-    return (
-      <>
-        <View ref={ref}>
-          <Icon name="ScrollText" size={size} color={armed ? theme.colors.accent : color} />
-        </View>
-        {open ? (
-          // React passes the modal's events up its tree, through the portal, to the header button
-          // that hosts it: a click or a typed space would open the header popover too.
-          <View {...ISOLATE}>
-            <Modal title={TITLE} open onOpenChange={next => !next && edit(null)}>
-              <Modal.Content>
-                <Editor workspaceId={workspaceId} theme={theme} compact close={() => edit(null)} />
-              </Modal.Content>
-            </Modal>
-          </View>
-        ) : null}
-      </>
-    );
+    return <Icon name="ScrollText" size={size} color={armed ? theme.colors.accent : color} />;
   }
+
+  const drafts = Platform.OS === "web"
+    ? startDraftButtons({
+        armed: workspaceId => expiries.has(workspaceId),
+        load: workspaceId => client.rpc(nextChatGet, { workspaceId }),
+        save: async (workspaceId, text) => setArmed(workspaceId, (await client.rpc(nextChatSet, { workspaceId, text })).expiresAt),
+      })
+    : undefined;
 
   const add = (workspaceId: string) => {
     if (buttons.has(workspaceId)) return;
     try {
-      const registration = client.addHeaderButton({ id: "next-chat", workspaceId, button: { title: TITLE, icon: HeaderIcon, behavior: { kind: "popover", Content: Popover } } });
+      const registration = client.addHeaderButton({ id: "next-chat", workspaceId, button: { title: TITLE, icon: HeaderIcon, visible: headerVisible, behavior: { kind: "popover", Content: Popover } } });
       buttons.set(workspaceId, { registration, armed: false });
     } catch (error) {
       console.warn("[noice-omp-slash-aliases] header button failed", error);
@@ -251,11 +222,18 @@ export function startNextChat(client: PluginClientContext): { chatCreated(worksp
     chatCreated(workspaceId) {
       if (expiries.has(workspaceId)) void refresh();
     },
+    setHeaderButton(show) {
+      const visible = Platform.OS !== "web" || show;
+      if (visible === headerVisible) return;
+      headerVisible = visible;
+      for (const { registration } of buttons.values()) registration.update({ visible });
+    },
     stop() {
       lifetime.abort();
       appState.remove();
       clearTimeout(expiryTimer);
       for (const id of [...buttons.keys()]) remove(id);
+      drafts?.stop();
     },
   };
 }

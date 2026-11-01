@@ -125,6 +125,7 @@ export default function contribute(client: PluginClientContext) {
   // `/tan` follows the host setting; nothing is registered until it is read, so a switched-off alias never flashes.
   let removeTan: (() => void) | undefined;
   const applySettings = (values: Preferences) => {
+    nextChat.setHeaderButton(values.nextChatHeaderButton);
     if (values.tan && !removeTan) removeTan = addAlias(TAN_ALIAS);
     else if (!values.tan && removeTan) {
       removeTan();
