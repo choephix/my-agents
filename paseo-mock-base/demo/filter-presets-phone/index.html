@@ -1,0 +1,148 @@
+<!doctype html>
+<!--
+  noice-filter-presets on the phone apps: a "Presets" row in the native sidebar
+  opens a bottom sheet with the preset buttons and the chosen preset's workspaces;
+  tapping one opens it. Phones can't hide sidebar projects (no plugin API), so the
+  sidebar under the sheet stays complete. Styles copy client/phone.tsx and
+  client/buttons.tsx; the sheet chrome (handle, title) is Paseo's compact popover.
+
+  Try it: tap the preset buttons in the sheet; tap "Presets" or the dimmed sidebar
+  to open/close the sheet. Base (b) shows today's phone sidebar, without the row.
+-->
+<html lang="en" data-mock-data data-mock-title="Filter presets · phone"
+      data-viewports="phone"
+      data-scales="fit 1 2"
+      data-states="sheet: open=Sheet open | closed=Sheet closed">
+<head>
+<meta charset="utf-8">
+<title>Filter presets · phone jump list</title>
+<link rel="stylesheet" href="/pages/paseo-base/kit/paseo.css">
+<script src="/pages/paseo-base/kit/dev.js" defer></script>
+<style>
+  .fp-drawer { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--c-surface-sidebar); }
+  .fp-drawer .sb-nav { border-bottom: 1px solid var(--c-border); padding: 10px 10px 8px; gap: 0; }
+  .fp-drawer .sb-row { height: 44px; font-size: var(--fs-base); cursor: pointer; }
+  .fp-drawer .sb-row .icon { width: 18px; height: 18px; }
+  .fp-drawer .sb-ws { min-height: 52px; }
+  .fp-drawer .sb-footer .icon-btn { width: 44px; height: 44px; }
+  .fp-drawer .sb-scroll { overflow: hidden; }
+
+  /* Paseo's compact popover: a bottom sheet titled with the item's title. */
+  .fp-scrim { position: absolute; inset: 0; z-index: 20; background: rgba(0, 0, 0, 0.5); cursor: pointer; }
+  .fp-sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 21; max-height: 70%; overflow: hidden;
+    background: var(--c-surface0); border: 1px solid var(--c-border); border-bottom: 0; border-radius: 16px 16px 0 0; padding: 8px 0 26px; }
+  .fp-handle { width: 36px; height: 4px; border-radius: 2px; background: var(--c-surface2); margin: 0 auto 10px; }
+  .fp-title { font-size: 14px; font-weight: 500; color: var(--c-foreground); padding: 4px 16px 12px; }
+
+  /* client/buttons.tsx */
+  .fp-buttons { display: flex; flex-wrap: wrap; column-gap: 14px; row-gap: 6px; padding: 4px 16px 8px; }
+  .fp-chip { padding: 3px 0 2px; border: 0; border-bottom: 2px solid transparent; background: none; cursor: pointer;
+    font: 500 9.5px/12px var(--font-ui); letter-spacing: 0.8px; text-transform: uppercase; color: var(--c-foreground-muted); }
+  .fp-chip.is-on { font-weight: 600; color: var(--c-foreground); border-bottom-color: var(--c-accent); }
+
+  /* client/phone.tsx Row */
+  .fp-ws { display: flex; align-items: center; gap: 10px; padding: 7px 16px; cursor: pointer; }
+  .fp-ws:active { background: var(--c-surface2); }
+  .fp-dot { flex: none; width: 6px; height: 6px; border-radius: 3px; background: var(--c-border); }
+  .fp-dot[data-s="needs_input"] { background: var(--c-status-dot-warning); }
+  .fp-dot[data-s="failed"] { background: var(--c-status-dot-danger); }
+  .fp-dot[data-s="attention"] { background: var(--c-status-dot-success); }
+  .fp-dot[data-s="running"] { background: var(--c-status-dot-running); }
+  .fp-text { flex: 1; min-width: 0; }
+  .fp-text b { display: block; font-weight: 400; font-size: 14px; line-height: 19px; color: var(--c-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fp-text span { display: block; font-size: 12px; line-height: 16px; color: var(--c-foreground-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fp-ago { font-size: 12px; color: var(--c-foreground-muted); }
+  .fp-more { padding: 10px 16px; font-size: 13px; color: var(--c-foreground-muted); }
+</style>
+</head>
+<body>
+
+<div class="app" data-section="phone" data-title="Phone sidebar">
+  <div class="fp-drawer">
+    <nav class="sb-nav">
+      <div class="sb-row" style="justify-content:space-between"><span style="display:flex;gap:8px;align-items:center"><i data-icon="plus"></i>New workspace</span><i data-icon="x"></i></div>
+      <div class="sb-row"><i data-icon="history"></i>History</div>
+      <div class="sb-row"><i data-icon="search"></i>Search</div>
+      <div class="sb-row"><i data-icon="calendar-clock"></i>Schedules</div>
+      <div class="slot" data-slot="sidebar-header"><div class="sb-row" data-set="sheet: open" data-note="1"><i data-icon="list-filter"></i>Presets</div></div>
+    </nav>
+    <div class="sb-scroll">
+      <div class="sb-section-header">Workspaces <button class="icon-btn"><i data-icon="settings-2" data-size="14"></i></button></div>
+      <template data-each="drawer.projectGroups">
+        <div class="sb-project"><span class="proj-icon" data-class="has-icon=projIcon" data-attrs="style=projStyle" data-text="initial"></span><span data-text="name"></span></div>
+        <template data-each="items">
+          <div class="sb-ws" data-pick="ws-phone" data-class="is-selected=selected"><span data-attrs="class=dotClass"></span><span class="sb-ws-title" data-text="title"></span><span class="sb-ws-meta" data-text="meta"></span></div>
+        </template>
+      </template>
+    </div>
+    <div class="sb-footer">
+      <button class="icon-btn"><i data-icon="folder-plus"></i></button>
+      <button class="icon-btn"><i data-icon="circle-gauge"></i></button>
+      <button class="icon-btn"><i data-icon="server"></i></button>
+      <span class="spacer"></span>
+      <button class="icon-btn"><i data-icon="circle-question-mark"></i></button>
+      <button class="icon-btn"><i data-icon="settings"></i></button>
+    </div>
+    <div class="fp-scrim" data-mod data-when="sheet: open" data-set="sheet: closed"></div>
+    <div class="fp-sheet" data-mod data-when="sheet: open" data-note="2">
+      <div class="fp-handle"></div>
+      <div class="fp-title">Filter presets</div>
+      <div class="fp-buttons" data-note="3"></div>
+      <div class="fp-list" data-note="4"></div>
+      <div class="fp-more" data-set="sheet: closed">Open as a screen</div>
+    </div>
+  </div>
+
+  <aside data-notes>
+    <p data-note-for="1"><b>Presets row</b>: one row under Schedules, phones only. Web and desktop (any width) keep the button row and never show it.</p>
+    <p data-note-for="2"><b>Sheet</b>: Paseo's compact popover, titled with the plugin item's title. The sidebar behind it stays complete: no plugin API can hide sidebar projects on phones.</p>
+    <p data-note-for="3"><b>Preset buttons</b>: the same buttons as the web row. The choice lasts for the app session (phones keep no browser storage); the web selection is separate.</p>
+    <p data-note-for="4"><b>Workspaces</b> of the chosen preset's projects, newest activity first: status dot, title, project · status, how long ago. Tap opens the workspace. Times refresh every 30 s, only while the sheet is open.</p>
+  </aside>
+</div>
+
+<script>
+  const LABEL = { needs_input: "Needs input", failed: "Failed", attention: "Ready to review", running: "Working", done: "Done" };
+  const chosenByFrame = new Map();
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text) n.textContent = text;
+    return n;
+  };
+
+  function draw(f) {
+    const data = MockKit.data();
+    const matched = new Set(data.presets.flatMap((p) => p.projects));
+    const choices = [
+      { id: "all", name: "All", projects: null },
+      ...data.presets,
+      ...(data.workspaces.some((w) => !matched.has(w.project)) ? [{ id: "other", name: "Other", projects: null }] : []),
+    ];
+    if (!chosenByFrame.has(f.index)) chosenByFrame.set(f.index, data.presets[0]?.id ?? "all");
+    const chosen = choices.find((c) => c.id === chosenByFrame.get(f.index)) ?? choices[0];
+    const shows = (w) => chosen.id === "all" || (chosen.id === "other" ? !matched.has(w.project) : chosen.projects.includes(w.project));
+
+    const buttons = f.el.querySelector(".fp-buttons");
+    buttons.replaceChildren(...choices.map((c) => {
+      const b = el("button", "fp-chip" + (c.id === chosen.id ? " is-on" : ""), c.name);
+      b.addEventListener("click", () => { chosenByFrame.set(f.index, c.id); draw(f); });
+      return b;
+    }));
+    const listed = data.workspaces.filter(shows);
+    f.el.querySelector(".fp-list").replaceChildren(...(listed.length ? listed.map((w) => {
+      const row = el("div", "fp-ws");
+      row.dataset.set = "sheet: closed";
+      const dot = el("i", "fp-dot");
+      dot.dataset.s = w.status;
+      const text = el("div", "fp-text");
+      text.append(el("b", null, w.title), el("span", null, `${w.projectName !== w.title ? w.projectName + " · " : ""}${LABEL[w.status] ?? "Done"}`));
+      row.append(dot, text, el("span", "fp-ago", w.status === "running" ? "" : w.ago));
+      return row;
+    }) : [el("div", "fp-more", "No workspaces.")]));
+  }
+
+  document.addEventListener("mockready", () => MockKit.onFrame(draw));
+</script>
+</body>
+</html>
