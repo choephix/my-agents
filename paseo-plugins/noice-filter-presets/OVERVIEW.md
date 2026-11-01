@@ -1,6 +1,6 @@
 Filter presets adds a compact row of All, your named presets, and Other buttons to the web sidebar. Choose a button or use the Command Center entries named “Filter preset: …”. All is the initial selection. Other appears only when at least one project matches no preset. Projects can match more than one preset and appear in each.
 
-Requires Paseo 0.12.0 or later. Native iOS and Android clients receive no buttons, commands, or settings screen.
+Requires Paseo 0.13.0 or later. The iOS and Android apps get a Presets jump list instead of the buttons (see "On phones"); they get no commands or settings screen.
 
 ## Definitions
 
@@ -50,6 +50,10 @@ The selected button is browser-local by design: each browser and the desktop app
 The browser also remembers the last stylesheet per host (`paseo-plugin:filter-presets:css`) and shows it the moment the plugin loads, so a page load doesn't show every project while definitions and projects are fetched. The current sheet replaces it as soon as they arrive (typically 0.5 to 4 s later through app.paseo.sh); a project added or changed since the last visit can be hidden or shown wrongly for that moment. Choosing All forgets it. Before Paseo loads its plugins (about 2 to 3 s after a page load through app.paseo.sh) no plugin can hide anything, so the full sidebar still shows briefly.
 
 While definitions and projects load, the row already shows All in its place, underlined when All is the saved choice and usable at once (it hides nothing, so it needs no data). Two faint static pills stand where the other buttons will appear; nothing animates. When a preset was the saved choice, nothing is underlined until its button arrives, since the remembered stylesheet already shows that preset. The row keeps the height it had at the last load (`paseo-plugin:filter-presets:row-height`), so the sidebar below doesn't move when buttons that wrap to a second line arrive; only the very first load, or a sidebar width that wraps differently than last time, can still shift it. If loading fails, "Presets unavailable" replaces the pills and All shows as selected, since nothing is hidden. The row itself appears only once Paseo has loaded the plugin, which pushes the sidebar below it down by one row; Paseo reserves no space for plugin rows.
+
+## On phones
+
+The phone apps can't hide sidebar projects: Paseo gives plugins no way to filter its native sidebar, and the web filter is a stylesheet, which phones don't have. So phones get one **Presets** row at the top of the sidebar instead. Tapping it opens a sheet with the same buttons (All, each preset, Other) and, under them, the workspaces of the chosen preset's projects, newest activity first: status dot, title, project and status, how long ago (refreshed every 30 seconds while the sheet is open). Tap a workspace to open it. "Open as a screen" shows the same list full screen. The sidebar itself stays complete. The choice in the sheet lasts until the app restarts and is separate from the web selection. The sheet lists up to 200 active workspaces, fetched each time it opens. Web and desktop, at any width, never show this row.
 
 ## Behavior and limits
 
