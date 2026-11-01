@@ -90,6 +90,13 @@ stays (allowed fallback).
   strip sits on a highlighted tile (the plugin can't see which workspace is on screen); others are
   dimmed until hover. Blue dot `#60A5FA`: a thread running; green: unread answers. **+**: New bot.
   A grey robot before the strip, setting **Show robot icon before bots** (on).
+  The row is 28 px like the rows above: the robot sits on their icon column, the tiles start where
+  their labels do. Tiles are 24 px with 1 px between; the 17 px emoji scales to 1.2× by transform
+  on hover and on the selected bot (tile and hit area unchanged; the emoji ignores the pointer).
+  Web: CSS transitions, 120 ms in and 240 ms out, easing out; none under `prefers-reduced-motion`.
+  The selected tile uses the theme's `border` colour, since `surface2` is the light sidebar itself;
+  the badge ring uses the sidebar colour (the darker of `surface0`/`surface2`). Keyboard focus draws
+  an accent outline (web: only on `:focus-visible`, so clicks don't).
 - Phone: one **Bots** row (`N running`) opening a sheet: bots with their status, and **New bot**.
 - The counts come from a label on each hub agent (`noice-bots.counts = running,unread`, debounced)
   read through one agent-list subscription, so the client polls nothing.
@@ -130,5 +137,6 @@ an hour with no thread, the next one pays like the first.
 ## Screenshots
 
 `screenshots/`: `hub`, `read-tab`, `waking`, `thread-awake`, `strip`, `strip-running`,
+`strip/` (before/after, light/dark, 1×/2×: rest, hover, selected, running, focus),
 `queued`, `day-divider`, `read-only`, `search`, `new-bot`, `edit-bot`, `settings`, `history`,
 `phone-hub`, `phone-drawer`, `phone-bots-menu`, `phone-read`, `writer-hub`.
