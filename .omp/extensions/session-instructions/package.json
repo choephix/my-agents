@@ -1,8 +1,0 @@
-{
-  "type": "module",
-  "omp": {
-    "extensions": [
-      "./session-instructions.ts"
-    ]
-  }
-}

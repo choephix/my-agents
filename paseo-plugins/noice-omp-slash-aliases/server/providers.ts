@@ -22,8 +22,17 @@ export function ompProviderIds(providers: ProviderConfig): string[] {
   return ["omp", ...Object.keys(providers).filter(id => id !== "omp" && baseProvider(id, providers) === "omp")];
 }
 
-/** Reads Paseo's `config.json` on each call; a missing or broken file leaves just `omp`. */
-export async function readOmpProviders(home = process.env.PASEO_HOME ?? join(homedir(), ".paseo")): Promise<string[]> {
+/** Paseo's custom providers from `config.json`, read on each call; a missing or broken file has none. */
+async function readProviderConfig(home = process.env.PASEO_HOME ?? join(homedir(), ".paseo")): Promise<ProviderConfig> {
   const config = await readFile(join(home, "config.json"), "utf8").then(JSON.parse, () => null);
-  return ompProviderIds(config?.agents?.providers ?? {});
+  return config?.agents?.providers ?? {};
+}
+
+export async function readOmpProviders(home?: string): Promise<string[]> {
+  return ompProviderIds(await readProviderConfig(home));
+}
+
+/** The built-in provider a (custom) provider runs on. */
+export async function readBaseProvider(provider: string): Promise<string> {
+  return baseProvider(provider, await readProviderConfig());
 }

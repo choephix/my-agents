@@ -2,7 +2,8 @@ import { settingsRpc } from "@getpaseo/plugin";
 import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
 import { BTW_ICON, createBtwPopover, createPillIcon } from "./client/btw-sheet";
 import { BtwStore, formatElapsed, isBusy } from "./client/btw-store";
-import { InstructionsStore, startInstructionPills } from "./client/instructions";
+import { startChats } from "./client/chats";
+import { startNextChat } from "./client/next-chat";
 import { OmpProviders } from "./client/omp-providers";
 import { createSettingsScreen } from "./client/settings";
 import { createTanRow, TanRowData, type TanRpc } from "./client/tan-row";
@@ -48,7 +49,7 @@ export default function contribute(client: PluginClientContext) {
   };
   // `omp` and custom providers built on it (e.g. `omp-nilo`), from Paseo's config.
   const providers = new OmpProviders(async () => (await client.rpc(ompProviders, {})).providers);
-  const instructions = new InstructionsStore(client);
+  const nextChat = startNextChat(client);
 
   // One composer pill per chat with /btw answers; its icon hosts the answer sheet. Phone layouts:
   // ⋯ (workspace menu) → btw → the workspace's chats with answers shows them in the menu's sheet;
@@ -65,7 +66,7 @@ export default function contribute(client: PluginClientContext) {
       pills.delete(agentId);
     }
     menu.set([...chats].flatMap(([agentId, chat]) => {
-      const agent = instructionPills.chats.get(agentId);
+      const agent = openChats.chats.get(agentId);
       if (!agent) return [];
       const count = chat.entries.length + chat.pending.length;
       const state = isBusy(chat) ? "answering…" : count > 1 ? `${count} answers` : "1 answer";
@@ -103,7 +104,7 @@ export default function contribute(client: PluginClientContext) {
       pills.set(agentId, { registration, label });
     }
   }
-  const instructionPills = startInstructionPills(client, providers, instructions, syncPills);
+  const openChats = startChats(client, { onChange: syncPills, onNew: agent => nextChat.chatCreated(agent.workspaceId!) });
   const unsubscribe = store.subscribe(syncPills);
   void store.refresh();
 
@@ -166,19 +167,8 @@ export default function contribute(client: PluginClientContext) {
         void store.ask(agent.id, workspace.id, args);
       },
     }),
-    // `/instructions <text>` replaces the chat's instructions; bare `/instructions` opens the pill's editor.
-    client.addSlashCommand({
-      name: "instructions",
-      description: "OMP: this chat's instructions, added to its system prompt every turn",
-      argumentHint: "[text]",
-      context: "agent",
-      async onSubmit({ args, agent, paseo }) {
-        if (!(await providers.isOmp(agent.provider))) return void (await paseo.agents.ref(agent.id).send(`/instructions${args ? ` ${args}` : ""}`));
-        if (args) await instructions.save(agent.id, args);
-        else instructions.open(agent.id);
-      },
-    }),
-    () => instructionPills.stop(),
+    () => openChats.stop(),
+    () => nextChat.stop(),
     client.addTimelineRenderer({ kind: "tan-row", version: 1, schema: TanRowData, Component: createTanRow(tanRpc, providers) }),
     // The /btw send is plumbing, not a conversation turn: keep it out of the timeline.
     // A /tan send becomes the tangent's row (live chats).
