@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { PluginButtonIconProps } from "@getpaseo/plugin/client";
+import type { PluginButtonContentProps, PluginButtonIconProps } from "@getpaseo/plugin/client";
 import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { type ComponentType, type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
@@ -300,6 +300,53 @@ function OpenCard({
   );
 }
 
+type Toggled = ReadonlyMap<string, boolean>;
+
+/**
+ * The header line and the cards: inside the sheet, or a page of the phone ⋯ menu. `toggled`: cards
+ * the user opened or folded; the rest follow the default (newest and running ones open).
+ */
+function BtwPanel({ agentId, store, theme, touch, onClose, toggled, setToggled }: {
+  agentId: string; store: BtwStore; theme: PluginTheme; touch: boolean; onClose(): void;
+  toggled: Toggled; setToggled(change: (prev: Toggled) => Toggled): void;
+}) {
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const chat = snapshot.chats.get(agentId);
+  const list = chat ? rows(chat) : [];
+  const toggle = (key: string, next: boolean) => setToggled(prev => new Map(prev).set(key, next));
+  const muted = theme.colors.foregroundMuted;
+  return (
+    <>
+      <View style={styles.titleRow}>
+        <Text numberOfLines={1} style={[SMALL, styles.flex, { color: muted }]}>
+          <Text style={{ color: theme.colors.foreground }}>/btw</Text>
+          {list.length > 1 ? ` · ${list.length}` : ""}
+          {touch ? " · not added to the chat" : " · from this chat's memory, not added to it"}
+        </Text>
+        <IconButton icon="X" label="Close" onPress={onClose} theme={theme} />
+      </View>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+        {list.map((row, index) => {
+          const expanded = toggled.get(row.key) ?? (index === 0 || isRunning(row));
+          return expanded ? (
+            <OpenCard
+              key={row.key}
+              row={row}
+              onFold={list.length > 1 ? () => toggle(row.key, false) : undefined}
+              touch={touch}
+              agentId={agentId}
+              store={store}
+              theme={theme}
+            />
+          ) : (
+            <FoldedCard key={row.key} row={row} onOpen={() => toggle(row.key, true)} theme={theme} />
+          );
+        })}
+      </ScrollView>
+    </>
+  );
+}
+
 /**
  * The answer sheet. It is drawn with React Native's own `Modal`, not the plugin
  * `Modal`: the plugin one always renders Paseo's ~64 px title row (16 px padding
@@ -307,13 +354,9 @@ function OpenCard({
  */
 function BtwSheet({ agentId, store, theme, touch }: { agentId: string; store: BtwStore; theme: PluginTheme; touch: boolean }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  // Cards the user opened or folded; the rest follow the default (newest and running ones open).
-  const [toggled, setToggled] = useState<ReadonlyMap<string, boolean>>(new Map());
-  const chat = snapshot.chats.get(agentId);
-  const open = snapshot.openAgentId === agentId && !!chat;
-  const list = chat ? rows(chat) : [];
-  const toggle = (key: string, next: boolean) => setToggled(prev => new Map(prev).set(key, next));
-  const muted = theme.colors.foregroundMuted;
+  const open = snapshot.openAgentId === agentId && snapshot.chats.has(agentId);
+  // Lives as long as the host, so folds survive closing and reopening the sheet.
+  const [toggled, setToggled] = useState<Toggled>(new Map());
   return (
     <Modal
       transparent
@@ -331,36 +374,20 @@ function BtwSheet({ agentId, store, theme, touch }: { agentId: string; store: Bt
             { backgroundColor: theme.colors.surface1, borderColor: theme.colors.border },
           ]}
         >
-          <View style={styles.titleRow}>
-            <Text numberOfLines={1} style={[SMALL, styles.flex, { color: muted }]}>
-              <Text style={{ color: theme.colors.foreground }}>/btw</Text>
-              {list.length > 1 ? ` · ${list.length}` : ""}
-              {touch ? " · not added to the chat" : " · from this chat's memory, not added to it"}
-            </Text>
-            <IconButton icon="X" label="Close" onPress={() => store.close()} theme={theme} />
-          </View>
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-            {list.map((row, index) => {
-              const expanded = toggled.get(row.key) ?? (index === 0 || isRunning(row));
-              return expanded ? (
-                <OpenCard
-                  key={row.key}
-                  row={row}
-                  onFold={list.length > 1 ? () => toggle(row.key, false) : undefined}
-                  touch={touch}
-                  agentId={agentId}
-                  store={store}
-                  theme={theme}
-                />
-              ) : (
-                <FoldedCard key={row.key} row={row} onOpen={() => toggle(row.key, true)} theme={theme} />
-              );
-            })}
-          </ScrollView>
+          <BtwPanel agentId={agentId} store={store} theme={theme} touch={touch} onClose={() => store.close()} toggled={toggled} setToggled={setToggled} />
         </View>
       </View>
     </Modal>
   );
+}
+
+/** A chat's answers as a page of the phone ⋯ menu (Paseo's bottom sheet), instead of the sheet. */
+export function createBtwPopover(store: BtwStore): ComponentType<PluginButtonContentProps> {
+  return function BtwPopover(props: PluginButtonContentProps) {
+    const agentId = props.context === "agent" ? props.agentId : "";
+    const [toggled, setToggled] = useState<Toggled>(new Map());
+    return <BtwPanel agentId={agentId} store={store} theme={props.theme} touch onClose={props.close} toggled={toggled} setToggled={setToggled} />;
+  };
 }
 
 /**

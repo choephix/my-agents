@@ -7,6 +7,7 @@ import { Platform, Pressable, Text, View } from "react-native";
 import { instructionsGet, instructionsSet } from "../shared/instructions";
 import { BODY } from "./markdown-view";
 import type { OmpProviders } from "./omp-providers";
+import { popoverFor, startPhoneMenu, tabTitle } from "./phone-menu";
 
 const SMALL = { fontSize: 12, lineHeight: 16 };
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -129,8 +130,12 @@ function Editor({ store, agentId, theme, compact, close }: { store: Instructions
  * pill, elsewhere its icon, since Paseo draws every pill label muted), full colour once set. It
  * opens the editor in a popover. The icon also hosts the editor that `/instructions` opens, as a
  * modal (commands cannot open a pill's popover).
+ *
+ * Phone layouts: ⋯ (workspace menu) → Instructions → the workspace's OMP chats opens the same
+ * editor. There a chat's pill exists only while it hosts the `/instructions` modal, behind it.
+ * `onChats` runs whenever `chats` (open chats with a workspace) changes.
  */
-export function startInstructionPills(client: PluginClientContext, providers: OmpProviders, store: InstructionsStore): () => void {
+export function startInstructionPills(client: PluginClientContext, providers: OmpProviders, store: InstructionsStore, onChats: () => void): { chats: ReadonlyMap<string, PaseoAgent>; stop(): void } {
   function PillIcon(props: PluginButtonIconProps) {
     const agentId = props.context === "agent" ? props.agentId : "";
     const text = useSyncExternalStore(store.subscribe, () => store.text(agentId));
@@ -164,29 +169,48 @@ export function startInstructionPills(client: PluginClientContext, providers: Om
   }
 
   const pills = new Map<string, PluginButtonRegistration>();
-  /** Each chat's newest snapshot, so a provider check that resolves late acts on current state. */
+  /** Each open chat's newest snapshot, so a provider check that resolves late acts on current state. */
   const latest = new Map<string, PaseoAgent>();
-  const remove = (agentId: string) => {
-    latest.delete(agentId);
-    pills.get(agentId)?.remove();
-    pills.delete(agentId);
-  };
-  const observe = (agent: PaseoAgent) => {
-    const workspaceId = agent.workspaceId;
-    if (!workspaceId || agent.archivedAt || agent.internal) return remove(agent.id);
-    latest.set(agent.id, agent);
-    if (pills.has(agent.id)) return;
-    void providers.isOmp(agent.provider).then(omp => {
-      if (!omp || pills.has(agent.id) || latest.get(agent.id) !== agent || lifetime.signal.aborted) return;
+  /** Open OMP chats. */
+  const omp = new Set<string>();
+  const menu = startPhoneMenu(client, { id: "instructions", title: "Instructions", icon: "ScrollText" }, () => sync());
+  const sync = () => {
+    const wanted = (agentId: string) => omp.has(agentId) && (!menu.compact || store.editing === agentId);
+    for (const [agentId, pill] of pills) {
+      if (wanted(agentId)) continue;
+      pill.remove();
+      pills.delete(agentId);
+    }
+    const chats = [...omp].map(agentId => latest.get(agentId)!);
+    for (const agent of chats) {
+      if (pills.has(agent.id) || !wanted(agent.id)) continue;
       pills.set(agent.id, client.addComposerPill({
         id: "instructions",
-        workspaceId,
+        workspaceId: agent.workspaceId!,
         agentId: agent.id,
         button: { title: "Instructions for this chat", label: "Instructions", icon: PillIcon, behavior: { kind: "popover", Content: Popover } },
       }));
+    }
+    menu.set(chats.map(agent => ({
+      agentId: agent.id, workspaceId: agent.workspaceId!, title: tabTitle(agent.title), createdAt: agent.createdAt,
+      behavior: popoverFor(Popover, agent.id, agent.workspaceId!),
+    })));
+  };
+  const offStore = store.subscribe(() => menu.compact && sync());
+  const remove = (agentId: string) => {
+    latest.delete(agentId);
+    omp.delete(agentId);
+  };
+  const observe = (agent: PaseoAgent) => {
+    if (!agent.workspaceId || agent.archivedAt || agent.internal) return remove(agent.id);
+    latest.set(agent.id, agent);
+    if (omp.has(agent.id)) return;
+    void providers.isOmp(agent.provider).then(isOmp => {
+      if (!isOmp || latest.get(agent.id) !== agent || lifetime.signal.aborted) return;
+      omp.add(agent.id);
+      sync();
     }, () => undefined);
   };
-
   const lifetime = new AbortController();
   void client.paseo.agents
     .list({ subscribe: {}, signal: lifetime.signal })
@@ -194,8 +218,10 @@ export function startInstructionPills(client: PluginClientContext, providers: Om
       if (lifetime.signal.aborted) return;
       const replace = (list: readonly { agent: PaseoAgent }[]) => {
         const ids = new Set(list.map(({ agent }) => agent.id));
-        for (const agentId of [...pills.keys()]) if (!ids.has(agentId)) remove(agentId);
+        for (const agentId of [...latest.keys()]) if (!ids.has(agentId)) remove(agentId);
         for (const { agent } of list) observe(agent);
+        sync();
+        onChats();
       };
       replace(entries);
       subscription.subscribe({
@@ -204,6 +230,8 @@ export function startInstructionPills(client: PluginClientContext, providers: Om
           if (message.type !== "agent_update") return;
           if (message.payload.kind === "remove") remove(message.payload.agentId);
           else observe(message.payload.agent);
+          sync();
+          onChats();
         },
       });
     })
@@ -211,8 +239,13 @@ export function startInstructionPills(client: PluginClientContext, providers: Om
       if (!lifetime.signal.aborted) console.warn("[noice-omp-slash-aliases] agent subscription failed", error);
     });
 
-  return () => {
-    lifetime.abort();
-    for (const agentId of [...pills.keys()]) remove(agentId);
+  return {
+    chats: latest,
+    stop() {
+      lifetime.abort();
+      offStore();
+      menu.stop();
+      pills.forEach(pill => pill.remove());
+    },
   };
 }

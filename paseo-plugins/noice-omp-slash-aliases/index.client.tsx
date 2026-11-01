@@ -1,12 +1,13 @@
 import { settingsRpc } from "@getpaseo/plugin";
 import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
-import { createPillIcon } from "./client/btw-sheet";
-import { BtwStore, formatElapsed } from "./client/btw-store";
+import { BTW_ICON, createBtwPopover, createPillIcon } from "./client/btw-sheet";
+import { BtwStore, formatElapsed, isBusy } from "./client/btw-store";
 import { InstructionsStore, startInstructionPills } from "./client/instructions";
 import { OmpProviders } from "./client/omp-providers";
 import { createSettingsScreen } from "./client/settings";
 import { createTanRow, TanRowData, type TanRpc } from "./client/tan-row";
 import { btwAsk, btwChats, btwDismiss, btwList } from "./shared/btw";
+import { popoverFor, startPhoneMenu, tabTitle } from "./client/phone-menu";
 import { DEFAULTS, preferences, type Preferences } from "./shared/preferences";
 import { ompProviders } from "./shared/providers";
 import { tanStatus } from "./shared/tan";
@@ -49,18 +50,30 @@ export default function contribute(client: PluginClientContext) {
   const providers = new OmpProviders(async () => (await client.rpc(ompProviders, {})).providers);
   const instructions = new InstructionsStore(client);
 
-  // One composer pill per chat with /btw answers; its icon hosts the answer sheet.
+  // One composer pill per chat with /btw answers; its icon hosts the answer sheet. Phone layouts:
+  // ⋯ (workspace menu) → btw → the workspace's chats with answers shows them in the menu's sheet;
+  // there a chat's pill exists only while it hosts the sheet /btw opened, behind it.
   const pills = new Map<string, { registration: PluginButtonRegistration; label: string }>();
+  const BtwPopover = createBtwPopover(store);
+  const menu = startPhoneMenu(client, { id: "btw", title: "By the way (/btw)", icon: BTW_ICON }, () => syncPills());
   function syncPills() {
-    const { chats } = store.getSnapshot();
+    const { chats, openAgentId } = store.getSnapshot();
+    const shown = (agentId: string) => chats.has(agentId) && (!menu.compact || agentId === openAgentId);
     for (const [agentId, pill] of pills) {
-      if (chats.has(agentId)) continue;
+      if (shown(agentId)) continue;
       pill.registration.remove();
       pills.delete(agentId);
     }
-    for (const [agentId, chat] of chats) {
+    menu.set([...chats].flatMap(([agentId, chat]) => {
+      const agent = instructionPills.chats.get(agentId);
+      if (!agent) return [];
       const count = chat.entries.length + chat.pending.length;
-      // While an answer runs the icon spins and the label counts up (polls tick it at least every 0.6 s).
+      const state = isBusy(chat) ? "answering…" : count > 1 ? `${count} answers` : "1 answer";
+      return [{ agentId, workspaceId: chat.workspaceId, title: `${tabTitle(agent.title)} · ${state}`, createdAt: agent.createdAt, behavior: popoverFor(BtwPopover, agentId, chat.workspaceId) }];
+    }));
+    for (const [agentId, chat] of chats) {
+      if (!shown(agentId)) continue;
+      const count = chat.entries.length + chat.pending.length;
       const runningSince = Math.min(
         ...chat.pending.filter(ask => !ask.error).map(ask => ask.sentAt),
         ...chat.entries.filter(entry => entry.status === "running").map(entry => entry.createdAt),
@@ -90,6 +103,7 @@ export default function contribute(client: PluginClientContext) {
       pills.set(agentId, { registration, label });
     }
   }
+  const instructionPills = startInstructionPills(client, providers, instructions, syncPills);
   const unsubscribe = store.subscribe(syncPills);
   void store.refresh();
 
@@ -164,7 +178,7 @@ export default function contribute(client: PluginClientContext) {
         else instructions.open(agent.id);
       },
     }),
-    startInstructionPills(client, providers, instructions),
+    () => instructionPills.stop(),
     client.addTimelineRenderer({ kind: "tan-row", version: 1, schema: TanRowData, Component: createTanRow(tanRpc, providers) }),
     // The /btw send is plumbing, not a conversation turn: keep it out of the timeline.
     // A /tan send becomes the tangent's row (live chats).
@@ -203,6 +217,7 @@ export default function contribute(client: PluginClientContext) {
     cleanups.forEach(cleanup => cleanup());
     unsubscribe();
     store.dispose();
+    menu.stop();
     pills.forEach(pill => pill.registration.remove());
   };
 }
