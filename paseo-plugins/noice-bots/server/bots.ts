@@ -135,6 +135,57 @@ export class Bots {
     await client.setWorkspaceTitle(bot.workspaceId, `${input.emoji} ${input.name}`);
   }
 
+  async threadCount(id: string): Promise<number> {
+    let count = 0;
+    for (const day of await this.store.days(id)) count += (await this.store.day(id, day)).length;
+    return count;
+  }
+
+  /**
+   * Deletes the bot's threads (running ones stopped first) with their session files, rows and saved
+   * copies, its hub and its workspace. Its Works-in folder stays.
+   */
+  async deleteBot(id: string): Promise<void> {
+    const bot = this.#bot(id);
+    // From here the hooks, the queue and the sweep no longer see it.
+    this.store.bots = this.store.bots.filter(other => other !== bot);
+    await this.store.saveBots();
+    for (const [sessionId, hub] of this.#hubs) if (hub.botId === id) this.#hubs.delete(sessionId);
+    clearTimeout(this.#countTimers.get(id));
+    this.#countTimers.delete(id);
+    const threads: string[] = [];
+    for (const day of await this.store.days(id)) threads.push(...(await this.store.day(id, day)).map(thread => thread.id));
+    for (const thread of threads) this.#active.delete(thread);
+    const client = await daemon();
+    for (const agentId of [...threads, bot.hubAgentId]) {
+      try {
+        const agent = (await client.fetchAgent(agentId).catch(() => null))?.agent;
+        if (!agent) continue;
+        if (agent.status === "running") await client.cancelAgent(agentId);
+        // Paseo tells only this connection about a delete; an archive reaches every client, so open
+        // tabs close and the sidebar strip drops the hub at once.
+        if (!agent.archivedAt) await client.archiveAgent(agentId);
+        await client.deleteAgent(agentId);
+        const file = agent.persistence?.nativeHandle;
+        if (file?.startsWith(sessionsDir() + "/")) {
+          await rm(file, { force: true });
+          await rm(file.replace(/\.jsonl$/, ""), { recursive: true, force: true });
+        }
+      } catch (error) {
+        console.error(`noice-bots: deleting ${agentId} of ${bot.name} failed`, error);
+      }
+    }
+    await this.store.removeThreads(id, threads);
+    const projectId = await projectOf(bot.workspaceId).catch(() => undefined);
+    const archived = await client.archiveWorkspace(bot.workspaceId).catch(error => ({ error: String(error) }));
+    if (archived.error) throw new Error(`${bot.name} is deleted, but its workspace couldn't be closed: ${archived.error}`);
+    // Making the bot's workspace made its folder a Paseo project. With no workspace left in it, the
+    // sidebar would list it as an empty project; one with other workspaces stays.
+    if (!projectId) return;
+    const rest = await client.fetchWorkspaces({ includeBackground: true, filter: { projectId, includeBackground: true }, page: { limit: 1 } });
+    if (rest.entries.length === 0) await client.removeProject(projectId).catch(error => console.error(`noice-bots: removing ${bot.name}'s empty project failed`, error));
+  }
+
   #bot(id: string): Bot {
     const bot = this.store.bot(id);
     if (!bot) throw new Error(`Unknown bot ${id}`);
@@ -463,4 +514,16 @@ async function completeBot(input: BotInput, botsFolder: string): Promise<BotInpu
     throw new Error(`Couldn't create the folder ${cwd} (${error.code ?? error.message}).`);
   });
   return { ...input, emoji, name, cwd };
+}
+
+async function projectOf(workspaceId: string): Promise<string | undefined> {
+  const client = await daemon();
+  let cursor: string | undefined;
+  do {
+    const page = await client.fetchWorkspaces({ includeBackground: true, page: { limit: 200, ...(cursor ? { cursor } : {}) } });
+    const found = page.entries.find(entry => entry.id === workspaceId);
+    if (found) return found.projectId;
+    cursor = page.pageInfo.hasMore ? page.pageInfo.nextCursor ?? undefined : undefined;
+  } while (cursor);
+  return undefined;
 }

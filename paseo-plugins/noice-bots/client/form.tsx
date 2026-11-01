@@ -3,26 +3,31 @@ import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { TextInput } from "@getpaseo/plugin/client/ui";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { createBot, defaultFolder, defaultName, getBot, settings, updateBot, type BotInput } from "../shared/contracts";
+import { createBot, defaultFolder, defaultName, deleteBot, getBot, settings, updateBot, type BotInput } from "../shared/contracts";
 import { humanError } from "./errors";
 
 const PICKS = ["🦊", "🐱", "🐼", "🐸", "🐻", "🦁", "🐨", "🐯", "🐵", "🐺"];
 
-/** New bot (`botId` absent) and Edit: name, emoji, folder, system prompt. The model lives in the hub's message box. */
-export function BotForm({ botId, theme, close, onCreated }: { botId?: string; theme: PluginTheme; close(): void; onCreated?(hubAgentId: string): void }) {
+/** New bot (`botId` absent) and Edit: name, emoji, folder, system prompt, and Delete. The model lives in the hub's message box. */
+export function BotForm({ botId, theme, close, onCreated, onDeleted }: { botId?: string; theme: PluginTheme; close(): void; onCreated?(hubAgentId: string): void; onDeleted?(botId: string): void }) {
   const { colors } = theme;
   const create = useRpc(createBot);
   const update = useRpc(updateBot);
+  const remove = useRpc(deleteBot);
   const load = useRpc(getBot);
   const [draft, setDraft] = useState<BotInput | null>(botId ? null : { name: "", emoji: "🐻", cwd: "", prompt: "" });
+  /** The bot as stored, for the delete question. */
+  const [stored, setStored] = useState<{ name: string; emoji: string; cwd: string; threads: number } | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const [anyEmoji, setAnyEmoji] = useState(false);
-  const [state, setState] = useState<"idle" | "saving" | string>("idle");
+  const [state, setState] = useState<"idle" | "saving" | "deleting" | string>("idle");
   const prefs = useSettings(settings);
   const botsFolder = prefs.status === "ready" ? prefs.values.botsFolder : "~/bots";
   useEffect(() => {
     if (botId) load({ id: botId }).then(bot => {
-      if (bot) setDraft({ name: bot.name, emoji: bot.emoji, cwd: bot.cwd, prompt: bot.prompt });
-      else setState("This bot no longer exists.");
+      if (!bot) return setState("This bot no longer exists.");
+      setDraft({ name: bot.name, emoji: bot.emoji, cwd: bot.cwd, prompt: bot.prompt });
+      setStored(bot);
     }, error => setState(humanError(error)));
   }, [botId]);
   if (!draft) return <View style={{ padding: 24 }}>{state === "idle" ? <ActivityIndicator color={colors.foregroundMuted} /> : <Text style={{ color: colors.statusDanger }}>{state}</Text>}</View>;
@@ -41,6 +46,20 @@ export function BotForm({ botId, theme, close, onCreated }: { botId?: string; th
       setState(humanError(error));
     }
   };
+  const destroy = async () => {
+    if (!botId) return;
+    setState("deleting");
+    try {
+      await remove({ id: botId });
+      close();
+      onDeleted?.(botId);
+    } catch (error) {
+      setConfirming(false);
+      setState(humanError(error));
+    }
+  };
+  const busy = state === "saving" || state === "deleting";
+  const button = { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8 };
   return (
     <View style={{ gap: 16, padding: 4, minWidth: 320, maxWidth: 520 }}>
       <Text style={{ color: colors.foreground, fontSize: 16, fontWeight: "600" }}>{botId ? `Edit ${name}` : "New bot"}</Text>
@@ -76,16 +95,37 @@ export function BotForm({ botId, theme, close, onCreated }: { botId?: string; th
           style={{ ...input, minHeight: 120, textAlignVertical: "top" }} />
         <Text style={hint}>Applies to new threads. Threads already started keep the prompt they began with.</Text>
       </View>
-      {state !== "idle" && state !== "saving" ? <Text style={{ color: colors.statusDanger, fontSize: 12 }}>{state}</Text> : null}
-      <View style={{ flexDirection: "row", gap: 8, justifyContent: "flex-end" }}>
-        <Pressable accessibilityRole="button" onPress={close} style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}>
-          <Text style={{ color: colors.foreground }}>Cancel</Text>
-        </Pressable>
-        <Pressable accessibilityRole="button" disabled={state === "saving"} onPress={save}
-          style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, backgroundColor: colors.accent, opacity: state === "saving" ? 0.5 : 1 }}>
-          <Text style={{ color: colors.accentForeground, fontWeight: "600" }}>{state === "saving" ? "Saving…" : botId ? "Save" : "Create bot"}</Text>
-        </Pressable>
-      </View>
+      {!busy && state !== "idle" ? <Text style={{ color: colors.statusDanger, fontSize: 12 }}>{state}</Text> : null}
+      {confirming && stored ? (
+        <View style={{ gap: 10 }}>
+          <Text style={{ color: colors.foreground, fontSize: 14 }}>
+            Delete {stored.emoji} {stored.name}? {stored.threads ? `Its ${stored.threads} thread${stored.threads === 1 ? "" : "s"} and their saved copies go too.` : "It has no threads."} Its folder {stored.cwd} and the files in it stay.
+          </Text>
+          <View style={{ flexDirection: "row", gap: 8, justifyContent: "flex-end" }}>
+            <Pressable accessibilityRole="button" disabled={busy} onPress={() => setConfirming(false)} style={{ ...button, borderWidth: 1, borderColor: colors.border }}>
+              <Text style={{ color: colors.foreground }}>Cancel</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" disabled={busy} onPress={destroy} style={{ ...button, backgroundColor: colors.statusDanger, opacity: busy ? 0.5 : 1 }}>
+              <Text style={{ color: colors.accentForeground, fontWeight: "600" }}>{state === "deleting" ? "Deleting…" : "Delete"}</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : (
+        <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+          {stored ? (
+            <Pressable accessibilityRole="button" disabled={busy} onPress={() => setConfirming(true)} style={{ ...button, paddingHorizontal: 6 }}>
+              <Text style={{ color: colors.statusDanger }}>Delete bot</Text>
+            </Pressable>
+          ) : null}
+          <View style={{ flex: 1 }} />
+          <Pressable accessibilityRole="button" onPress={close} style={{ ...button, borderWidth: 1, borderColor: colors.border }}>
+            <Text style={{ color: colors.foreground }}>Cancel</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={save} style={{ ...button, backgroundColor: colors.accent, opacity: busy ? 0.5 : 1 }}>
+            <Text style={{ color: colors.accentForeground, fontWeight: "600" }}>{state === "saving" ? "Saving…" : botId ? "Save" : "Create bot"}</Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }

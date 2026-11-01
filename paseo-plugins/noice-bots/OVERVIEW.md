@@ -10,6 +10,12 @@ workspace's `.scratch/paseo-bots/map.md`.
   No field is required: an empty name becomes the emoji's animal (🐸 → Frog, else
   "Bot"), an empty folder `<Folder for new bots>/<name>` (setting, default `~/bots`), and a missing folder is created (relative
   paths start at home). Errors show the server's sentence, without Paseo's `requestType=…` tail.
+- **Delete bot** (Edit form, bottom left; one confirm step): stops running threads, then archives
+  and deletes every thread agent and the hub (archiving first, as Paseo tells only the deleting
+  connection about a delete; an archive reaches every client, so tabs close and the strip updates
+  at once), removes the thread session files, rows and saved copies, archives the workspace, and
+  removes its Paseo project if no other workspace is in it. The Works-in folder stays. The app
+  then opens the next bot's hub, else the most recently active workspace.
 - **Hub**: an agent of the plugin's provider `bots` in that workspace. It runs no model: a message
   becomes a thread, the hub's own turn ends at once, and the thread shows as a plugin row.
   The hub's model, thinking and mode pickers list OMP's (`listProviderModels("omp")`); the pick

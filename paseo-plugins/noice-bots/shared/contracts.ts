@@ -82,7 +82,8 @@ export type Bot = z.infer<typeof Bot>;
 
 export const createBot = defineRpc({ name: "bots.create", input: BotInput, output: z.object({ hubAgentId: z.string() }) });
 export const updateBot = defineRpc({ name: "bots.update", input: BotInput.extend({ id: z.string() }), output: z.object({}) });
-export const getBot = defineRpc({ name: "bots.get", input: z.object({ id: z.string() }), output: Bot.nullable() });
+export const getBot = defineRpc({ name: "bots.get", input: z.object({ id: z.string() }), output: Bot.extend({ threads: z.number() }).nullable() });
+export const deleteBot = defineRpc({ name: "bots.delete", input: z.object({ id: z.string() }), output: z.object({}) });
 const RpcThread = z.object({ thread: Thread, bot: z.object({ name: z.string(), emoji: z.string() }), messages: z.array(Message) });
 export type RpcThread = z.infer<typeof RpcThread>;
 export const getThread = defineRpc({ name: "bots.thread", input: z.object({ id: z.string(), markRead: z.boolean() }), output: RpcThread.nullable() });

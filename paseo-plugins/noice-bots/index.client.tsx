@@ -12,15 +12,19 @@ import { createStrip } from "./client/strip";
 
 const opened = new Set<string>();
 
-/** Sidebar items and timeline rows have openScreen, not navigation: this screen lends it, then opens the chat. */
+/** Sidebar items and timeline rows have openScreen, not navigation: this screen lends it, then opens the chat (or workspace). */
 function OpenAgent({ params, navigation, theme }: PluginScreenProps) {
   useEffect(() => {
-    const key = `${params.agentId}:${params.nonce}`;
-    if (!params.agentId || !navigation || opened.has(key)) return;
+    const key = `${params.agentId ?? params.workspaceId}:${params.nonce}`;
+    if (!(params.agentId || params.workspaceId) || !navigation || opened.has(key)) return;
     // Not in the commit that mounts this screen: the app's navigation ref can still be null then.
-    const timer = setTimeout(() => { opened.add(key); navigation.openAgent({ agentId: params.agentId }); }, 0);
+    const timer = setTimeout(() => {
+      opened.add(key);
+      if (params.agentId) navigation.openAgent({ agentId: params.agentId });
+      else navigation.openWorkspace({ workspaceId: params.workspaceId });
+    }, 0);
     return () => clearTimeout(timer);
-  }, [params.agentId, params.nonce, navigation]);
+  }, [params.agentId, params.workspaceId, params.nonce, navigation]);
   return <Text style={{ color: theme.colors.foregroundMuted, padding: 24 }}>{navigation ? "Opening…" : "This Paseo client needs an update to open chats from Bots."}</Text>;
 }
 
@@ -37,6 +41,13 @@ export default function contribute(client: PluginClientContext) {
     client.openPanel("read", { workspaceId: thread.workspaceId });
   };
   const rows = createHubRows({ open: openThread, day: (botId, day) => client.rpc(listDay, { botId, day }) });
+  /** After Delete bot (pressed in that bot's workspace): the next bot's hub, else the most recently active workspace. */
+  const openNextHub = async (deleted: string) => {
+    const next = hubs.current().find(hub => hub.botId !== deleted);
+    if (next) return openChat(next.agentId);
+    const { entries } = await client.paseo.workspaces.list({ sort: [{ key: "activity_at", direction: "desc" }], page: { limit: 1 } });
+    if (entries[0]) client.openScreen({ screenId: "open", params: { workspaceId: entries[0].id, nonce: String(Date.now()) } });
+  };
 
   // Each bot's workspace header: System prompt (its form), and a menu with Search and Mark all read.
   const buttons = new Map<string, PluginButtonRegistration[]>();
@@ -52,7 +63,7 @@ export default function contribute(client: PluginClientContext) {
       buttons.set(workspaceId, [
         client.addHeaderButton({
           id: "system-prompt", workspaceId,
-          button: { title: "System prompt", icon: "ScrollText", label: "System prompt", behavior: { kind: "popover", Content: ({ theme, close }) => <BotForm botId={hub.botId} theme={theme} close={close} /> } },
+          button: { title: "System prompt", icon: "ScrollText", label: "System prompt", behavior: { kind: "popover", Content: ({ theme, close }) => <BotForm botId={hub.botId} theme={theme} close={close} onDeleted={openNextHub} /> } },
         }),
         client.addHeaderButton({
           id: "bot-menu", workspaceId,

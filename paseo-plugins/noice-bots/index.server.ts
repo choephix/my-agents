@@ -1,6 +1,6 @@
 import { defineAgentTool, type PluginServerContext } from "@getpaseo/plugin/server";
 import { z } from "zod";
-import { createBot, getBot, getThread, listDay, markAllRead, openedThread, searchThreads, settings, THREAD_LABEL, updateBot, wakeThread } from "./shared/contracts";
+import { createBot, deleteBot, getBot, getThread, listDay, markAllRead, openedThread, searchThreads, settings, THREAD_LABEL, updateBot, wakeThread } from "./shared/contracts";
 import { Bots } from "./server/bots";
 import { closeDaemon } from "./server/daemon";
 import { hubProvider } from "./server/hub";
@@ -18,7 +18,11 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(createBot, async input => { await loaded; return { hubAgentId: (await bots.createBot(input)).hubAgentId }; });
   server.handle(updateBot, async ({ id, ...input }) => { await bots.updateBot(id, input); return {}; });
-  server.handle(getBot, async ({ id }) => bots.store.bot(id) ?? null);
+  server.handle(getBot, async ({ id }) => {
+    const bot = bots.store.bot(id);
+    return bot ? { ...bot, threads: await bots.threadCount(id) } : null;
+  });
+  server.handle(deleteBot, async ({ id }) => { await loaded; await bots.deleteBot(id); return {}; });
   server.handle(getThread, async ({ id, markRead }) => {
     const found = await bots.read(id);
     const bot = found && bots.store.bot(found.thread.botId);

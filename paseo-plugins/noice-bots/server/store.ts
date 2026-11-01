@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Bot, Message, Thread } from "../shared/contracts";
 import { paseoHome } from "./daemon";
@@ -77,6 +77,14 @@ export class Store {
   async messages(id: string): Promise<Message[]> { return (await this.#copy(id))?.messages ?? []; }
   async setMessages(thread: Thread, messages: Message[]): Promise<void> {
     await this.#write(join(root(), "copies", `${thread.id}.json`), () => ({ botId: thread.botId, day: dayOf(thread.createdAt), messages }));
+  }
+
+  /** Drops a bot's day files and the saved copies of the given threads; `bots.json` is the caller's. */
+  async removeThreads(botId: string, threadIds: readonly string[]): Promise<void> {
+    await Promise.all(this.#writes.values());
+    for (const key of this.#days.keys()) if (key.startsWith(`${botId}/`)) this.#days.delete(key);
+    await rm(join(root(), "threads", botId), { recursive: true, force: true });
+    for (const id of threadIds) await rm(join(root(), "copies", `${id}.json`), { force: true });
   }
 
   #copy(id: string): Promise<Copy | undefined> {
