@@ -1,7 +1,7 @@
 import {
   negotiateProviderCapabilities, type ProviderCatalog, type ProviderConfigState, type ProviderEvent, type ProviderInput, type ProviderRegistration,
 } from "@getpaseo/plugin/server/provider";
-import type { Bots } from "./bots";
+import { DEFAULT_MODEL, DEFAULT_THINKING, type Bots } from "./bots";
 import { daemon } from "./daemon";
 
 const CAPABILITIES = ["prompt.message", "prompt.image", "session.configure", "session.persistence", "timeline.plugin"] as const;
@@ -19,10 +19,6 @@ async function ompCatalog(provider: string): Promise<ProviderCatalog> {
     defaultModel: models.find(model => model.isDefault)?.id,
   };
 }
-
-/** Bots start on this; the hub's model and thinking pickers change it. */
-const DEFAULT_MODEL = "anthropic/claude-opus-5-5";
-const DEFAULT_THINKING = "high";
 
 /**
  * The hub: a chat that runs no model. Each message starts a thread (a real OMP agent) and the

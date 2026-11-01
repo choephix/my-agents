@@ -23,6 +23,9 @@ const IMAGE_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg
 const extensionOf = (mimeType: string) => mimeType.split("/")[1]?.replace("jpeg", "jpg").replace(/[^a-z0-9].*$/, "") || "bin";
 /** Characters of the first answer kept on the hub's row. */
 const ANSWER_LIMIT = 1500;
+/** Bots start on this; the hub's model and thinking pickers change it. */
+export const DEFAULT_MODEL = "anthropic/claude-opus-5-5";
+export const DEFAULT_THINKING = "high";
 
 /** Threads, their bots and the hub chats that show them. */
 export class Bots {
@@ -90,7 +93,8 @@ export class Bots {
     this.store.bots.push(bot);
     await this.store.saveBots();
     try {
-      await this.#createHub(bot);
+      // Explicit: otherwise Paseo picks a model (an `omp-nilo` hub got Fable 5 at low).
+      await this.#createHub(bot, { model: DEFAULT_MODEL, thinkingOptionId: DEFAULT_THINKING });
     } catch (error) {
       this.store.bots = this.store.bots.filter(other => other !== bot);
       await this.store.saveBots();
