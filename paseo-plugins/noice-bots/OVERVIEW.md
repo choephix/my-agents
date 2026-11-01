@@ -1,0 +1,114 @@
+Bots: chat-looking hubs where every message starts its own thread, a fresh OMP agent with the
+bot's system prompt (built on Paseo 0.14.0, plugin only). UI per the mock, variant A:
+`~/www/webshare/pages/bots-mocks/index.html`. Effort map with the decisions: the index
+workspace's `.scratch/paseo-bots/map.md`.
+
+## Pieces
+
+- **Bot**: name, emoji, **Works in** folder, system prompt (`bots.json`). Each bot owns a
+  background workspace (`background: true`), so its agents stay out of the sidebar and History.
+- **Hub**: an agent of the plugin's provider `bots` in that workspace. It runs no model: a message
+  becomes a thread, the hub's own turn ends at once, and the thread shows as a plugin row.
+  The hub's model, thinking and mode pickers list OMP's (`listProviderModels("omp")`); the pick
+  is committed per hub and copied onto each new thread. Default: OMP's default model.
+- **Thread**: an OMP agent (`provider: "omp"`) with the bot's prompt plus a hint to call
+  `thread_progress`, labelled `noice-bots.thread=<botId>`. Its id is the thread id.
+
+## Hub rows
+
+Paseo draws your message (its own `user_message` row); the plugin row under it is the thread
+block: the answer cut to ~5 lines, a footer (`1 follow-up · 14:05`, green `new`), one press target.
+Running: spinner, timer, latest `thread_progress` note, **Open ›**. Queued: `queued`, not pressable.
+
+Paseo keeps its own durable copy of a hub's timeline and ignores what a reopened plugin session
+replays (`historyPrimed` in `agent-manager.ts`). So:
+- the hub draws live, 1 s after its session opens (`#drawHub`): older days as dividers
+  ("Yesterday · 480 threads", last 30 days), then today's blocks again; same ids, so rows update in
+  place. A thread that changed while the hub was closed is fixed then;
+- a change while no hub session is open (plugin reload, idle cleanup) reopens it
+  (`refreshAgent`), which draws;
+- a hub can't drop old rows, so each bot gets a **new hub agent every day** (at local midnight and
+  on plugin load), with the old hub's model, thinking and mode; the old hub is deleted. The hub
+  thus shows today, and older days fold behind dividers that load their day on press.
+
+## Sleep and wake (gate 2)
+
+- A thread's turn ends → the plugin saves its copy and **archives** it: the OMP process exits
+  (measured: `omp --mode rpc-ui` gone ~1 s after the turn; archive at the same second).
+- Exception: a thread whose chat the user opened (**Open ›** on a running block, or **Wake**) is
+  `awake` (saved on its row, so it survives reloads) and doesn't sleep at turn end: archiving
+  closes an open chat tab. Closing that tab archives it (Paseo), and the `agent.archived` hook
+  clears `awake`.
+- **Wake**: `refreshAgent` restores the archived agent with its history; the chat opens as a
+  normal tab and takes follow-ups (~3 s on the lab).
+
+## 🌙 Read tab
+
+One workspace panel per bot workspace, `🌙 Thread`. A finished block calls `showThread`
+(in-memory handoff, keyed by workspace) then `openPanel("read")`; the panel moves the id into its
+tab state, so a reload keeps the thread. It shows the **saved copy** (your messages and each
+turn's final reply, text only, from `copies/<thread>.json`), reloaded every time the tab is opened
+again (`revision`). Reading never loads the agent. **Wake this thread** at the bottom; read-only
+threads show a note instead. The plugin can't close its own tab when Wake opens the chat, so it
+stays (allowed fallback).
+
+## Scale
+
+- **Cap** on threads running at once per bot (setting, default 4); the rest queue and start in
+  order.
+- **Search** (hub header menu): every word in the questions and answers, newest first, 50 max;
+  saved copies are read only for threads with follow-ups or cut answers.
+- **Mark all read** (hub header menu).
+- **Read-only after N days** (setting, default 7), checked on load and hourly: the agent is
+  deleted, its session file too (only inside the plugin's sessions folder), the saved copy stays.
+- **Hidden threads**: History lists no background-workspace agents. `noice-past-sessions` lists
+  Paseo agents without `includeBackground` and OMP files under `~/.omp`; thread session files go
+  to `~/.paseo/plugin-data/noice-bots/sessions` (`PI_CODING_AGENT_SESSION_DIR`).
+
+## Sidebar
+
+- Wide: a strip of emoji tiles under Schedules (sidebar header item). The bot opened last from the
+  strip sits on a highlighted tile (the plugin can't see which workspace is on screen); others are
+  dimmed until hover. Blue dot `#60A5FA`: a thread running; green: unread answers. **+**: New bot.
+  A grey robot before the strip, setting **Show robot icon before bots** (on).
+- Phone: one **Bots** row (`N running`) opening a sheet: bots with their status, and **New bot**.
+- The counts come from a label on each hub agent (`noice-bots.counts = running,unread`, debounced)
+  read through one agent-list subscription, so the client polls nothing.
+- Each bot workspace header: **System prompt** (the bot form; changes apply to new threads) and a
+  menu with **Search threads** and **Mark all read**.
+
+## The one session-open hook
+
+`agent.session_open`, for bot threads only (`noice-bots.thread` label), adds the
+`thread_progress` tool and sets `PI_CODING_AGENT_SESSION_DIR`. Needed because agent tools are only
+added there. Cost: every agent on the daemon reopens when this plugin reloads.
+
+## Storage (`~/.paseo/plugin-data/noice-bots/`)
+
+`bots.json`; `threads/<bot>/<YYYY-MM-DD>.json` (rows; a day loads on demand and stays cached);
+`copies/<thread>.json` (saved copy and where its row lives); `sessions/` (thread OMP sessions).
+
+## Measured cost of a fresh thread (lab, Claude Haiku 5.5, 2026-11-01)
+
+First request of every thread: ~32.6k tokens. The first thread wrote all of it to the cache
+(32,613 written, $0.0065); every later thread, including another bot's and one started 1 min later,
+read 29,459 from the cache and wrote ~3.2k (bot prompt, folder context, question): ~$0.001. The
+29.5k cached part is OMP's own system prompt and tools, shared by all bots. OMP writes with a
+1-hour cache lifetime (`cttl.ephemeral1h` in its usage records), and each read renews it: a thread
+61 min after the previous probe still read 29,459 (another thread had run 33 min before it). After
+an hour with no thread, the next one pays like the first.
+
+## Not possible as a plugin
+
+- The workspace header subtitle ("6 threads · 1 new answer") and the composer placeholder ("Ask
+  Writer…") are Paseo's.
+- A running thread is a tab in the bot's workspace (Paseo shows every unarchived agent as one); it
+  goes when the thread sleeps.
+- Codex ignores Paseo's per-agent system prompt, so threads are OMP only. Tool calls aren't in the
+  saved copy.
+
+## Screenshots
+
+`screenshots/`: `hub`, `read-tab`, `waking`, `thread-awake`, `strip`, `strip-running`,
+`queued`, `day-divider`, `read-only`, `search`, `new-bot`, `edit-bot`, `settings`, `history`,
+`phone-hub`, `phone-drawer`, `phone-bots-menu`, `phone-read`, `writer-hub`.

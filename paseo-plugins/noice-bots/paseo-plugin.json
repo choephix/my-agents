@@ -1,0 +1,5 @@
+{
+  "id": "noice-bots",
+  "name": "Bots",
+  "requirements": { "paseo": ">=0.14.0" }
+}
