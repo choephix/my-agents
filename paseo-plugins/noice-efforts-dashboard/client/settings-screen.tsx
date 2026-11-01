@@ -24,13 +24,13 @@ export function SettingsScreen({ theme }: PluginSurfaceProps) {
   if (settings.status !== "ready") {
     return <Text style={{ color: theme.colors.foregroundMuted, padding: 16 }}>{settings.status === "loading" ? "Loading…" : settings.error}</Text>;
   }
-  const { extraFolders, excludedFolders, showHeaderButton, showComposerPill, commitsShown } = settings.values;
+  const { extraFolders, excludedFolders, showHeaderButton, commitsShown } = settings.values;
   const savedExtra = extraFolders.join(", ");
   const savedExcluded = excludedFolders.join(", ");
   const extra = extraDraft ?? savedExtra;
   const excluded = excludedDraft ?? savedExcluded;
   const dirty = extra !== savedExtra || excluded !== savedExcluded;
-  /** Saves the whole object (a missing field would fall back to its default), then refreshes the pills. */
+  /** Saves the whole object (a missing field would fall back to its default), then refreshes the header buttons. */
   const save = (values: Partial<typeof settings.values>) =>
     settings.save({ ...settings.values, ...values }, settings.revision).then((ok) => {
       if (ok) void fetchOverview().catch(() => undefined);
@@ -51,13 +51,6 @@ export function SettingsScreen({ theme }: PluginSurfaceProps) {
           value={showHeaderButton}
           disabled={settings.saving}
           onValueChange={(value) => void save({ showHeaderButton: value })}
-        />
-        <SettingsSwitch
-          label="Show composer pill"
-          hint="The effort pill above each chat's composer, on phones and narrow windows. Off by default."
-          value={showComposerPill}
-          disabled={settings.saving}
-          onValueChange={(value) => void save({ showComposerPill: value })}
         />
       </SettingsSection>
       <SettingsSection

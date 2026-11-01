@@ -17,7 +17,7 @@ export function client(): PluginClientContext {
 export const PANEL_ID = "efforts";
 export const SCREEN_ID = "all";
 
-/** Newest overview, shared by every surface and the header/composer registrations. */
+/** Newest overview, shared by every surface and the header button registrations. */
 let latest: Overview | null = null;
 let latestAt = 0;
 const listeners = new Set<(overview: Overview) => void>();

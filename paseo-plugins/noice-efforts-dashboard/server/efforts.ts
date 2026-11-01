@@ -204,9 +204,8 @@ export class EffortsService {
       }),
     );
     const showHeaderButton = settings.status === "ready" ? settings.values.showHeaderButton : true;
-    const showComposerPill = settings.status === "ready" ? settings.values.showComposerPill : false;
     const commitsShown = settings.status === "ready" ? settings.values.commitsShown : 30;
-    return unlessUnchanged({ home, roots: out, workspaces: infos, warnings, showHeaderButton, showComposerPill, commitsShown }, since);
+    return unlessUnchanged({ home, roots: out, workspaces: infos, warnings, showHeaderButton, commitsShown }, since);
   }
 
   private async guardRoot(root: string): Promise<void> {

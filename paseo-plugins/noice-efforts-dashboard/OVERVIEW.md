@@ -24,7 +24,10 @@ effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<s
   efforts · Switch… (the panel's effort picker) · Unbind. Paseo sizes a popover on its first frame
   and never again, so each bound workspace's effort is read ahead when its button appears and the
   list's height is fixed from its folded rows (opening Done scrolls inside it). Unbound: the
-  suggestion with Bind · New effort · No effort. On phones it opens the whole effort as a sheet.
+  suggestion with Bind · New effort · No effort. On phones (under 600 px) Paseo lists the button
+  as a row of the workspace ⋯ menu, titled like its tooltip (`acme-task · 0/9 done`); it opens the
+  whole effort as a sheet there: all rows, a row opens in place with its Question, status line,
+  the chat button and Read.
 - **Sidebar row "Efforts"** → global screen (⌘K "All efforts"): search over efforts, tickets, docs
   and workspace names (results grouped, replacing the table while typing; `/` focuses), project
   chips, a muted warnings line under them only when the server noticed a problem (an Extra folder
@@ -41,13 +44,10 @@ effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<s
   status + age / bar, `11/26 · 13 ready · 2 blocked` / next ticket + up to two workspace chips
   (`+N`); the project chips become one swipeable line, and an effort opens full screen below
   900 px of screen width.
-- **Phone composer pill** `acme-task · 0/9 done` on every chat of a bound workspace, compact
-  layouts only (< 720 px) and **off by default** (Settings → Show composer pill); tap → sheet with
-  all rows; a row opens in place with its Question, status line, the chat button and Read.
 - Settings → Plugins → noice-efforts-dashboard's menu → **Efforts** (route
   `/settings/hosts/<server>/plugins/noice-efforts-dashboard/folders`): **Show header button** (the
-  header pill, on by default; off removes it from every workspace header, the Efforts tab and
-  sidebar row stay), **Show composer pill** (off by default), **Extra folders** and **Excluded
+  header pill, on by default; off removes it from every workspace header and phone ⋯ menu, the
+  Efforts tab and sidebar row stay), **Extra folders** and **Excluded
   folders** (comma-separated, one Save), and **Commits shown** (10 / 30 / 50 / 100, default 30).
   A save re-reads the overview, so it applies at once. Not in the settings sidebar.
 
@@ -134,7 +134,8 @@ effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<s
 ## Limits
 - Plugins can't open a file in Paseo's file tab or write into the current composer: the viewer is
   built in; chats are new chats.
-- Phones: Paseo's compact explorer has no plugin panels (step 4 adds the composer pill).
+- Phones: Paseo's compact explorer has no plugin panels; the workspace ⋯ menu's effort row opens
+  the effort instead.
 - Over the app.paseo.sh relay the very first load after a plugin reload takes several seconds.
 - After Unbind the header button disappears for ~0.5 s before the dashed suggestion returns: the
   server computes suggestions only for unbound workspaces, so the instant update has none to show yet.

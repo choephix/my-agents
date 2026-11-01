@@ -69,7 +69,7 @@ function FooterButton(props: { c: Palette; icon: string; label: string; onPress(
  * Header pill popover. Wide layouts: name, destination, the route bar with its counts, then one
  * list in route order (Done, folded; in progress; to do; fog) that scrolls under a fixed head,
  * and a footer bar (Open panel · All efforts · Switch… · Unbind). Phones get the whole effort as a
- * sheet (P3), which is also what the composer pill opens.
+ * sheet (P3), opened from the workspace ⋯ menu.
  */
 export function EffortPopover({ workspaceId, theme, layout, close }: PluginButtonContentProps) {
   const c = colorsOf(theme);
