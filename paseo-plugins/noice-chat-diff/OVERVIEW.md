@@ -57,8 +57,13 @@ likely 2–4× faster):
   (was 0.86 s, a page-wide restyle twice per visit).
 - All 664 distinct diff blocks in Stefan's transcripts parse in 44 ms together; the slowest one in
   under 1 ms.
-- 43 page-wide highlight styles (were 49: the 8 that could never match are gone, 2 for quiet word
-  marks were added); every one costs style time on each element of the chat.
+- 43 highlight styles (were 49: the 8 that could never match are gone, 2 for quiet word marks were
+  added), scoped to colored diff blocks: the plugin marks each block's code element with
+  `data-noice-chat-diff` and the rules are `[data-noice-chat-diff]::highlight(…)`; the text inherits
+  the colors. Unscoped, Chromium resolved all 43 for every element of the page each time a block's
+  colors were added or dropped, so scrolling up a long chat spent ~500 ms of every second in style
+  (2026-11-01, the real web app on a GPU: 497 → 82 ms/s, recalcs over 10 000 elements 169 → 0,
+  tasks over 50 ms 157 → 7 in ~25 s of scrolling; colors unchanged on screenshots).
 - Theme and syntax-theme switches recolor diff blocks at once, picked up from Paseo's own theme
   change (the class on the page root, its theme stylesheet), window focus and the system light/dark
   switch. The plugin used to check every 1.5 s, forcing a style update each time; idle, it now

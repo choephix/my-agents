@@ -29,6 +29,8 @@ interface DomElement extends DomNode {
   readonly textContent: string | null;
   readonly style: { setProperty(name: string, value: string, priority: "important"): void; removeProperty(name: string): void };
   getAttribute(name: string): string | null;
+  setAttribute(name: string, value: string): void;
+  removeAttribute(name: string): void;
   closest(selector: string): DomElement | null;
   matches(selector: string): boolean;
   querySelector(selector: string): DomElement | null;
@@ -97,6 +99,13 @@ const PRE = '[data-paseo-markdown-tag="pre"]';
 const CODE = '[data-paseo-markdown-tag="code"]';
 const LANGUAGE = "data-paseo-markdown-language";
 const PREFIX = "noice-chat-diff";
+/**
+ * On the code element of every colored block. The `::highlight` rules apply only under it (text
+ * inherits its parent's highlight colors): an unscoped `::highlight` rule is resolved for every
+ * element of the page whenever a highlight changes, which made scrolling a long chat spend most of
+ * each second in style.
+ */
+const MARK = "data-noice-chat-diff";
 const SHOW_TEXT = 4;
 const ELEMENT_NODE = 1;
 const TEXT_NODE = 3;
@@ -199,7 +208,7 @@ export function startDiffHighlighting(): () => void {
     if (key === paletteKey) return false;
     paletteKey = key;
     palette = diffPalette(syntaxTheme, scheme);
-    const rule = (name: string, body: string) => `::highlight(${PREFIX}-${name}) { ${body} }`;
+    const rule = (name: string, body: string) => `[${MARK}]::highlight(${PREFIX}-${name}) { ${body} }`;
     style.textContent = [
       ...CONTEXT_KINDS.map((kind) => rule(kind, `color: ${palette.tokens[kind]};`)),
       ...SIDES.flatMap((side) => [
@@ -242,6 +251,7 @@ export function startDiffHighlighting(): () => void {
     const block = blocks.get(pre);
     if (!block) return;
     hide(block);
+    block.code.removeAttribute(MARK);
     for (const property of ROW_STYLE) pre.style.removeProperty(property);
     blocks.delete(pre);
     resizes.unobserve(pre);
@@ -345,6 +355,7 @@ export function startDiffHighlighting(): () => void {
     for (const line of lines) if ((line.kind === "add" || line.kind === "del") && line.end > line.start + 1) mark(`text-${line.kind}`, line.start + 1, line.end);
     for (const edit of block.model.edits) mark(quiet ? `quiet-${edit.kind}` : edit.kind, edit.start, edit.end);
     if (shown) show(block);
+    code.setAttribute(MARK, "");
     blocks.set(pre, block);
     if (!existing) resizes.observe(pre);
     if (syncPalette()) repaintAll();
