@@ -31,7 +31,10 @@ export const ThreadStatus = z.enum(["queued", "running", "done", "failed", "stop
 export const Thread = z.object({
   id: z.string(),
   botId: z.string(),
+  /** The question's first line, until the thread names itself (`thread_progress`'s `title`). */
   title: z.string(),
+  /** The thread chose `title` itself. */
+  named: z.boolean().optional(),
   question: z.string(),
   answer: z.string(),
   status: ThreadStatus,

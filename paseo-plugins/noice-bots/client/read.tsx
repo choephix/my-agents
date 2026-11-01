@@ -72,6 +72,7 @@ export function ReadPanel({ workspaceId, tab, theme, layout, navigation, revisio
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface0 }}>
       <ScrollView contentContainerStyle={{ padding: pad, gap: 14, maxWidth: 820, width: "100%", alignSelf: "center" }}>
+        <Text style={{ color: colors.foreground, fontSize: 16, fontWeight: "600", paddingHorizontal: 8 }}>{data.thread.title}</Text>
         <Text style={{ color: colors.foregroundMuted, fontSize: 12, paddingHorizontal: 8 }}>
           {data.bot.emoji} {data.bot.name} · {data.thread.readOnly ? "read-only" : "asleep"} · saved copy: your messages and the answers
         </Text>

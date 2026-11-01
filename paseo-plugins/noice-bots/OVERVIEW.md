@@ -30,14 +30,25 @@ workspace's `.scratch/paseo-bots/map.md`.
   its question, the paths of everything attached. The hub row says `📎 N attached`; a message
   with only attachments is titled `📎 Attachment`.
 - **Thread**: an agent of the bot's provider with the bot's prompt plus a hint to call
-  `thread_progress`, labelled `noice-bots.thread=<botId>`. Its id is the thread id. An agent a
-  thread starts (Paseo's `create_agent`) stays up when the thread sleeps (lab, 2026-11-01).
+  `thread_progress` (and set its `title` on the first call), labelled `noice-bots.thread=<botId>`.
+  Its id is the thread id. An agent a thread starts (Paseo's `create_agent`) stays up when the
+  thread sleeps (lab, 2026-11-01).
+- **Title**: the question's first line (cut at 48 characters) until the thread sends
+  `thread_progress` with `title` (2-5 words; `note` and `title` are both optional, one is needed).
+  Then Bots renames the agent in Paseo (`updateAgent` name, kept in Paseo's record, so the chat tab
+  shows it after sleep and wake) and stores it on the thread row (`named: true`): the hub block's
+  bold first line, the read tab's heading, search, and read-only threads. A later title replaces it.
+  The read tab's own label stays `🌙 Thread`: a plugin panel's title is fixed at registration.
+  Paseo stores one `title` per agent with no mark of whether it was chosen or derived, so a thread
+  that never names itself and asked a one-line question under 49 characters has exactly Paseo's
+  first-prompt placeholder as its title.
 
 ## Hub rows
 
 Paseo draws your message (its own `user_message` row); the plugin row under it is the thread
 block: the answer cut to ~5 lines, a footer (`1 follow-up · 14:05`, green `new`), one press target.
 Running: spinner, timer, latest `thread_progress` note, **Open ›**. Queued: `queued`, not pressable.
+A thread that named itself shows its title in bold at the top of the block.
 
 Paseo keeps its own durable copy of a hub's timeline and ignores what a reopened plugin session
 replays (`historyPrimed` in `agent-manager.ts`). So:

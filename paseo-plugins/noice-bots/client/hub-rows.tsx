@@ -51,6 +51,8 @@ export function ThreadBlock({ thread, theme, actions, question }: { thread: Thre
           <Text numberOfLines={6} style={{ color: colors.foreground, fontSize: 15, lineHeight: 21 }}>{thread.question}</Text>
         </View>
       ) : null}
+      {/* A title the thread chose; until then your message above says what it's about. */}
+      {thread.named ? <Text numberOfLines={1} style={{ color: colors.foreground, fontSize: 13, fontWeight: "600", paddingHorizontal: 8 }}>{thread.title}</Text> : null}
       {live ? (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8 }}>
           {thread.status === "queued" ? <Text style={muted}>queued</Text> : <>

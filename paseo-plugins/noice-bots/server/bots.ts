@@ -17,7 +17,8 @@ interface HubSession { botId: string; emit(event: ProviderEvent): void; config: 
 /** What came with a hub message besides its text. */
 export interface Attached { images: { data: string; mimeType: string }[]; files: string[] }
 
-const PROGRESS_HINT = "\n\nWhile you work on something that takes more than a few steps, call thread_progress with a few words on what you are doing.";
+const PROGRESS_HINT = "\n\nWhile you work on something that takes more than a few steps, call thread_progress with a few words on what you are doing."
+  + " On your first thread_progress call, also set title: 2-5 words naming what this thread is about.";
 /** Images a thread sees as well as gets the path of, by file extension. */
 const IMAGE_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
 const extensionOf = (mimeType: string) => mimeType.split("/")[1]?.replace("jpeg", "jpg").replace(/[^a-z0-9].*$/, "") || "bin";
@@ -429,10 +430,18 @@ export class Bots {
     await (await daemon()).refreshAgent(id);
   }
 
-  progress(agentId: string, note: string): boolean {
+  progress(agentId: string, update: { note?: string; title?: string }): boolean {
     const thread = this.#active.get(agentId);
     if (!thread || thread.status !== "running") return false;
-    thread.note = note.replace(/\s+/g, " ").trim().slice(0, 200);
+    if (update.note) thread.note = oneLine(update.note).slice(0, 200);
+    const title = update.title ? oneLine(update.title).slice(0, 60) : "";
+    if (title && title !== thread.title) {
+      thread.title = title;
+      thread.named = true;
+      // Paseo keeps the agent's title in its record: the tab shows it, and it survives sleep and wake.
+      void daemon().then(client => client.updateAgent(agentId, { name: title }))
+        .catch(error => console.error(`noice-bots: renaming thread ${agentId} failed`, error));
+    }
     this.#changed(thread);
     return true;
   }
@@ -532,6 +541,8 @@ export class Bots {
     clearTimeout(this.#midnight);
   }
 }
+
+const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
 
 function titleOf(text: string): string {
   const line = text.trim().split("\n")[0].replace(/\s+/g, " ");

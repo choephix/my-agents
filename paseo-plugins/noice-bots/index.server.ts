@@ -46,9 +46,14 @@ export default function contribute(server: PluginServerContext) {
   // the plugin's folder (OMP's PI_CODING_AGENT_SESSION_DIR) so session lists and searches skip them.
   const threadProgress = defineAgentTool({
     name: "thread_progress",
-    description: "Show a few words on what you are doing in the bot hub, under this thread, until the next note.",
-    input: z.object({ note: z.string().min(1).describe("A few words, one line") }),
-    execute: ({ note }, { agent }) => (bots.progress(agent.id, note) ? { text: "Shown." } : { isError: true, text: "This thread is not running." }),
+    description: "Show a few words on what you are doing in the bot hub, under this thread, until the next note. "
+      + "`title` names this thread in the hub and on its tab; a later title replaces the earlier one. Send a note, a title or both.",
+    input: z.object({
+      note: z.string().min(1).optional().describe("A few words, one line"),
+      title: z.string().min(1).optional().describe("2-5 words naming what this thread is about, e.g. \"SQLite journal mode\""),
+    }),
+    execute: ({ note, title }, { agent }) => !note && !title ? { isError: true, text: "Send a note, a title or both." }
+      : bots.progress(agent.id, { note, title }) ? { text: "Shown." } : { isError: true, text: "This thread is not running." },
   });
   const offTools = server.before("agent.session_open", ({ request }) => {
     if (!request.labels[THREAD_LABEL]) return;
