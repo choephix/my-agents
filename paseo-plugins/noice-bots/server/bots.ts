@@ -1,17 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { rm, stat } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { ProviderEvent, ProviderSessionConfig } from "@getpaseo/plugin/server/provider";
 import {
-  COUNTS_LABEL, DAY_KIND, EMOJI_LABEL, HUB_LABEL, PLUGIN_ID, PROVIDER_ID, ROLE_LABEL, THREAD_KIND, THREAD_LABEL,
+  COUNTS_LABEL, DAY_KIND, defaultFolder, defaultName, EMOJI_LABEL, HUB_LABEL, PLUGIN_ID, PROVIDER_ID, ROLE_LABEL, THREAD_KIND, THREAD_LABEL,
   type Bot, type BotInput, type Day, type Message, type Thread,
 } from "../shared/contracts";
 import { daemon } from "./daemon";
 import { dayOf, sessionsDir, Store } from "./store";
 
-export interface Limits { maxRunning: number; readOnlyDays: number }
+export interface Limits { maxRunning: number; readOnlyDays: number; botsFolder: string }
 
 interface HubSession { botId: string; emit(event: ProviderEvent): void; config: ProviderSessionConfig }
 
@@ -63,7 +63,7 @@ export class Bots {
   // ---------------------------------------------------------------- bots
 
   async createBot(raw: BotInput): Promise<Bot> {
-    const input = await resolveFolder(raw);
+    const input = await completeBot(raw, (await this.limits()).botsFolder);
     const client = await daemon();
     const id = randomUUID();
     const created = await client.createWorkspace({ source: { kind: "directory", path: input.cwd }, background: true, title: `${input.emoji} ${input.name}` });
@@ -127,7 +127,7 @@ export class Bots {
 
   async updateBot(id: string, raw: BotInput): Promise<void> {
     const bot = this.#bot(id);
-    const input = await resolveFolder(raw);
+    const input = await completeBot(raw, (await this.limits()).botsFolder);
     Object.assign(bot, input);
     await this.store.saveBots();
     const client = await daemon();
@@ -452,8 +452,15 @@ export function transcript(items: readonly AgentTimelineItem[]): Message[] {
   return messages;
 }
 
-async function resolveFolder(input: BotInput): Promise<BotInput> {
-  const cwd = resolve(input.cwd.replace(/^~(?=\/|$)/, homedir()));
-  if (!(await stat(cwd).catch(() => null))?.isDirectory()) throw new Error(`No such folder: ${cwd}`);
-  return { ...input, cwd };
+/** Fills an empty emoji, name or folder, and creates the folder if it is missing (`~` and relative paths start at home). */
+async function completeBot(input: BotInput, botsFolder: string): Promise<BotInput> {
+  const emoji = input.emoji || "🐻";
+  const name = input.name || defaultName(emoji);
+  const cwd = resolve(homedir(), (input.cwd || defaultFolder(botsFolder, name)).replace(/^~(?=\/|$)/, homedir()));
+  await mkdir(cwd, { recursive: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "EEXIST" || error.code === "ENOTDIR") throw new Error(`Can't use ${cwd} as the bot's folder: part of that path is a file.`);
+    if (error.code === "EACCES" || error.code === "EPERM" || error.code === "EROFS") throw new Error(`No permission to create the folder ${cwd}.`);
+    throw new Error(`Couldn't create the folder ${cwd} (${error.code ?? error.message}).`);
+  });
+  return { ...input, emoji, name, cwd };
 }

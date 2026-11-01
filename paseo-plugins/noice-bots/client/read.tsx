@@ -5,6 +5,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { z } from "zod";
 import { getThread, wakeThread, type RpcThread } from "../shared/contracts";
+import { humanError } from "./errors";
 
 /**
  * Panels open without parameters, and an agent panel needs a live agent (a sleeping thread is
@@ -54,6 +55,7 @@ export function ReadPanel({ workspaceId, tab, theme, layout, navigation, revisio
     load({ id: threadId, markRead: true }).then(next => { if (live) setData(next); }, () => { if (live) setData(null); });
     return () => { live = false; };
   }, [threadId, revision]);
+  if (!threadId) return <View style={{ flex: 1, backgroundColor: colors.surface0, padding: 24 }}><Text style={{ color: colors.foregroundMuted }}>Press Read on a thread in the bot's hub to show it here.</Text></View>;
   if (data === "loading") return <View style={{ flex: 1, backgroundColor: colors.surface0, justifyContent: "center" }}><ActivityIndicator color={colors.foregroundMuted} /></View>;
   if (!data) return <View style={{ flex: 1, backgroundColor: colors.surface0, padding: 24 }}><Text style={{ color: colors.foregroundMuted }}>This thread's saved copy is gone.</Text></View>;
   const pad = layout.compact ? 12 : 24;
@@ -64,7 +66,7 @@ export function ReadPanel({ workspaceId, tab, theme, layout, navigation, revisio
       navigation?.openAgent({ agentId: threadId });
       setWaking("idle");
     } catch (error) {
-      setWaking(error instanceof Error ? error.message : String(error));
+      setWaking(humanError(error));
     }
   };
   return (

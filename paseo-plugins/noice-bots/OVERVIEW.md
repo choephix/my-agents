@@ -7,10 +7,14 @@ workspace's `.scratch/paseo-bots/map.md`.
 
 - **Bot**: name, emoji, **Works in** folder, system prompt (`bots.json`). Each bot owns a
   background workspace (`background: true`), so its agents stay out of the sidebar and History.
+  No field is required: an empty name becomes the emoji's animal (🐸 → Frog, else
+  "Bot"), an empty folder `<Folder for new bots>/<name>` (setting, default `~/bots`), and a missing folder is created (relative
+  paths start at home). Errors show the server's sentence, without Paseo's `requestType=…` tail.
 - **Hub**: an agent of the plugin's provider `bots` in that workspace. It runs no model: a message
   becomes a thread, the hub's own turn ends at once, and the thread shows as a plugin row.
   The hub's model, thinking and mode pickers list OMP's (`listProviderModels("omp")`); the pick
-  is committed per hub and copied onto each new thread. Default: OMP's default model.
+  is committed per hub and copied onto each new thread. Default: Claude Opus 5.5
+  (`anthropic/claude-opus-5-5`) at high thinking; OMP's default if the catalog lacks it.
 - **Thread**: an OMP agent (`provider: "omp"`) with the bot's prompt plus a hint to call
   `thread_progress`, labelled `noice-bots.thread=<botId>`. Its id is the thread id.
 

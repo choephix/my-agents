@@ -1,9 +1,10 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { useRpc } from "@getpaseo/plugin/client";
+import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { TextInput } from "@getpaseo/plugin/client/ui";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { createBot, getBot, updateBot, type BotInput } from "../shared/contracts";
+import { createBot, defaultFolder, defaultName, getBot, settings, updateBot, type BotInput } from "../shared/contracts";
+import { humanError } from "./errors";
 
 const PICKS = ["🦊", "🐱", "🐼", "🐸", "🐻", "🦁", "🐨", "🐯", "🐵", "🐺"];
 
@@ -13,13 +14,19 @@ export function BotForm({ botId, theme, close, onCreated }: { botId?: string; th
   const create = useRpc(createBot);
   const update = useRpc(updateBot);
   const load = useRpc(getBot);
-  const [draft, setDraft] = useState<BotInput | null>(botId ? null : { name: "", emoji: "🐻", cwd: "~", prompt: "" });
+  const [draft, setDraft] = useState<BotInput | null>(botId ? null : { name: "", emoji: "🐻", cwd: "", prompt: "" });
   const [anyEmoji, setAnyEmoji] = useState(false);
   const [state, setState] = useState<"idle" | "saving" | string>("idle");
+  const prefs = useSettings(settings);
+  const botsFolder = prefs.status === "ready" ? prefs.values.botsFolder : "~/bots";
   useEffect(() => {
-    if (botId) load({ id: botId }).then(bot => setDraft(bot ? { name: bot.name, emoji: bot.emoji, cwd: bot.cwd, prompt: bot.prompt } : null), error => setState(String(error)));
+    if (botId) load({ id: botId }).then(bot => {
+      if (bot) setDraft({ name: bot.name, emoji: bot.emoji, cwd: bot.cwd, prompt: bot.prompt });
+      else setState("This bot no longer exists.");
+    }, error => setState(humanError(error)));
   }, [botId]);
   if (!draft) return <View style={{ padding: 24 }}>{state === "idle" ? <ActivityIndicator color={colors.foregroundMuted} /> : <Text style={{ color: colors.statusDanger }}>{state}</Text>}</View>;
+  const name = draft.name.trim() || defaultName(draft.emoji);
   const set = (change: Partial<BotInput>) => setDraft({ ...draft, ...change });
   const label = { color: colors.foregroundMuted, fontSize: 12, fontWeight: "600" as const, marginBottom: 6 };
   const hint = { color: colors.foregroundMuted, fontSize: 12, marginTop: 6 };
@@ -31,17 +38,17 @@ export function BotForm({ botId, theme, close, onCreated }: { botId?: string; th
       else onCreated?.((await create(draft)).hubAgentId);
       close();
     } catch (error) {
-      setState(error instanceof Error ? error.message : String(error));
+      setState(humanError(error));
     }
   };
   return (
     <View style={{ gap: 16, padding: 4, minWidth: 320, maxWidth: 520 }}>
-      <Text style={{ color: colors.foreground, fontSize: 16, fontWeight: "600" }}>{botId ? `Edit ${draft.name}` : "New bot"}</Text>
+      <Text style={{ color: colors.foreground, fontSize: 16, fontWeight: "600" }}>{botId ? `Edit ${name}` : "New bot"}</Text>
       <View>
         <Text style={label}>Name and icon</Text>
         <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
           <Text style={{ fontSize: 24 }}>{draft.emoji}</Text>
-          <TextInput value={draft.name} onChangeText={name => set({ name })} placeholder="Name, e.g. Reviewer" placeholderTextColor={colors.foregroundMuted} style={{ ...input, flex: 1 }} />
+          <TextInput value={draft.name} onChangeText={name => set({ name })} placeholder={name} placeholderTextColor={colors.foregroundMuted} style={{ ...input, flex: 1 }} />
         </View>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
           {PICKS.map(emoji => (
@@ -59,8 +66,8 @@ export function BotForm({ botId, theme, close, onCreated }: { botId?: string; th
       </View>
       <View>
         <Text style={label}>Works in</Text>
-        <TextInput value={draft.cwd} onChangeText={cwd => set({ cwd })} placeholder="~/scratch" placeholderTextColor={colors.foregroundMuted} style={input} autoCapitalize="none" autoCorrect={false} />
-        <Text style={hint}>The model and thinking level are picked in the bot's message box, like any chat.</Text>
+        <TextInput value={draft.cwd} onChangeText={cwd => set({ cwd })} placeholder={defaultFolder(botsFolder, name)} placeholderTextColor={colors.foregroundMuted} style={input} autoCapitalize="none" autoCorrect={false} />
+        <Text style={hint}>Created if it doesn't exist. The model and thinking level are picked in the bot's message box, like any chat.</Text>
       </View>
       <View>
         <Text style={label}>System prompt</Text>
@@ -74,8 +81,8 @@ export function BotForm({ botId, theme, close, onCreated }: { botId?: string; th
         <Pressable accessibilityRole="button" onPress={close} style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}>
           <Text style={{ color: colors.foreground }}>Cancel</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" disabled={state === "saving" || !draft.name.trim() || !draft.cwd.trim()} onPress={save}
-          style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, backgroundColor: colors.accent, opacity: state === "saving" || !draft.name.trim() ? 0.5 : 1 }}>
+        <Pressable accessibilityRole="button" disabled={state === "saving"} onPress={save}
+          style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, backgroundColor: colors.accent, opacity: state === "saving" ? 0.5 : 1 }}>
           <Text style={{ color: colors.accentForeground, fontWeight: "600" }}>{state === "saving" ? "Saving…" : botId ? "Save" : "Create bot"}</Text>
         </Pressable>
       </View>

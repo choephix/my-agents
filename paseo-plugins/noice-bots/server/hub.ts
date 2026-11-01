@@ -20,6 +20,10 @@ async function ompCatalog(): Promise<ProviderCatalog> {
   };
 }
 
+/** Bots start on this; the hub's model and thinking pickers change it. */
+const DEFAULT_MODEL = "anthropic/claude-opus-5-5";
+const DEFAULT_THINKING = "high";
+
 /**
  * The hub: a chat that runs no model. Each message starts a thread (a real OMP agent) and the
  * hub's turn ends at once; the threads show as plugin rows drawn from the plugin's files.
@@ -41,12 +45,14 @@ export function hubProvider(bots: Bots): ProviderRegistration {
         catalog.catch(() => { catalog = null; });
         return catalog;
       };
-      /** Commits what new threads will use: the picked model, else OMP's default, and its default thinking level. */
+      /** Commits what new threads will use: the picked model, else Opus 5.5 at high (else OMP's default and its default thinking level). */
       const configState = async (sessionId: string): Promise<ProviderConfigState> => {
         const { models, modes } = await loadCatalog();
         const hub = bots.hub(sessionId)!;
-        const model = models.find(entry => entry.id === hub.config.model) ?? models.find(entry => entry.isDefault) ?? models[0];
-        const thinking = model?.thinkingOptions?.some(option => option.id === hub.config.thinkingOption) ? hub.config.thinkingOption : model?.defaultThinkingOptionId;
+        const picked = models.find(entry => entry.id === hub.config.model);
+        const model = picked ?? models.find(entry => entry.id === DEFAULT_MODEL) ?? models.find(entry => entry.isDefault) ?? models[0];
+        const preferred = picked ? hub.config.thinkingOption : DEFAULT_THINKING;
+        const thinking = model?.thinkingOptions?.some(option => option.id === preferred) ? preferred : model?.defaultThinkingOptionId;
         hub.config = { ...hub.config, model: model?.id, thinkingOption: thinking };
         return { model: model?.id, mode: hub.config.mode, thinkingOption: thinking, models, modes, thinkingOptions: [], settings: [] };
       };

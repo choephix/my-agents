@@ -10,7 +10,7 @@ export default function contribute(server: PluginServerContext) {
   const saved = server.registerSettings(settings);
   const bots = new Bots(async () => {
     const state = await saved.read();
-    return state.status === "ready" ? state.values : { maxRunning: 4, readOnlyDays: 7 };
+    return state.status === "ready" ? state.values : { maxRunning: 4, readOnlyDays: 7, botsFolder: "~/bots" };
   });
   const loaded = bots.load().catch(error => console.error("noice-bots: loading failed", error));
   const offSettings = saved.subscribe(() => bots.settingsChanged());

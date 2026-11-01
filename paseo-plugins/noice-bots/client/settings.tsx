@@ -1,5 +1,6 @@
 import { useSettings, type PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { SettingsAction, SettingsCard, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
+import { SettingsAction, SettingsCard, SettingsInput, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
+import { useState } from "react";
 import { Text } from "react-native";
 import { settings as definition } from "../shared/contracts";
 
@@ -8,6 +9,7 @@ const options = (values: number[], current: number, unit: string) =>
 
 export function BotsSettings({ theme }: PluginSurfaceProps) {
   const state = useSettings(definition);
+  const [folder, setFolder] = useState<string | null>(null);
   const muted = { color: theme.colors.foregroundMuted };
   if (state.status === "loading") return <Text style={muted}>Loading settings…</Text>;
   if (state.status !== "ready") return <SettingsSection title="Bots">
@@ -25,6 +27,11 @@ export function BotsSettings({ theme }: PluginSurfaceProps) {
       <SettingsSelect label="Read-only after" hint="Then the thread's agent is deleted; its saved copy stays, without Wake."
         value={String(state.values.readOnlyDays)} options={options([1, 3, 7, 14, 30], state.values.readOnlyDays, "days")} disabled={state.saving}
         onValueChange={value => save({ readOnlyDays: Number(value) })} />
+      <SettingsInput label="Folder for new bots" hint="A bot left without a folder works in a subfolder named after it, created if missing."
+        initialValue={state.values.botsFolder} placeholder="~/bots" onChangeText={setFolder} disabled={state.saving} />
+      {folder !== null && folder.trim() && folder.trim() !== state.values.botsFolder ? (
+        <SettingsAction label={`Use ${folder.trim()}`} actionLabel="Save" onPress={() => { save({ botsFolder: folder.trim() }); setFolder(null); }} disabled={state.saving} />
+      ) : null}
     </SettingsCard>
     {state.saveError ? <Text accessibilityRole="alert" style={{ color: theme.colors.statusDanger }}>{state.saveError}</Text> : null}
   </SettingsSection>;

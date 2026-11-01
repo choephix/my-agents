@@ -22,6 +22,8 @@ export const settings = defineSettings({
     showRobot: z.boolean().default(true),
     maxRunning: z.number().int().min(1).max(32).default(4),
     readOnlyDays: z.number().int().min(1).max(365).default(7),
+    /** A bot left without a folder works in `<this>/<name>`. */
+    botsFolder: z.string().trim().min(1).default("~/bots"),
   }),
 });
 
@@ -57,13 +59,18 @@ export type Day = z.infer<typeof Day>;
 export const Message = z.object({ role: z.enum(["user", "assistant"]), text: z.string() });
 export type Message = z.infer<typeof Message>;
 
+/** Name, emoji and folder may be left empty: the server fills them in (`defaultName`, `defaultFolder`). */
 export const BotInput = z.object({
-  name: z.string().trim().min(1).max(60),
-  emoji: z.string().trim().min(1).max(16),
-  cwd: z.string().trim().min(1),
+  name: z.string().trim().max(60),
+  emoji: z.string().trim().max(16),
+  cwd: z.string().trim(),
   prompt: z.string(),
 });
 export type BotInput = z.infer<typeof BotInput>;
+
+const ANIMALS: Record<string, string> = { "🦊": "Fox", "🐱": "Cat", "🐼": "Panda", "🐸": "Frog", "🐻": "Bear", "🦁": "Lion", "🐨": "Koala", "🐯": "Tiger", "🐵": "Monkey", "🐺": "Wolf" };
+export const defaultName = (emoji: string) => ANIMALS[emoji] ?? "Bot";
+export const defaultFolder = (root: string, name: string) => `${root.replace(/\/+$/, "")}/${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "bot"}`;
 export const Bot = BotInput.extend({
   id: z.string(), workspaceId: z.string(), hubAgentId: z.string(), createdAt: z.number(),
   /** When its hub agent was made: each day gets a new hub, so the hub shows today. */

@@ -91,22 +91,23 @@ export function createHubRows(actions: ThreadActions) {
   /** "Yesterday · 480 threads"; opens in place, loading that day only then. */
   function DayRow({ item, theme }: PluginTimelineItemProps<Day>) {
     const { colors } = theme;
-    const [threads, setThreads] = useState<Thread[] | "loading" | null>(null);
+    const [threads, setThreads] = useState<Thread[] | "loading" | "failed" | null>(null);
     const toggle = () => {
-      if (threads) return setThreads(null);
+      if (Array.isArray(threads)) return setThreads(null);
       setThreads("loading");
-      actions.day(item.data.botId, item.data.day).then(setThreads, () => setThreads(null));
+      actions.day(item.data.botId, item.data.day).then(setThreads, () => setThreads("failed"));
     };
     return (
       <View style={{ gap: 4 }}>
         <Pressable accessibilityRole="button" onPress={toggle} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 }}>
           <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
           <Text style={{ color: colors.foregroundMuted, fontSize: 12 }}>
-            {item.data.label} · {item.data.count} thread{item.data.count === 1 ? "" : "s"} {threads ? "▴" : "▾"}
+            {item.data.label} · {item.data.count} thread{item.data.count === 1 ? "" : "s"} {Array.isArray(threads) ? "▴" : "▾"}
           </Text>
           <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
         </Pressable>
         {threads === "loading" ? <ActivityIndicator color={colors.foregroundMuted} /> : null}
+        {threads === "failed" ? <Text style={{ color: colors.statusDanger, fontSize: 12, textAlign: "center" }}>Couldn't load this day. Press the divider to try again.</Text> : null}
         {Array.isArray(threads) ? threads.map(thread => <ThreadBlock key={thread.id} thread={thread} theme={theme} actions={actions} question />) : null}
       </View>
     );
