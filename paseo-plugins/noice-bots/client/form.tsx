@@ -1,7 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { TextInput } from "@getpaseo/plugin/client/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { createBot, defaultFolder, defaultName, deleteBot, getBot, settings, updateBot, type BotInput } from "../shared/contracts";
 import { humanError } from "./errors";
@@ -20,7 +20,9 @@ export function BotForm({ botId, theme, close, onCreated, onDeleted }: { botId?:
   const [stored, setStored] = useState<{ name: string; emoji: string; cwd: string; threads: number } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [anyEmoji, setAnyEmoji] = useState(false);
-  const [state, setState] = useState<"idle" | "saving" | "deleting" | string>("idle");
+  const [state, setState] = useState<"idle" | "saving" | "created" | "deleting" | string>("idle");
+  /** Set from the first tap until the answer, so taps before the re-render can't send twice. */
+  const pending = useRef(false);
   const prefs = useSettings(settings);
   const botsFolder = prefs.status === "ready" ? prefs.values.botsFolder : "~/bots";
   useEffect(() => {
@@ -37,14 +39,26 @@ export function BotForm({ botId, theme, close, onCreated, onDeleted }: { botId?:
   const hint = { color: colors.foregroundMuted, fontSize: 12, marginTop: 6 };
   const input = { color: colors.foreground, backgroundColor: colors.surface1, borderColor: colors.border, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14 };
   const save = async () => {
+    // A second tap before the re-render that disables the button does nothing.
+    if (pending.current) return;
+    pending.current = true;
     setState("saving");
+    let hubAgentId: string;
     try {
-      if (botId) await update({ id: botId, ...draft });
-      else onCreated?.((await create(draft)).hubAgentId);
-      close();
+      if (botId) {
+        await update({ id: botId, ...draft });
+        return close();
+      }
+      ({ hubAgentId } = await create(draft));
     } catch (error) {
-      setState(humanError(error));
+      return setState(humanError(error));
+    } finally {
+      pending.current = false;
     }
+    // Created: the button stays off, and the form closes before the hub opens.
+    setState("created");
+    close();
+    onCreated?.(hubAgentId);
   };
   const destroy = async () => {
     if (!botId) return;
@@ -58,7 +72,7 @@ export function BotForm({ botId, theme, close, onCreated, onDeleted }: { botId?:
       setState(humanError(error));
     }
   };
-  const busy = state === "saving" || state === "deleting";
+  const busy = state === "saving" || state === "created" || state === "deleting";
   const button = { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8 };
   return (
     <View style={{ gap: 16, padding: 4, minWidth: 320, maxWidth: 520 }}>
@@ -121,8 +135,9 @@ export function BotForm({ botId, theme, close, onCreated, onDeleted }: { botId?:
           <Pressable accessibilityRole="button" onPress={close} style={{ ...button, borderWidth: 1, borderColor: colors.border }}>
             <Text style={{ color: colors.foreground }}>Cancel</Text>
           </Pressable>
-          <Pressable accessibilityRole="button" disabled={busy} onPress={save} style={{ ...button, backgroundColor: colors.accent, opacity: busy ? 0.5 : 1 }}>
-            <Text style={{ color: colors.accentForeground, fontWeight: "600" }}>{state === "saving" ? "Saving…" : botId ? "Save" : "Create bot"}</Text>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={save} style={{ ...button, flexDirection: "row", gap: 6, alignItems: "center", backgroundColor: colors.accent, opacity: busy ? 0.5 : 1 }}>
+            {state === "saving" ? <ActivityIndicator size="small" color={colors.accentForeground} /> : null}
+            <Text style={{ color: colors.accentForeground, fontWeight: "600" }}>{state === "saving" ? "Saving…" : state === "created" ? "Created" : botId ? "Save" : "Create bot"}</Text>
           </Pressable>
         </View>
       )}

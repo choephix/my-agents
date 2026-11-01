@@ -62,8 +62,21 @@ export class Bots {
 
   // ---------------------------------------------------------------- bots
 
-  async createBot(raw: BotInput): Promise<Bot> {
+  /** One create at a time, so a repeat of the same form sees the bot the first one made. */
+  #creating: Promise<unknown> = Promise.resolve();
+  createBot(raw: BotInput): Promise<Bot> {
+    const run = this.#creating.then(() => this.#createBot(raw));
+    this.#creating = run.catch(() => undefined);
+    return run;
+  }
+
+  async #createBot(raw: BotInput): Promise<Bot> {
     const input = await completeBot(raw, (await this.limits()).botsFolder);
+    // The same form sent again within a few minutes (a second tap, or a retry whose first answer
+    // never showed) gets the bot already made.
+    const same = this.store.bots.find(bot => Date.now() - bot.createdAt < 300_000
+      && bot.name === input.name && bot.emoji === input.emoji && bot.cwd === input.cwd && bot.prompt === input.prompt);
+    if (same) return same;
     const client = await daemon();
     const id = randomUUID();
     const created = await client.createWorkspace({ source: { kind: "directory", path: input.cwd }, background: true, title: `${input.emoji} ${input.name}` });
