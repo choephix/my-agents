@@ -29,6 +29,13 @@ Paseo caps a composer pill at 160 px (about 110 px of text), so the designed "As
 Wake" and "Couldn't wake · Retry" didn't fit; the pill uses the short forms above and the hover text
 carries the full sentence.
 
+**Phones** (layouts under 600 px wide, the native phone apps) show no pill. The workspace ⋯ menu
+has a **Wake** row (💤) while any of the workspace's chats is asleep. It lists those chats, newest
+first: `Pricing · asleep since 14:20`, `· waking…` while a wake runs, `· couldn't wake, retry` after
+a failure (Paseo also shows the error toast). Pick one to wake it; with a single asleep chat the row
+wakes it directly. Paseo lists plugin header buttons in this menu on phones, and a header button
+doesn't know which tab is open, hence the list. Sending a message still wakes a chat as before.
+
 ## Sleep a chat now
 
 `/sleep` in a chat's composer, or ⌘K "Sleep this chat" (web and desktop; the phone layout has no
@@ -82,7 +89,8 @@ Saving rebuilds the daemon's provider list, the same as any provider edit in the
 - `index.client.tsx`: asks `sleep.pills` once (retries at 2/5/15 s while the daemon half starts);
   only on a fork does it register the pills, the ⌘K entries, `/wake` and `/sleep`. The settings screen is always
   registered.
-- `client/pills.ts`: one `addComposerPill` per asleep chat. It follows the app's agent directory
+- `client/pills.ts`: one `addComposerPill` per asleep chat (on phones the ⋯ menu row instead,
+  `client/phone-menu.tsx`, shared with other noice plugins). It follows the app's agent directory
   subscription and asks the daemon (`sleep.pills`, debounced 400 ms) only when a chat closes; a chat
   that starts again loses its pill at once without a daemon call. No polling.
 - `client/settings.tsx`: the settings screen (Paseo's settings components).
@@ -92,7 +100,7 @@ Apply edits: `npm run typecheck && paseo plugin reload noice-omp-sleeping-tabs`.
 
 ## Known limits
 
-- Phones have no hover, so the pill's "Sending a message also wakes it" is not shown there
+- Phones have no hover and, under 600 px, no pill: the "Sending a message also wakes it" hint is not shown there
   (Paseo disables pill tooltips on mobile).
 - The pill text is short because of Paseo's 160 px pill cap (above).
 - The freed figure counts only chats the fork put to sleep itself; after a daemon restart every
@@ -105,3 +113,5 @@ Apply edits: `npm run typecheck && paseo plugin reload noice-omp-sleeping-tabs`.
 - Tested on the fork test daemon (web UI at desktop and phone width, and app.paseo.sh) and on the
   official 0.12.0 daemon. Not tested in the native Android app; the plugin uses only cross-platform
   surfaces (composer pill, settings screen, ⌘K, slash command).
+- The phone ⋯ → Wake row (2026-11-01) is typechecked only: the plugin isn't installed on the
+  daemon used for that change's checks, so the row hasn't been seen live.
