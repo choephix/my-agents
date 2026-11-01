@@ -1,4 +1,4 @@
-A `cmds` composer pill in every chat, any provider: label only on web/desktop; the native apps can't hide Paseo's icon slot, so there it shows a `SquareSlash` icon. It lists your reusable prompt files from `.agents/commands/*.md` and puts one into the chat with a click. The design was selected from a local mock page.
+A `cmds` composer pill in every chat, any provider: label only on web/desktop; the native apps can't hide Paseo's icon slot, so there it shows a `SquareSlash` icon. Phone layouts (under 600 px wide) have no pill: the workspace ⋯ menu has a **Commands** row instead. It lists your reusable prompt files from `.agents/commands/*.md` and puts one into the chat with a click. The design was selected from a local mock page.
 
 ## What it does
 
@@ -6,7 +6,7 @@ A `cmds` composer pill in every chat, any provider: label only on web/desktop; t
 - **Click inserts.** The file's text (frontmatter removed, as-is, `$ARGUMENTS` left alone) goes into the real message box at the cursor, keeping any draft around it. The popover closes and the message box gets focus with the cursor after the inserted text. Send as usual. Web and desktop app only (see Limits).
 - **`on-click: send`** sends the text at once (placeholders become empty). While the agent is busy it never cancels the reply: OMP agents (and providers built on OMP, e.g. `omp-nilo`) get `/follow-up <text>`, queued after the running turn; other providers get the text steered into the running turn (Paseo falls back to interrupting where a provider cannot steer).
 - **Type to filter** (desktop). No search bar until you type; then a slim filter line appears, matches are underlined, ↑ ↓ move, ↵ picks, Esc clears the filter (a second Esc closes). Name and description both match.
-- **Phones** (compact layout, and native apps on any size): the sheet has a search field. Tapping a command opens a small send view: description, an optional Arguments field, a preview of the text to send, and Send ("Send as follow-up" while an OMP agent is busy). Arguments fill the placeholders the same way as the `/` menu below.
+- **Phones** (compact layout, and native apps on any size): the sheet has a search field. Tapping a command opens a small send view: description, an optional Arguments field, a preview of the text to send, and Send ("Send as follow-up" while an OMP agent is busy). Arguments fill the placeholders the same way as the `/` menu below. Under 600 px the list opens from ⋯ (workspace menu) → **Commands** → the chat (the workspace's open chats, newest first; a workspace with one chat opens its list directly): Paseo lists plugin header buttons there on phones, and a header button doesn't know which tab is open.
 - **Shadowing.** The first file of a name wins and the others are hidden, silently: a project `commit.md` hides your `~/.agents/commands/commit.md`.
 - **Empty state.** "No commands yet. Put .md files in .agents/commands/ in this project or in ~/.agents/commands/."
 
@@ -37,7 +37,7 @@ Placeholders (used by the `/` menu and the phone send view, OMP's dialect): `$AR
 Settings → Plugins → noice-commands-list (host settings, all off by default except **Show cmds pill**):
 
 - **Extra folders**: one switch each for `.claude/commands`, `.cursor/commands`, `.omp/commands`, Codex prompts (`~/.codex/prompts`).
-- **Show cmds pill** (on): the `cmds` pill in every chat. Off removes it from all chats at once (the `/` menu switch keeps working); on brings it back.
+- **Show cmds pill** (on): the `cmds` pill in every chat, and the ⋯ → Commands row on phones. Off removes them all at once (the `/` menu switch keeps working); on brings them back.
 - **Project / User groups**: small muted "Project" and "User" headings in the list.
 - **Commands in the / menu**: each command also becomes a plugin slash command. Pick `/name`, type arguments, Enter: the plugin expands this chat's file and sends the text (busy rules as above). Slash commands are global per plugin, so the menu lists the union of names over all open chats' folders; a name the current chat doesn't have goes to the agent unchanged. Names Paseo rejects (anything but `a-z`, `0-9`, `-`) stay out of the menu. Paseo's built-ins and earlier plugins win name clashes (e.g. `btw`).
 

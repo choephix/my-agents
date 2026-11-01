@@ -4,6 +4,7 @@ import { Icon } from "@getpaseo/plugin/client/ui";
 import { useEffect, useRef } from "react";
 import { Platform, View } from "react-native";
 import { createCommandsPopover, reopenOnFilterEscape } from "./client/popover";
+import { popoverFor, startPhoneMenu, tabTitle } from "./client/phone-menu";
 import { createSettingsScreen } from "./client/settings";
 import { hideIconSlot, trackPill } from "./client/web";
 import { SLASH_NAME } from "./shared/commands";
@@ -13,6 +14,8 @@ import { DEFAULTS, settings, type Settings } from "./shared/settings";
 interface AgentSummary {
   id: string;
   workspaceId?: string | null;
+  title?: string | null;
+  createdAt: string;
   cwd: string;
   archivedAt?: string | null;
   internal?: boolean;
@@ -32,23 +35,16 @@ function PillAnchor(props: PluginButtonIconProps) {
 export default function contribute(client: PluginClientContext) {
   const Content = createCommandsPopover(client, () => syncSoon());
 
-  // One `cmds` pill per chat (Paseo has no every-chat pill), following the agent list.
-  // No pills until the settings are read (`showPill` undefined), so a switched-off pill never flashes.
+  // One `cmds` pill per chat (Paseo has no every-chat pill), following the agent list. Phone layouts
+  // get none: ⋯ (workspace menu) → Commands → the workspace's chats opens the same list there.
+  // No pills or menu rows until the settings are read (`showPill` undefined), so a switched-off pill never flashes.
   const pills = new Map<string, PluginButtonRegistration>();
-  const chats = new Map<string, { cwd: string; workspaceId: string }>();
+  const chats = new Map<string, { cwd: string; workspaceId: string; title: string; createdAt: string }>();
   let showPill: boolean | undefined;
+  const menu = startPhoneMenu(client, { id: "cmds", title: "Commands", icon: "SquareSlash" }, () => syncPills());
   const removePill = (agentId: string) => {
     pills.get(agentId)?.remove();
     pills.delete(agentId);
-  };
-  const addPill = (agentId: string, workspaceId: string) => {
-    if (!showPill || pills.has(agentId)) return;
-    pills.set(agentId, client.addComposerPill({
-      id: "cmds",
-      workspaceId,
-      agentId,
-      button: { title: "Commands", icon: PillAnchor, label: "cmds", behavior: { kind: "popover", Content } },
-    }));
   };
   const removeAgent = (agentId: string) => {
     removePill(agentId);
@@ -56,12 +52,21 @@ export default function contribute(client: PluginClientContext) {
   };
   const observe = (agent: AgentSummary) => {
     if (!agent.workspaceId || agent.archivedAt || agent.internal) return removeAgent(agent.id);
-    chats.set(agent.id, { cwd: agent.cwd, workspaceId: agent.workspaceId });
-    addPill(agent.id, agent.workspaceId);
+    chats.set(agent.id, { cwd: agent.cwd, workspaceId: agent.workspaceId, title: tabTitle(agent.title), createdAt: agent.createdAt });
   };
   const syncPills = () => {
-    if (!showPill) for (const agentId of [...pills.keys()]) removePill(agentId);
-    else for (const [agentId, chat] of chats) addPill(agentId, chat.workspaceId);
+    const shown = !!showPill && !menu.compact;
+    if (!shown) for (const agentId of [...pills.keys()]) removePill(agentId);
+    else for (const [agentId, { workspaceId }] of chats) {
+      if (pills.has(agentId)) continue;
+      pills.set(agentId, client.addComposerPill({
+        id: "cmds",
+        workspaceId,
+        agentId,
+        button: { title: "Commands", icon: PillAnchor, label: "cmds", behavior: { kind: "popover", Content } },
+      }));
+    }
+    menu.set(showPill ? [...chats].map(([agentId, chat]) => ({ agentId, ...chat, behavior: popoverFor(Content, agentId, chat.workspaceId) })) : []);
   };
 
   // "Commands in the / menu": the union of names over every chat's folder. On submit the daemon
@@ -132,6 +137,7 @@ export default function contribute(client: PluginClientContext) {
         const ids = new Set(list.map(({ agent }) => agent.id));
         for (const agentId of [...chats.keys()]) if (!ids.has(agentId)) removeAgent(agentId);
         for (const { agent } of list) observe(agent);
+        syncPills();
         syncSoon();
       };
       replace(entries);
@@ -143,6 +149,7 @@ export default function contribute(client: PluginClientContext) {
           const before = chats.size;
           if (update.kind === "remove") removeAgent(update.agentId);
           else observe(update.agent);
+          syncPills();
           if (chats.size !== before) syncSoon();
         },
       });
@@ -159,6 +166,7 @@ export default function contribute(client: PluginClientContext) {
     lifetime.abort();
     clearTimeout(syncTimer);
     cleanups.forEach((cleanup) => void cleanup());
+    menu.stop();
     pills.forEach((pill) => pill.remove());
     slash.forEach((entry) => entry.remove());
   };
