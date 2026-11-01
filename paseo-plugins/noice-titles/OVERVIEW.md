@@ -78,7 +78,7 @@ Not adopted: tabs that existed before Titles was loaded with this version
 
 Four triggers:
 
-- **Retitle pill** (phone layouts: the native apps and windows under 600 px wide): a **Retitle** pill above every chat's composer, beside Paseo's own pills: label only on web; the native apps can't hide Paseo's icon slot, so there it shows a `Type` icon. One tap. Paseo 0.14 gives plugins no slot in the tab's own menu (tab switcher → ⋮ beside the tab), and its header buttons belong to the workspace, not to the open tab, so the composer is the closest place that knows which tab is meant. Wider windows show no pill and don't follow the agent list for it; the pills come and go as the window crosses 600 px.
+- **⋯ → Retitle** (phone layouts: the native apps and windows under 600 px wide): the workspace ⋯ menu in the compact header has a **Retitle** row, which opens the workspace's chats (open ones, newest first, titled as their tabs); pick one to retitle it. A workspace with a single chat is retitled at once, without the list. Paseo 0.14 gives plugins no slot in the tab's own menu (tab switcher → ⋮ beside the tab); it lists plugin header buttons in this ⋯ menu on phones, but a header button belongs to the workspace and doesn't know which tab is open, hence the list. Wider windows show no row and don't follow the agent list for it; the row comes and goes as the window crosses 600 px.
 - **Ctrl+Shift+Alt+T** (web and desktop): applies to the selected agent tab of the pane you last clicked or focused (or the only pane). Terminal tabs, open dialogs, AltGr and IME input are left alone.
 - **Ctrl+K / ⌘K → Retitle this tab.** On phones the Command Center is ☰ → **Search**.
 - **`/retitle`** in the composer. It's a plugin command, so nothing is sent to the agent.
@@ -114,12 +114,11 @@ shows that a check is already under way. A retitle pressed while an automatic
 check of the same tab runs waits for it (2–3 s) and then names the tab. Two
 clients retitling the same tab at once get `Already retitling this tab`.
 
-Toasts are a hook-only plugin API, so a composer pill's icon component lends
-one. On phone layouts the chat's Retitle pill lends it, and while a check runs
-the pill shows Paseo's own spinner. Elsewhere a pill is added for the run: on
-web it is hidden by CSS (`button:has([data-testid="noice-titles-retitling-pill"])`);
-on native apps it can't be hidden, so a faint **Retitling…** pill sits above
-the composer there when the chat's Retitle pill isn't on screen. The
+Toasts are a hook-only plugin API, so a component lends one. From the phone ⋯
+menu, the Retitle row's icon lends it (the toast outlives the closed menu).
+Elsewhere a composer pill is added for the run: on web it is hidden by CSS
+(`button:has([data-testid="noice-titles-retitling-pill"])`); on native apps it
+can't be hidden, so a faint **Retitling…** pill sits above the composer there. The
 Retitling… toast's spinner uses the host's
 `icon` toast option, which the plugin's `ToastOptions` type doesn't declare;
 if a Paseo version drops it, the toast is text-only.
@@ -335,7 +334,8 @@ paseo plugin disable noice-titles
 - `server/timeline.ts`: recent and opening timeline reads, first-prompt lines.
 - `server/workspaces.ts`: workspace titling (creation tracking, title-change subscription, sibling lookups, the `retitle-workspace` RPC, ownership file).
 - `index.server.ts`: automatic titling after each reply, the `retitle` RPC, the sibling lookup with its first-prompt cache; registers workspace titling.
-- `index.client.tsx`, `client/settings.tsx`: the tab and workspace triggers (phone Retitle pills included), the tab spinner, the toasts, the settings screen.
+- `client/phone-menu.tsx`: the ⋯ menu row with its list of chats (the same file sits in every noice plugin that had composer pills).
+- `index.client.tsx`, `client/settings.tsx`: the tab and workspace triggers (the phone ⋯ menu row included), the tab spinner, the toasts, the settings screen.
 
 `npm test` runs 15 tests on the pure policy. `tests/agent-titles.test.mjs` (8):
 the placeholder rule, which titles automatic titling may touch (hand names
