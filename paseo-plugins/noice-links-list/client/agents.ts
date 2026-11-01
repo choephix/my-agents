@@ -5,6 +5,7 @@ export interface AgentSummary {
   workspaceId?: string | null;
   status: string;
   title?: string | null;
+  createdAt: string;
   archivedAt?: string | null;
   internal?: boolean;
 }
