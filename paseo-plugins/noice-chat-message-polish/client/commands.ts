@@ -18,6 +18,9 @@ const USER_TEXT = '[data-testid="user-message"] [data-message-text="true"]:not([
 const ROW = "[data-history-row-id]";
 const ANSWER_ROW = '[data-history-row-id^="assistant_"]';
 const ANSWER = '[data-testid="assistant-message"]';
+const SCROLL = '[data-testid="agent-chat-scroll"]';
+const FORK = '[data-testid="assistant-fork-menu-trigger"]';
+const WORKING = '[data-testid="turn-working-indicator"]';
 const COMMAND = /^\/([a-z][\w-]*)(?::[\w-]+)?(?:\s|$)/i;
 /** Commands other plugins already draw their own way (noice-omp-slash-aliases; skill chips use `/skill:`). */
 const SKIP: Record<string, true> = { tan: true, btw: true, omfg: true, queue: true, skill: true };
@@ -95,11 +98,31 @@ export function startCommandStyling(): CommandStyler {
     answers.delete(row);
   };
 
-  /** The turn footer ("Worked for", copy, fork): the ancestor of the fork trigger beside the answer. */
+  const lastRow = (row: HTMLElement) => {
+    const rows = row.closest(SCROLL)?.querySelectorAll(ROW);
+    return rows?.[rows.length - 1] === row;
+  };
+
+  /** The turn footer ("Worked for", copy, fork): the ancestor of the fork trigger beside the answer.
+   *  Paseo (0.13 and 0.14) draws older turns' footers inside their row, but the newest turn's below
+   *  every row (`auxiliaryTurnFooter` in agent-stream/layout.ts), so an answer that is the last row
+   *  owns the one fork trigger outside the rows. Climbing stops at the scroll content's child: the
+   *  footer row, which React remounts when the next turn's working indicator replaces it. */
   const footerOf = (row: HTMLElement, source: HTMLElement): HTMLElement | null => {
-    let node = row.querySelector<HTMLElement>('[data-testid="assistant-fork-menu-trigger"]');
+    let node = row.querySelector<HTMLElement>(FORK);
+    if (!node && lastRow(row)) {
+      node = [...row.closest(SCROLL)!.querySelectorAll<HTMLElement>(FORK)].find((n) => !n.closest(ROW) && !n.closest(WORKING)) ?? null;
+    }
     while (node && node.parentElement && node.parentElement !== row && !node.parentElement.contains(source)) node = node.parentElement;
     return node && !node.contains(source) ? node : null;
+  };
+
+  /** The newest turn's footer mounts after its answer row: style that row again if it is the last. */
+  const footerMounted = (trigger: HTMLElement) => {
+    if (trigger.closest(ROW) || trigger.closest(WORKING)) return;
+    const rows = trigger.closest(SCROLL)?.querySelectorAll<HTMLElement>(ROW);
+    const last = rows?.[rows.length - 1];
+    if (last?.matches(ANSWER_ROW)) schedule(last);
   };
 
   const styleAnswer = (row: HTMLElement) => {
@@ -168,12 +191,17 @@ export function startCommandStyling(): CommandStyler {
         const element = node as HTMLElement;
         if (element.classList.contains("ump-cmd-out")) continue;
         if (element.matches(USER_TEXT) || element.matches(ANSWER_ROW)) schedule(element);
-        for (const inner of element.querySelectorAll<HTMLElement>(`${USER_TEXT}, ${ANSWER_ROW}`)) schedule(inner);
+        else if (element.matches(FORK)) footerMounted(element);
+        for (const inner of element.querySelectorAll<HTMLElement>(`${USER_TEXT}, ${ANSWER_ROW}, ${FORK}`)) {
+          if (inner.matches(FORK)) footerMounted(inner);
+          else schedule(inner);
+        }
       }
     }
     if (removed) {
       for (const bubble of [...bubbles]) if (!bubble.isConnected) bubbles.delete(bubble);
-      for (const row of [...answers.keys()]) if (!row.isConnected) answers.delete(row);
+      // restoreAnswer also unhides a footer that outlived its row (the newest turn's, after a rewind).
+      for (const row of [...answers.keys()]) if (!row.isConnected) restoreAnswer(row);
     }
   });
 

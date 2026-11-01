@@ -70,6 +70,16 @@ output scrolls inside 320 px. Setting: **Quiet slash commands** (on by default).
 - The original output text comes from a read-only timeline transformer: OMP's answers arrive
   without a message id; the plugin keeps their text and never changes the item, so copy, rewind
   and the phone apps see Paseo's own item.
+- Where the footer is: Paseo (0.13 and 0.14) draws an older turn's footer inside its row, but the
+  newest turn's below every row (`auxiliaryTurnFooter`, `packages/app/src/agent-stream/layout.ts`).
+  Until 2026-10-30 the plugin only looked in the row, so the newest command answer kept its
+  "Worked for 0s" until the next message. Now, when the answer is the last row, the one fork
+  trigger outside the rows (not the working indicator's) is its footer; the observer re-styles
+  that row when such a footer mounts. Why this is safe: the hidden element is that footer's
+  row, which React remounts when the next turn's working indicator takes its place
+  (`TurnFooter` swaps `CompletedTurnFooterRow` for `TurnFooterRow`), so the next turn's footer
+  is never hidden; and an answer row that disappears (rewind) unhides the footer it hid. Not
+  checked live, at Stefan's request; the safety argument above comes from Paseo's code.
 - Skipped, because they're drawn elsewhere: `/tan`, `/btw`, `/omfg`, `/queue` (other plugins) and
   `/skill:…` (the skill view below). Messages with pictures or attached files keep their bubble.
 
