@@ -46,15 +46,18 @@ workspace's `.scratch/paseo-bots/map.md`.
 ## Hub rows
 
 Paseo draws your message (its own `user_message` row); the plugin row under it is the thread
-block: the answer cut to ~5 lines, a footer (`1 follow-up · 14:05`, green `new`), one press target.
+block: the answer cut to ~5 lines, a footer (`1 follow-up · 14:05`; unread: a green dot in place of
+`↳` and a green `new`), one press target, then 32 px of space (a hub turn has no Paseo turn footer,
+so the last block would otherwise touch the composer).
 Running: spinner, timer, latest `thread_progress` note, **Open ›**. Queued: `queued`, not pressable.
 A thread that named itself shows its title in bold at the top of the block.
 
 Paseo keeps its own durable copy of a hub's timeline and ignores what a reopened plugin session
 replays (`historyPrimed` in `agent-manager.ts`). So:
 - the hub draws live, 1 s after its session opens (`#drawHub`): older days as dividers
-  ("Yesterday · 480 threads", last 30 days), then today's blocks again; same ids, so rows update in
-  place. A thread that changed while the hub was closed is fixed then;
+  ("Yesterday · 480 threads · 2 new", last 30 days), then today's blocks again; same ids, so rows
+  update in place. A thread that changed while the hub was closed is fixed then. A change to an
+  older day's thread redraws its divider (an expanded day reloads its blocks);
 - a change while no hub session is open (plugin reload, idle cleanup) reopens it
   (`refreshAgent`), which draws;
 - a hub can't drop old rows, so each bot gets a **new hub agent every day** (at local midnight and
@@ -88,6 +91,8 @@ stays (allowed fallback).
   order.
 - **Search** (hub header menu): every word in the questions and answers, newest first, 50 max;
   saved copies are read only for threads with follow-ups or cut answers.
+- **Unread threads** (hub header menu): the unread threads over the read-only period, newest first;
+  the same set the sidebar's green dot counts. Pressing one opens its read tab, which marks it read.
 - **Mark all read** (hub header menu).
 - **Read-only after N days** (setting, default 7), checked on load and hourly: the agent is
   deleted, its session file too (only inside the plugin's sessions folder), the saved copy stays.
@@ -117,7 +122,7 @@ stays (allowed fallback).
 - The counts come from a label on each hub agent (`noice-bots.counts = running,unread`, debounced)
   read through one agent-list subscription, so the client polls nothing.
 - Each bot workspace header: **System prompt** (the bot form; changes apply to new threads) and a
-  menu with **Search threads** and **Mark all read**.
+  menu with **Unread threads**, **Search threads** and **Mark all read**.
 
 ## The one session-open hook
 

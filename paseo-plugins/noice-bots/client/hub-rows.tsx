@@ -39,7 +39,7 @@ export function ThreadBlock({ thread, theme, actions, question }: { thread: Thre
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={live ? `Open thread ${thread.title}` : `Read thread ${thread.title}`}
+      accessibilityLabel={live ? `Open thread ${thread.title}` : `Read ${thread.unread ? "new " : ""}thread ${thread.title}`}
       onPress={() => actions.open(thread)}
       disabled={thread.status === "queued"}
       onHoverIn={() => setHover(true)}
@@ -70,11 +70,12 @@ export function ThreadBlock({ thread, theme, actions, question }: { thread: Thre
           </View>
         ) : null}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 8 }}>
-          <Text style={muted}>↳</Text>
+          {/* Unread: a green dot where the ↳ sits, so it shows at a glance down the hub. */}
+          {thread.unread ? <View style={{ width: 8, height: 8, borderRadius: 4, marginHorizontal: 2, backgroundColor: colors.statusSuccess }} /> : <Text style={muted}>↳</Text>}
           {thread.status === "failed" ? <Text style={{ ...muted, color: colors.statusDanger }}>failed</Text> : null}
           {thread.status === "stopped" ? <Text style={muted}>stopped</Text> : null}
           {thread.followUps ? <Text style={muted}>{thread.followUps} follow-up{thread.followUps === 1 ? "" : "s"}</Text> : null}
-          {thread.unread ? <Text style={{ ...muted, color: colors.statusSuccess }}>new</Text> : null}
+          {thread.unread ? <Text style={{ ...muted, color: colors.statusSuccess, fontWeight: "600" }}>new</Text> : null}
           <Text style={muted}>{thread.followUps || thread.unread || thread.status !== "done" ? "· " : ""}{clock(thread.endedAt ?? thread.createdAt)}</Text>
           {thread.readOnly ? <Text style={muted}>· read-only</Text> : null}
           <View style={{ flex: 1 }} />
@@ -86,31 +87,38 @@ export function ThreadBlock({ thread, theme, actions, question }: { thread: Thre
 }
 
 export function createHubRows(actions: ThreadActions) {
+  /** A hub turn has no Paseo turn footer, whose 32 px closes every chat turn: the block adds it, so the last one clears the composer too. */
   function ThreadRow({ item, theme }: PluginTimelineItemProps<Thread>) {
-    return <ThreadBlock thread={item.data} theme={theme} actions={actions} />;
+    return <View style={{ paddingBottom: 32 }}><ThreadBlock thread={item.data} theme={theme} actions={actions} /></View>;
   }
 
-  /** "Yesterday · 480 threads"; opens in place, loading that day only then. */
+  /** "Yesterday · 480 threads · 2 new"; opens in place, loading that day only then. */
   function DayRow({ item, theme }: PluginTimelineItemProps<Day>) {
     const { colors } = theme;
     const [threads, setThreads] = useState<Thread[] | "loading" | "failed" | null>(null);
+    const expanded = Array.isArray(threads);
     const toggle = () => {
-      if (Array.isArray(threads)) return setThreads(null);
+      if (expanded) return setThreads(null);
       setThreads("loading");
       actions.day(item.data.botId, item.data.day).then(setThreads, () => setThreads("failed"));
     };
+    // Reading one of its threads redraws the divider: an open day reloads so its blocks follow.
+    useEffect(() => {
+      if (expanded) actions.day(item.data.botId, item.data.day).then(setThreads, () => {});
+    }, [item.data.unread, item.data.count]);
     return (
       <View style={{ gap: 4 }}>
         <Pressable accessibilityRole="button" onPress={toggle} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 }}>
           <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
           <Text style={{ color: colors.foregroundMuted, fontSize: 12 }}>
-            {item.data.label} · {item.data.count} thread{item.data.count === 1 ? "" : "s"} {Array.isArray(threads) ? "▴" : "▾"}
+            {item.data.label} · {item.data.count} thread{item.data.count === 1 ? "" : "s"}
+            {item.data.unread ? <Text style={{ color: colors.statusSuccess, fontWeight: "600" }}> · {item.data.unread} new</Text> : null} {expanded ? "▴" : "▾"}
           </Text>
           <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
         </Pressable>
         {threads === "loading" ? <ActivityIndicator color={colors.foregroundMuted} /> : null}
         {threads === "failed" ? <Text style={{ color: colors.statusDanger, fontSize: 12, textAlign: "center" }}>Couldn't load this day. Press the divider to try again.</Text> : null}
-        {Array.isArray(threads) ? threads.map(thread => <ThreadBlock key={thread.id} thread={thread} theme={theme} actions={actions} question />) : null}
+        {expanded ? threads.map(thread => <ThreadBlock key={thread.id} thread={thread} theme={theme} actions={actions} question />) : null}
       </View>
     );
   }

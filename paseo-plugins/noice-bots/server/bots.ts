@@ -254,9 +254,9 @@ export class Bots {
   async #drawHub(sessionId: string, botId: string, emit: (event: ProviderEvent) => void): Promise<void> {
     if (this.#hubs.get(sessionId)?.emit !== emit) return;
     const today = dayOf(Date.now());
-    for (const day of (await this.store.days(botId)).filter(day => day < today).slice(-30)) {
-      const count = (await this.store.day(botId, day)).length;
-      if (count) emit(this.#dayItem(sessionId, botId, day, count));
+    for (const day of await this.#dividerDays(botId)) {
+      const threads = await this.store.day(botId, day);
+      if (threads.length) emit(this.#dayItem(sessionId, botId, day, threads));
     }
     for (const thread of await this.store.day(botId, today)) emit(this.#threadItem(sessionId, thread));
   }
@@ -264,11 +264,25 @@ export class Bots {
   closeHub(sessionId: string): void { this.#hubs.delete(sessionId); }
   hub(sessionId: string): HubSession | undefined { return this.#hubs.get(sessionId); }
 
-  #dayItem(sessionId: string, botId: string, day: string, count: number): ProviderEvent {
+  /** The older days a hub shows as dividers. */
+  async #dividerDays(botId: string): Promise<string[]> {
+    const today = dayOf(Date.now());
+    return (await this.store.days(botId)).filter(day => day < today).slice(-30);
+  }
+
+  #dayItem(sessionId: string, botId: string, day: string, threads: Thread[]): ProviderEvent {
     const yesterday = dayOf(Date.now() - 86_400_000);
     const label = day === yesterday ? "Yesterday" : new Date(`${day}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-    const data: Day = { botId, workspaceId: this.#bot(botId).workspaceId, day, label, count };
+    const data: Day = { botId, workspaceId: this.#bot(botId).workspaceId, day, label, count: threads.length, unread: threads.filter(thread => thread.unread).length };
     return { type: "timeline.item", sessionId, timestamp: new Date(`${day}T00:00:00`).toISOString(), item: { type: "plugin", id: `day-${day}`, pluginId: PLUGIN_ID, kind: DAY_KIND, version: 1, data } };
+  }
+
+  /** An older day's thread changed (read, follow-up, swept): its divider's counts follow. */
+  async #redrawDivider(thread: Thread): Promise<void> {
+    const day = dayOf(thread.createdAt);
+    if (!(await this.#dividerDays(thread.botId)).includes(day)) return;
+    const threads = await this.store.day(thread.botId, day);
+    for (const [sessionId, hub] of this.#hubs) if (hub.botId === thread.botId) hub.emit(this.#dayItem(sessionId, thread.botId, day, threads));
   }
 
   #threadItem(sessionId: string, thread: Thread): ProviderEvent {
@@ -286,6 +300,7 @@ export class Bots {
     // No open hub session (plugin reload, idle cleanup): reopen it; opening redraws today's rows.
     if (!shown) this.#reopenHub(thread.botId);
     void this.store.saveDay(thread);
+    void this.#redrawDivider(thread).catch(error => console.error("noice-bots: redrawing a day divider failed", error));
     this.#updateCounts(thread.botId);
   }
 
@@ -519,13 +534,19 @@ export class Bots {
     }, 500));
   }
 
+  /** Unread threads newest first, over the last N days (the read-only period): what the sidebar counts. */
+  async unread(botId: string): Promise<Thread[]> {
+    const { readOnlyDays } = await this.limits();
+    const found: Thread[] = [];
+    for (const day of (await this.store.days(botId)).slice(-readOnlyDays).reverse()) {
+      found.push(...(await this.store.day(botId, day)).filter(thread => thread.unread).reverse());
+    }
+    return found;
+  }
+
   async #writeCounts(botId: string): Promise<void> {
     const bot = this.#bot(botId);
-    const { readOnlyDays } = await this.limits();
-    let unread = 0;
-    for (const day of (await this.store.days(botId)).slice(-readOnlyDays)) {
-      unread += (await this.store.day(botId, day)).filter(thread => thread.unread).length;
-    }
+    const unread = (await this.unread(botId)).length;
     const running = [...this.#active.values()].filter(thread => thread.botId === botId && thread.status === "running").length;
     await (await daemon()).updateAgent(bot.hubAgentId, { labels: { [COUNTS_LABEL]: `${running},${unread}` } });
   }

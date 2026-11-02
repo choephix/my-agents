@@ -58,7 +58,8 @@ export const Thread = z.object({
 });
 export type Thread = z.infer<typeof Thread>;
 
-export const Day = z.object({ botId: z.string(), workspaceId: z.string(), day: z.string(), label: z.string(), count: z.number() });
+/** `unread`: that day's threads with an answer you haven't opened. */
+export const Day = z.object({ botId: z.string(), workspaceId: z.string(), day: z.string(), label: z.string(), count: z.number(), unread: z.number() });
 export type Day = z.infer<typeof Day>;
 
 export const Message = z.object({ role: z.enum(["user", "assistant"]), text: z.string() });
@@ -102,6 +103,8 @@ export const searchThreads = defineRpc({
   output: z.array(Thread),
 });
 export const markAllRead = defineRpc({ name: "bots.mark-read", input: z.object({ botId: z.string() }), output: z.object({}) });
+/** Unread threads newest first, over the days the sidebar's green dot counts. */
+export const listUnread = defineRpc({ name: "bots.unread", input: z.object({ botId: z.string() }), output: z.array(Thread) });
 /** The user opened a thread's chat: it stays up after its turn until the tab is closed. */
 export const openedThread = defineRpc({ name: "bots.opened", input: z.object({ id: z.string() }), output: z.object({}) });
 /** OMP and the providers that extend it, enabled on this daemon: what a bot's threads can run on. */

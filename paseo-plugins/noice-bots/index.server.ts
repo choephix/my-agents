@@ -1,6 +1,6 @@
 import { defineAgentTool, type PluginServerContext } from "@getpaseo/plugin/server";
 import { z } from "zod";
-import { createBot, deleteBot, getBot, getThread, listDay, listProviders, markAllRead, openedThread, searchThreads, settings, THREAD_LABEL, updateBot, wakeThread } from "./shared/contracts";
+import { createBot, deleteBot, getBot, getThread, listDay, listProviders, listUnread, markAllRead, openedThread, searchThreads, settings, THREAD_LABEL, updateBot, wakeThread } from "./shared/contracts";
 import { Bots } from "./server/bots";
 import { closeDaemon } from "./server/daemon";
 import { hubProvider } from "./server/hub";
@@ -35,6 +35,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(listDay, ({ botId, day }) => bots.store.day(botId, day));
   server.handle(searchThreads, ({ botId, query }) => bots.search(botId, query));
   server.handle(markAllRead, async ({ botId }) => { await bots.markAllRead(botId); return {}; });
+  server.handle(listUnread, ({ botId }) => bots.unread(botId));
   server.handle(listProviders, () => bots.providers());
 
   const offStart = server.on("agent.turn_started", ({ agent }) => bots.turnStarted(agent.id, agent.workspaceId));

@@ -7,7 +7,7 @@ import { createHubRows } from "./client/hub-rows";
 import { watchHubs } from "./client/hubs";
 import { BotsSettings } from "./client/settings";
 import { ReadPanel, showThread } from "./client/read";
-import { SearchThreads } from "./client/search";
+import { SearchThreads, UnreadThreads } from "./client/search";
 import { createStrip } from "./client/strip";
 
 const opened = new Set<string>();
@@ -49,7 +49,7 @@ export default function contribute(client: PluginClientContext) {
     if (entries[0]) client.openScreen({ screenId: "open", params: { workspaceId: entries[0].id, nonce: String(Date.now()) } });
   };
 
-  // Each bot's workspace header: System prompt (its form), and a menu with Search and Mark all read.
+  // Each bot's workspace header: System prompt (its form), and a menu with Unread, Search and Mark all read.
   const buttons = new Map<string, PluginButtonRegistration[]>();
   const syncButtons = () => {
     const current = new Map(hubs.current().map(hub => [hub.workspaceId, hub]));
@@ -70,6 +70,7 @@ export default function contribute(client: PluginClientContext) {
           button: {
             title: "Bot", icon: "Ellipsis", behavior: {
               kind: "menu", items: [
+                { kind: "item", id: "unread", title: "Unread threads", icon: "Inbox", behavior: { kind: "popover", Content: ({ theme, close }) => <UnreadThreads botId={hub.botId} theme={theme} open={thread => { close(); openThread(thread); }} /> } },
                 { kind: "item", id: "search", title: "Search threads", icon: "Search", behavior: { kind: "popover", Content: ({ theme, close }) => <SearchThreads botId={hub.botId} theme={theme} open={thread => { close(); openThread(thread); }} /> } },
                 { kind: "item", id: "mark-read", title: "Mark all read", icon: "CheckCheck", behavior: { kind: "action", onPress: async () => { await client.rpc(markAllRead, { botId: hub.botId }); } } },
               ],
