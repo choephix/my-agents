@@ -49,22 +49,29 @@ Paseo draws your message (its own `user_message` row); the plugin row under it i
 block: the answer cut to ~5 lines (a longer one fades out into the background: stepped strips of
 `surface0`, `surface1` while hovered), a footer (`1 follow-up · 14:05`; unread: a green dot in place
 of `↳` and a green `new`), one press target, then 80 px of space before the next thread (a hub turn
-has no Paseo turn footer, so the last block would otherwise touch the composer). An expanded day
-spaces its blocks the same way.
+has no Paseo turn footer, so the last block would otherwise touch the composer).
 Running: spinner, timer, latest `thread_progress` note, **Open ›**. Queued: `queued`, not pressable.
 A thread that named itself shows its title in bold at the top of the block.
 
-Paseo keeps its own durable copy of a hub's timeline and ignores what a reopened plugin session
-replays (`historyPrimed` in `agent-manager.ts`). So:
-- the hub draws live, 1 s after its session opens (`#drawHub`): older days as dividers
-  ("Yesterday · 480 threads · 2 new", last 30 days), then today's blocks again; same ids, so rows
-  update in place. A thread that changed while the hub was closed is fixed then. A change to an
-  older day's thread redraws its divider (an expanded day reloads its blocks);
-- a change while no hub session is open (plugin reload, idle cleanup) reopens it
-  (`refreshAgent`), which draws;
-- a hub can't drop old rows, so each bot gets a **new hub agent every day** (at local midnight and
-  on plugin load), with the old hub's model, thinking and mode; the old hub is deleted. The hub
-  thus shows today, and older days fold behind dividers that load their day on press.
+Each bot has **one hub agent for its whole life**. Paseo keeps its own durable copy of a hub's
+timeline and ignores what a reopened plugin session replays (`historyPrimed` in
+`agent-manager.ts`). So:
+- a thread's block has the id `thread-<id>`; a change re-emits it, and Paseo merges rows with the
+  same plugin id in place (`collapseByIdentity` in `timeline-projection.ts`, `appendPluginTimelineItem`
+  in the app), so a follow-up, a read or a sweep updates the block where it is;
+- a change while no hub session is ready (plugin reload, idle cleanup, the first second after an
+  open) goes on the bot's `redraw` list in `bots.json`, and a closed hub is reopened
+  (`refreshAgent`). 1 s after a hub session opens (`#drawHub`) it draws only that list; an open
+  never redraws the whole history;
+- a live question is Paseo's own row; the hub's echo (same `clientMessageId`) only gives it an id.
+  A provider may also emit `user_message` rows on its own: one without `clientMessageId` is
+  recorded as is. The one-off move to one hub per bot (2026-11-02) drew every existing thread
+  into the new hub this way, under its question. A `user_message` has no identity in Paseo's
+  projection, so emitting one twice shows it twice.
+
+**Growth:** the hub grows without limit, and every block change appends a row to Paseo's copy
+(merged when read). A size cap later would mean a new hub agent with the old one's picks, drawn
+with the newest N threads under their questions (emitted as above), the old hub deleted.
 
 ## Sleep and wake (gate 2)
 
@@ -89,6 +96,8 @@ stays (allowed fallback).
 
 ## Scale
 
+Built for a handful of questions a day per bot; the hub keeps all of them (see Growth above).
+
 - **Cap** on threads running at once per bot (setting, default 4); the rest queue and start in
   order.
 - **Search** (hub header menu): every word in the questions and answers, newest first, 50 max;
@@ -101,8 +110,8 @@ stays (allowed fallback).
 - **Hidden threads**: History lists no background-workspace agents. `noice-past-sessions` lists
   Paseo agents without `includeBackground` and OMP files under `~/.omp`; thread session files go
   to `~/.paseo/plugin-data/noice-bots/sessions` (`PI_CODING_AGENT_SESSION_DIR`).
-- **Start-up**: on load Bots settles turns that ended while it was down, starts queued threads,
-  sweeps read-only threads (then hourly) and switches hubs at midnight. A starting daemon loads its
+- **Start-up**: on load Bots settles turns that ended while it was down, starts queued threads and
+  sweeps read-only threads (then hourly). A starting daemon loads its
   plugins before it writes its address to `paseo.pid`, so this step retries its connection with
   backoff (250 ms doubling to 5 s) for up to two minutes, then logs one line and gives up until
   the next plugin reload.
@@ -134,7 +143,8 @@ added there. Cost: every agent on the daemon reopens when this plugin reloads.
 
 ## Storage (`~/.paseo/plugin-data/noice-bots/`)
 
-`bots.json`; `threads/<bot>/<YYYY-MM-DD>.json` (rows; a day loads on demand and stays cached);
+`bots.json`; `threads/<bot>/<YYYY-MM-DD>.json` (rows split by the day they were asked: internal,
+the read-only sweep walks days; a day loads on demand and stays cached);
 `copies/<thread>.json` (saved copy and where its row lives); `media/<thread>/` (attached images);
 `sessions/` (thread OMP sessions).
 
@@ -161,5 +171,6 @@ an hour with no thread, the next one pays like the first.
 
 `screenshots/`: `hub`, `read-tab`, `waking`, `thread-awake`, `strip`, `strip-running`,
 `strip/` (before/after, light/dark, 1×/2×: rest, hover, selected, running, focus),
-`queued`, `day-divider`, `read-only`, `search`, `new-bot`, `edit-bot`, `settings`, `history`,
-`phone-hub`, `phone-drawer`, `phone-bots-menu`, `phone-read`, `writer-hub`.
+`queued`, `read-only`, `search`, `new-bot`, `edit-bot`, `settings`, `history`,
+`phone-hub`, `phone-drawer`, `phone-bots-menu`, `phone-read`, `writer-hub`, `one-hub-lab` (two
+questions, a follow-up on the first, a plugin reload), `one-hub-scribe` (after the move to one hub).

@@ -5,15 +5,16 @@ import { extname, join, resolve } from "node:path";
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { ProviderEvent, ProviderSessionConfig } from "@getpaseo/plugin/server/provider";
 import {
-  COUNTS_LABEL, DAY_KIND, defaultFolder, defaultName, EMOJI_LABEL, HUB_LABEL, PLUGIN_ID, PROVIDER_ID, ROLE_LABEL, THREAD_KIND, THREAD_LABEL,
-  type Bot, type BotInput, type Day, type Message, type Thread,
+  COUNTS_LABEL, defaultFolder, defaultName, EMOJI_LABEL, HUB_LABEL, PLUGIN_ID, PROVIDER_ID, ROLE_LABEL, THREAD_KIND, THREAD_LABEL,
+  type Bot, type BotInput, type Message, type Thread,
 } from "../shared/contracts";
 import { daemon, daemonAtStart, paseoHome } from "./daemon";
 import { dayOf, mediaDir, sessionsDir, Store } from "./store";
 
 export interface Limits { maxRunning: number; readOnlyDays: number; botsFolder: string }
 
-interface HubSession { botId: string; emit(event: ProviderEvent): void; config: ProviderSessionConfig }
+/** `agentId`: the hub agent the session belongs to. `ready`: Paseo listens, so rows can be drawn. */
+interface HubSession { botId: string; agentId: string; emit(event: ProviderEvent): void; config: ProviderSessionConfig; ready: boolean }
 /** What came with a hub message besides its text. */
 export interface Attached { images: { data: string; mimeType: string }[]; files: string[] }
 
@@ -38,7 +39,8 @@ export class Bots {
   readonly #reopening = new Set<string>();
   readonly #countTimers = new Map<string, NodeJS.Timeout>();
   #sweeper: NodeJS.Timeout | undefined;
-  #midnight: NodeJS.Timeout | undefined;
+  /** Hub agents made by the migration, to be drawn in full with each question on their first open. */
+  readonly #fresh = new Set<string>();
   /** Hub sessions can open before `load` is done; they wait for the bots file. */
   #storeLoaded: Promise<void> | undefined;
 
@@ -63,8 +65,7 @@ export class Bots {
       if (agent?.status === "running" || agent?.status === "initializing") continue;
       await this.turnEnded(thread.id, thread.workspaceId, agent?.status === "error" ? "failed" : "done").catch(error => console.error(`noice-bots: settling ${thread.id} failed`, error));
     }
-    await this.#rotateHubs();
-    this.#atMidnight();
+    await this.#migrate();
     for (const bot of this.store.bots) void this.#schedule(bot.id);
     void this.sweep();
     this.#sweeper = setInterval(() => void this.sweep(), 3_600_000);
@@ -91,7 +92,7 @@ export class Bots {
     const id = randomUUID();
     const created = await client.createWorkspace({ source: { kind: "directory", path: input.cwd }, background: true, title: `${input.emoji} ${input.name}` });
     if (!created.workspace) throw new Error(created.error ?? "Creating the bot's workspace failed");
-    const bot: Bot = { ...input, id, workspaceId: created.workspace.id, hubAgentId: randomUUID(), hubSince: Date.now(), createdAt: Date.now() };
+    const bot: Bot = { ...input, id, workspaceId: created.workspace.id, hubAgentId: randomUUID(), createdAt: Date.now() };
     this.store.bots.push(bot);
     await this.store.saveBots();
     try {
@@ -117,36 +118,29 @@ export class Bots {
   }
 
   /**
-   * Paseo keeps its own copy of a hub's timeline, so a hub can't drop yesterday's rows. Instead each
-   * day every bot gets a new hub agent with the old one's model, thinking and mode; older days show
-   * as dividers in it, and the old hub is deleted.
+   * Once: a bot from the days of a new hub each day (`hubSince`) gets one new hub for good, with the
+   * old hub's model, thinking and mode, every thread drawn in it under its question. The old hub is
+   * deleted.
    */
-  async #rotateHubs(): Promise<void> {
-    const today = dayOf(Date.now());
+  async #migrate(): Promise<void> {
     const client = await daemon();
-    for (const bot of this.store.bots) {
-      if (dayOf(bot.hubSince ?? bot.createdAt) === today) continue;
-      const old = { hubAgentId: bot.hubAgentId, hubSince: bot.hubSince };
+    for (const bot of this.store.bots.filter(bot => bot.hubSince !== undefined)) {
+      const old = bot.hubAgentId;
       try {
-        const agent = (await client.fetchAgent(old.hubAgentId).catch(() => null))?.agent;
-        Object.assign(bot, { hubAgentId: randomUUID(), hubSince: Date.now() });
+        const agent = (await client.fetchAgent(old).catch(() => null))?.agent;
+        bot.hubAgentId = randomUUID();
+        this.#fresh.add(bot.hubAgentId);
         await this.#createHub(bot, { model: agent?.model ?? undefined, thinkingOptionId: agent?.thinkingOptionId ?? undefined, modeId: agent?.currentModeId ?? undefined });
         await this.store.saveBots();
-        await client.deleteAgent(old.hubAgentId).catch(error => console.error(`noice-bots: deleting ${bot.name}'s old hub failed`, error));
       } catch (error) {
-        Object.assign(bot, old);
+        bot.hubAgentId = old;
         console.error(`noice-bots: a new hub for ${bot.name} failed`, error);
+        continue;
       }
+      // Archived first: an archive reaches every client, so an open tab of the old hub closes.
+      await client.archiveAgent(old).then(() => client.deleteAgent(old))
+        .catch(error => console.error(`noice-bots: deleting ${bot.name}'s old hub failed`, error));
     }
-  }
-
-  #atMidnight(): void {
-    const next = new Date();
-    next.setHours(24, 0, 1, 0);
-    this.#midnight = setTimeout(() => {
-      void this.#rotateHubs();
-      this.#atMidnight();
-    }, next.getTime() - Date.now());
   }
 
   async updateBot(id: string, raw: BotInput): Promise<void> {
@@ -240,67 +234,69 @@ export class Bots {
   // ---------------------------------------------------------------- hub sessions
 
   /**
-   * Paseo keeps the rows a hub already has and skips replayed ones, so the hub draws live once Paseo
-   * listens: older days as dividers, and today's blocks again, as a thread may have changed while the
-   * hub was closed. Your messages are Paseo's own rows.
+   * Paseo keeps the rows a hub already has and skips what a reopened plugin session replays, so the
+   * hub draws once Paseo listens, and only the threads that changed while it was closed (`redraw`).
+   * Your messages are Paseo's own rows.
    */
   async openHub(sessionId: string, botId: string, config: ProviderSessionConfig, emit: (event: ProviderEvent) => void): Promise<void> {
     await this.#storeLoaded;
     this.#bot(botId);
-    this.#hubs.set(sessionId, { botId, emit, config });
-    setTimeout(() => void this.#drawHub(sessionId, botId, emit).catch(error => console.error("noice-bots: drawing a hub failed", error)), 1000);
+    const hub: HubSession = { botId, agentId: config.env.PASEO_AGENT_ID ?? "", emit, config, ready: false };
+    this.#hubs.set(sessionId, hub);
+    setTimeout(() => void this.#drawHub(sessionId, hub).catch(error => console.error("noice-bots: drawing a hub failed", error)), 1000);
   }
 
-  async #drawHub(sessionId: string, botId: string, emit: (event: ProviderEvent) => void): Promise<void> {
-    if (this.#hubs.get(sessionId)?.emit !== emit) return;
-    const today = dayOf(Date.now());
-    for (const day of await this.#dividerDays(botId)) {
-      const threads = await this.store.day(botId, day);
-      if (threads.length) emit(this.#dayItem(sessionId, botId, day, threads));
+  async #drawHub(sessionId: string, hub: HubSession): Promise<void> {
+    const bot = this.store.bot(hub.botId);
+    if (this.#hubs.get(sessionId) !== hub || bot?.hubAgentId !== hub.agentId) return;
+    hub.ready = true;
+    if (this.#fresh.delete(hub.agentId)) {
+      for (const day of await this.store.days(bot.id)) {
+        for (const thread of await this.store.day(bot.id, day)) {
+          hub.emit({ type: "timeline.item", sessionId, item: { type: "user_message", id: `question-${thread.id}`, text: asked(thread.question, thread.files?.length ?? 0) } });
+          hub.emit(this.#threadItem(sessionId, thread));
+        }
+      }
+      delete bot.hubSince;
+      bot.redraw = undefined;
+      await this.store.saveBots();
+      return;
     }
-    for (const thread of await this.store.day(botId, today)) emit(this.#threadItem(sessionId, thread));
+    const ids = bot.redraw ?? [];
+    if (!ids.length) return;
+    bot.redraw = undefined;
+    for (const id of ids) {
+      const thread = this.#active.get(id) ?? await this.store.thread(id);
+      if (thread) hub.emit(this.#threadItem(sessionId, thread));
+    }
+    await this.store.saveBots();
   }
 
   closeHub(sessionId: string): void { this.#hubs.delete(sessionId); }
   hub(sessionId: string): HubSession | undefined { return this.#hubs.get(sessionId); }
 
-  /** The older days a hub shows as dividers. */
-  async #dividerDays(botId: string): Promise<string[]> {
-    const today = dayOf(Date.now());
-    return (await this.store.days(botId)).filter(day => day < today).slice(-30);
-  }
-
-  #dayItem(sessionId: string, botId: string, day: string, threads: Thread[]): ProviderEvent {
-    const yesterday = dayOf(Date.now() - 86_400_000);
-    const label = day === yesterday ? "Yesterday" : new Date(`${day}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-    const data: Day = { botId, workspaceId: this.#bot(botId).workspaceId, day, label, count: threads.length, unread: threads.filter(thread => thread.unread).length };
-    return { type: "timeline.item", sessionId, timestamp: new Date(`${day}T00:00:00`).toISOString(), item: { type: "plugin", id: `day-${day}`, pluginId: PLUGIN_ID, kind: DAY_KIND, version: 1, data } };
-  }
-
-  /** An older day's thread changed (read, follow-up, swept): its divider's counts follow. */
-  async #redrawDivider(thread: Thread): Promise<void> {
-    const day = dayOf(thread.createdAt);
-    if (!(await this.#dividerDays(thread.botId)).includes(day)) return;
-    const threads = await this.store.day(thread.botId, day);
-    for (const [sessionId, hub] of this.#hubs) if (hub.botId === thread.botId) hub.emit(this.#dayItem(sessionId, thread.botId, day, threads));
-  }
-
   #threadItem(sessionId: string, thread: Thread): ProviderEvent {
     return { type: "timeline.item", sessionId, timestamp: new Date(thread.createdAt).toISOString(), item: { type: "plugin", id: `thread-${thread.id}`, pluginId: PLUGIN_ID, kind: THREAD_KIND, version: 1, data: thread } };
   }
 
-  /** Redraws a thread's block in every open hub of its bot, and the bot's sidebar counts. */
+  /** Redraws a thread's block in place in its bot's hub, and the bot's sidebar counts. */
   #changed(thread: Thread): void {
+    const bot = this.store.bot(thread.botId);
     let shown = false;
     for (const [sessionId, hub] of this.#hubs) {
-      if (hub.botId !== thread.botId) continue;
+      if (hub.agentId !== bot?.hubAgentId || !hub.ready) continue;
       hub.emit(this.#threadItem(sessionId, thread));
       shown = true;
     }
-    // No open hub session (plugin reload, idle cleanup): reopen it; opening redraws today's rows.
-    if (!shown) this.#reopenHub(thread.botId);
+    // Hub closed (plugin reload, idle cleanup) or not drawn yet: it draws the thread when it opens.
+    if (bot && !shown) {
+      if (!bot.redraw?.includes(thread.id)) {
+        bot.redraw = [...bot.redraw ?? [], thread.id];
+        void this.store.saveBots();
+      }
+      if (![...this.#hubs.values()].some(hub => hub.agentId === bot.hubAgentId)) this.#reopenHub(bot.id);
+    }
     void this.store.saveDay(thread);
-    void this.#redrawDivider(thread).catch(error => console.error("noice-bots: redrawing a day divider failed", error));
     this.#updateCounts(thread.botId);
   }
 
@@ -328,7 +324,7 @@ export class Bots {
       await writeFile(file, Buffer.from(image.data, "base64"));
       files.push(file);
     }
-    const shown = files.length ? `${text}${text ? "\n" : ""}📎 ${files.length} attached` : text;
+    const shown = asked(text, files.length);
     hub.emit({ type: "timeline.item", sessionId, item: { type: "user_message", id: `question-${id}`, text: shown, clientMessageId } });
     hub.emit({ type: "session.prompt_result", sessionId, clientMessageId, result: { type: "completed" } });
     const thread: Thread = {
@@ -560,11 +556,12 @@ export class Bots {
   dispose(): void {
     for (const timer of this.#countTimers.values()) clearTimeout(timer);
     clearInterval(this.#sweeper);
-    clearTimeout(this.#midnight);
   }
 }
 
 const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
+/** A question as the hub shows it. */
+const asked = (question: string, files: number) => files ? `${question}${question ? "\n" : ""}📎 ${files} attached` : question;
 
 function titleOf(text: string): string {
   const line = text.trim().split("\n")[0].replace(/\s+/g, " ");

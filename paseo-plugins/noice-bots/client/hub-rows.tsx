@@ -3,12 +3,11 @@ import type { PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { Markdown } from "@getpaseo/plugin/client/ui";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import type { Day, Thread } from "../shared/contracts";
+import type { Thread } from "../shared/contracts";
 
 export interface ThreadActions {
   /** Finished: its 🌙 read tab. Running or queued: its chat. */
   open(thread: Thread): void;
-  day(botId: string, day: string): Promise<Thread[]>;
 }
 
 const clock = (ms: number) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -43,11 +42,8 @@ function Fade({ background }: { background: string }) {
   );
 }
 
-/**
- * The answer cut to a few lines and a footer; one press target. In the hub Paseo draws your message
- * above it; folded days (`question`) draw it here.
- */
-export function ThreadBlock({ thread, theme, actions, question }: { thread: Thread; theme: PluginTheme; actions: ThreadActions; question?: boolean }) {
+/** The answer cut to a few lines and a footer; one press target. Paseo draws your message above it. */
+function ThreadBlock({ thread, theme, actions }: { thread: Thread; theme: PluginTheme; actions: ThreadActions }) {
   const { colors } = theme;
   const live = thread.status === "running" || thread.status === "queued";
   const [hover, setHover] = useState(false);
@@ -64,11 +60,6 @@ export function ThreadBlock({ thread, theme, actions, question }: { thread: Thre
       onHoverOut={() => setHover(false)}
       style={{ gap: 10, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 12, backgroundColor: hover && thread.status !== "queued" ? colors.surface1 : "transparent" }}
     >
-      {question ? (
-        <View style={{ alignSelf: "flex-end", maxWidth: "85%", backgroundColor: colors.surface2, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14 }}>
-          <Text numberOfLines={6} style={{ color: colors.foreground, fontSize: 15, lineHeight: 21 }}>{thread.question}</Text>
-        </View>
-      ) : null}
       {/* A title the thread chose; until then your message above says what it's about. */}
       {thread.named ? <Text numberOfLines={1} style={{ color: colors.foreground, fontSize: 13, fontWeight: "600", paddingHorizontal: 8 }}>{thread.title}</Text> : null}
       {live ? (
@@ -113,41 +104,5 @@ export function createHubRows(actions: ThreadActions) {
   function ThreadRow({ item, theme }: PluginTimelineItemProps<Thread>) {
     return <View style={{ paddingBottom: THREAD_GAP }}><ThreadBlock thread={item.data} theme={theme} actions={actions} /></View>;
   }
-
-  /** "Yesterday · 480 threads · 2 new"; opens in place, loading that day only then. */
-  function DayRow({ item, theme }: PluginTimelineItemProps<Day>) {
-    const { colors } = theme;
-    const [threads, setThreads] = useState<Thread[] | "loading" | "failed" | null>(null);
-    const expanded = Array.isArray(threads);
-    const toggle = () => {
-      if (expanded) return setThreads(null);
-      setThreads("loading");
-      actions.day(item.data.botId, item.data.day).then(setThreads, () => setThreads("failed"));
-    };
-    // Reading one of its threads redraws the divider: an open day reloads so its blocks follow.
-    useEffect(() => {
-      if (expanded) actions.day(item.data.botId, item.data.day).then(setThreads, () => {});
-    }, [item.data.unread, item.data.count]);
-    return (
-      <View style={{ gap: 4 }}>
-        <Pressable accessibilityRole="button" onPress={toggle} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 }}>
-          <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
-          <Text style={{ color: colors.foregroundMuted, fontSize: 12 }}>
-            {item.data.label} · {item.data.count} thread{item.data.count === 1 ? "" : "s"}
-            {item.data.unread ? <Text style={{ color: colors.statusSuccess, fontWeight: "600" }}> · {item.data.unread} new</Text> : null} {expanded ? "▴" : "▾"}
-          </Text>
-          <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
-        </Pressable>
-        {threads === "loading" ? <ActivityIndicator color={colors.foregroundMuted} /> : null}
-        {threads === "failed" ? <Text style={{ color: colors.statusDanger, fontSize: 12, textAlign: "center" }}>Couldn't load this day. Press the divider to try again.</Text> : null}
-        {expanded ? (
-          <View style={{ gap: THREAD_GAP, paddingTop: 12, paddingBottom: THREAD_GAP }}>
-            {threads.map(thread => <ThreadBlock key={thread.id} thread={thread} theme={theme} actions={actions} question />)}
-          </View>
-        ) : null}
-      </View>
-    );
-  }
-
-  return { ThreadRow, DayRow };
+  return { ThreadRow };
 }

@@ -1,7 +1,7 @@
 import type { PluginButtonRegistration, PluginClientContext, PluginScreenProps } from "@getpaseo/plugin/client";
 import { useEffect } from "react";
 import { Text } from "react-native";
-import { Day, DAY_KIND, listDay, markAllRead, openedThread, Thread, THREAD_KIND } from "./shared/contracts";
+import { markAllRead, openedThread, Thread, THREAD_KIND } from "./shared/contracts";
 import { BotForm } from "./client/form";
 import { createHubRows } from "./client/hub-rows";
 import { watchHubs } from "./client/hubs";
@@ -40,7 +40,7 @@ export default function contribute(client: PluginClientContext) {
     showThread(thread.workspaceId, thread.id);
     client.openPanel("read", { workspaceId: thread.workspaceId });
   };
-  const rows = createHubRows({ open: openThread, day: (botId, day) => client.rpc(listDay, { botId, day }) });
+  const rows = createHubRows({ open: openThread });
   /** After Delete bot (pressed in that bot's workspace): the next bot's hub, else the most recently active workspace. */
   const openNextHub = async (deleted: string) => {
     const next = hubs.current().find(hub => hub.botId !== deleted);
@@ -87,7 +87,6 @@ export default function contribute(client: PluginClientContext) {
     client.addSidebarHeaderItem({ id: "bots", title: "Bots", Component: createStrip(hubs, openChat) }),
     client.addWorkspacePanel({ id: "read", title: "🌙 Thread", icon: "Moon", Component: ReadPanel }),
     client.addTimelineRenderer({ kind: THREAD_KIND, version: 1, schema: Thread, Component: rows.ThreadRow }),
-    client.addTimelineRenderer({ kind: DAY_KIND, version: 1, schema: Day, Component: rows.DayRow }),
     client.addSettingsScreen({ id: "settings", title: "Bots", icon: "Bot", Component: BotsSettings }),
   ];
   return () => {

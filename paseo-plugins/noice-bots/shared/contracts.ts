@@ -12,7 +12,6 @@ export const EMOJI_LABEL = "noice-bots.emoji";
 /** On a thread agent: its bot. */
 export const THREAD_LABEL = "noice-bots.thread";
 export const THREAD_KIND = "bots-thread";
-export const DAY_KIND = "bots-day";
 
 export const settings = defineSettings({
   id: "bots",
@@ -58,10 +57,6 @@ export const Thread = z.object({
 });
 export type Thread = z.infer<typeof Thread>;
 
-/** `unread`: that day's threads with an answer you haven't opened. */
-export const Day = z.object({ botId: z.string(), workspaceId: z.string(), day: z.string(), label: z.string(), count: z.number(), unread: z.number() });
-export type Day = z.infer<typeof Day>;
-
 export const Message = z.object({ role: z.enum(["user", "assistant"]), text: z.string() });
 export type Message = z.infer<typeof Message>;
 
@@ -81,8 +76,10 @@ export const defaultName = (emoji: string) => ANIMALS[emoji] ?? "Bot";
 export const defaultFolder = (root: string, name: string) => `${root.replace(/\/+$/, "")}/${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "bot"}`;
 export const Bot = BotInput.extend({
   id: z.string(), workspaceId: z.string(), hubAgentId: z.string(), createdAt: z.number(),
-  /** When its hub agent was made: each day gets a new hub, so the hub shows today. */
+  /** Set only on bots from the days of a new hub each day: they get one hub for good on load. */
   hubSince: z.number().optional(),
+  /** Threads that changed while the hub was closed: it redraws their blocks when it opens. */
+  redraw: z.array(z.string()).optional(),
   /** The last day whose threads are all read-only. */
   sweptThrough: z.string().optional(),
 });
@@ -96,7 +93,6 @@ const RpcThread = z.object({ thread: Thread, bot: z.object({ name: z.string(), e
 export type RpcThread = z.infer<typeof RpcThread>;
 export const getThread = defineRpc({ name: "bots.thread", input: z.object({ id: z.string(), markRead: z.boolean() }), output: RpcThread.nullable() });
 export const wakeThread = defineRpc({ name: "bots.wake", input: z.object({ id: z.string() }), output: z.object({}) });
-export const listDay = defineRpc({ name: "bots.day", input: z.object({ botId: z.string(), day: z.string() }), output: z.array(Thread) });
 export const searchThreads = defineRpc({
   name: "bots.search",
   input: z.object({ botId: z.string(), query: z.string().trim().min(2) }),
