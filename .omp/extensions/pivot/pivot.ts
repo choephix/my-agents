@@ -29,14 +29,12 @@ import type {
 	SessionEntry,
 } from "@oh-my-pi/pi-coding-agent";
 import type { AutocompleteItem } from "@oh-my-pi/pi-tui";
-// Pure helper, safe to import directly: a bare host-package import resolves to
-// the package SOURCE, which under a bundled omp (`dist/cli.js`) is a SECOND
-// copy of that module — fine for a stateless function, fatal for anything
-// holding state. Live singletons must come through `pi.pi`, the host's own
-// module namespace, which is why the keep-budget override below uses it.
+// A bare host-package import is served from the running omp's own build, so
+// these are the host's live modules (verified against omp 18.14: the imported
+// `Settings` class is identical to `pi.pi.Settings`) and share its singletons.
 import { extractFileOpsFromMessage } from "@oh-my-pi/pi-agent-core/compaction";
+import { cfgCompactionKeepRecentTokens } from "@oh-my-pi/pi-coding-agent/session/context-settings";
 
-const KEEP_RECENT = "compaction.keepRecentTokens";
 const PICKER_LIMIT = 30;
 /** Ghost text after `/pivot `, mirroring how builtins advertise their arguments. */
 const PIVOT_HINT = "[^N|?] [focus instructions]";
@@ -214,13 +212,15 @@ export default function pivotExtension(pi: ExtensionAPI) {
 			// Shrinking the keep budget to one token forces the walk to cut at the
 			// newest valid cut point — the last assistant message — which is the pin
 			// we want anyway; the hook then normalizes the split and pins by id.
-			// `override` is runtime-only and never persisted, unlike `set`. It must
-			// go through `pi.pi` — the host's live module namespace — because a bare
-			// import would hand back an uninitialized duplicate of the settings
-			// singleton under a bundled omp.
-			const settings = pi.pi.settings;
-			const previousKeep = settings.get(KEEP_RECENT);
-			settings.override(KEEP_RECENT, 1);
+			// `override` is runtime-only and never persisted, unlike `set`. A prior
+			// runtime override (and only that) is restored afterwards; overriding
+			// with `undefined` clears ours.
+			const settings = pi.pi.Settings.instance;
+			const priorOverride =
+				cfgCompactionKeepRecentTokens.provenance(settings) === "runtime"
+					? cfgCompactionKeepRecentTokens.get(settings)
+					: undefined;
+			cfgCompactionKeepRecentTokens.override(settings, 1);
 			armed = true;
 			try {
 				// Non-empty instructions are load-bearing, not decoration: they are
@@ -233,10 +233,7 @@ export default function pivotExtension(pi: ExtensionAPI) {
 				armed = false;
 				requestedPin = undefined;
 				expectPinned = undefined;
-				// Drop our override first; only re-assert one if the underlying
-				// config disagrees, i.e. the user genuinely had a prior override.
-				settings.clearOverride(KEEP_RECENT);
-				if (settings.get(KEEP_RECENT) !== previousKeep) settings.override(KEEP_RECENT, previousKeep);
+				cfgCompactionKeepRecentTokens.override(settings, priorOverride);
 			}
 		},
 	});
