@@ -28,10 +28,10 @@ function Elapsed({ since, color }: { since: number; color: string }) {
 
 /** Space after each thread: between one thread and the next, and under the last one above the composer. */
 const THREAD_GAP = 80;
-/** The answer preview's height (~5 lines). */
-const PREVIEW = 112;
-/** How far up from a cut preview's bottom edge the answer fades out: about two lines. */
-const FADE = 56;
+/** The answer preview's height (~7 lines). The top ~2 stay solid; the rest is the fade. */
+const PREVIEW = 150;
+/** How far up from a cut preview's bottom edge the answer fades out: about four lines, starting on the line before. */
+const FADE = 96;
 /** Web: the cut preview's text itself fades out, whatever the background behind it. */
 const webMask = { maskImage: `linear-gradient(to bottom, #000 calc(100% - ${FADE}px), transparent)` } as object;
 

@@ -46,7 +46,7 @@ workspace's `.scratch/paseo-bots/map.md`.
 ## Hub rows
 
 Paseo draws your message (its own `user_message` row); the plugin row under it is the thread
-block: the answer cut to ~5 lines (a longer one fades out over its last 56 px: on web a CSS
+block: the answer cut to ~7 lines (a longer one fades out over its last 96 px, so the fade starts on the line before: on web a CSS
 `maskImage` fades the text itself; native has no mask, so a `linear-gradient` into `surface0`,
 `surface1` while hovered, is painted over it), a footer (`1 follow-up · 14:05`; unread: a green dot in place
 of `↳` and a green `new`), one press target, then 80 px of space before the next thread (a hub turn
