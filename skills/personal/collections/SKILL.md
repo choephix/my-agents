@@ -1,6 +1,6 @@
 ---
 name: collections
-description: Filing items Stefan reviews later in his local collection app. Use when Stefan says "remind me" or "save a reminder", asks you to propose (not make) a change to his setup or agent instructions, or asks to save a prompt as a snippet.
+description: Filing items Stefan reviews later in his local collection app. Use when Stefan says "remind me" or "save a reminder", tells or shows you a promise he made someone, asks you to propose (not make) a change to his setup or agent instructions, or asks to save a prompt as a snippet.
 ---
 
 A **collection** is a folder of Markdown files, one item per file. Stefan reviews each collection on its own page in
@@ -30,7 +30,7 @@ Body.
 - The body is Markdown. Its first paragraph shows on the card; the rest folds under "more". Lead with the point.
 - Once filed, leave `status`, `snooze_until`, `done`, `checked` and `applied` to the app. Improving an item later
   means editing its body.
-- Finish by telling Stefan the title and the page: the configured app origin plus `/reminders`, `/life`, `/proposals` or `/snippets`.
+- Finish by telling Stefan the title and the page: the configured app origin plus `/reminders`, `/life`, `/promises`, `/proposals` or `/snippets`.
 
 ## Reminders
 
@@ -46,6 +46,23 @@ Page: `/reminders`, or `/life` for life errands. Something Stefan wants to be nu
   - `pr:` number plus `git_repo: owner/repo`, when it is about a PR. The page moves the reminder to "Probably done
     already" once the PR closes or merges.
 - Body: what to do and why, 2–6 lines. Link the effort, ticket or PR.
+
+## Promises
+
+Page: `/promises`. Something Stefan promised a person, from a screenshot or chat he shows you or from his retelling.
+A promise is **kept** when that person has the thing; finished work nobody delivered is still open.
+
+- Folder: `<notes-dir>/promises/`. A screenshot or chat export goes in `<notes-dir>/promises/media/`, named like the
+  item; link it from the body.
+- `project: Promises`.
+- One promise per item: a chat holding three promises becomes three items.
+- Title: a verb and the person: "Send Martin the playtest numbers".
+- Optional fields: `due:` only when a date was said; `pr:` plus `git_repo:` when a PR delivers it.
+- Body, two paragraphs:
+  - Stefan's words, quoted exactly, with who, where and when:
+    `> "I'll send you the numbers once the playtest settles" (to Martin, Discord, 10-30)`. From a retelling, quote
+    the retelling.
+  - `Kept when: <person> has <thing>.`
 
 ## Proposals
 
