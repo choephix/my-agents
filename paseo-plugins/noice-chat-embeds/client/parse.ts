@@ -62,14 +62,8 @@ function appendMarkdown(out: Segment[], text: string): void {
   else out.push({ kind: "markdown", text });
 }
 
-// `#123` after a line start, space or opening bracket; two digits or more, so "option #2" stays text.
-const ISSUE_REF = /(^|[\s([])#(\d{2,})(?![\w-])/g;
-
-/**
- * Rewrites `#123` outside fenced blocks and inline code with `link(number)`, e.g. into a Markdown link.
- * Text inside existing Markdown links (`[see #12](…)`) is left alone.
- */
-export function linkIssueRefs(text: string, link: (number: string) => string): string {
+/** Runs `edit` on every line outside fenced code blocks; fence lines and their contents pass through. */
+function mapProseLines(text: string, edit: (line: string) => string): string {
   let inFence: string | null = null;
   return text.split("\n").map((line) => {
     const fence = FENCE_START.exec(line)?.[1];
@@ -81,11 +75,57 @@ export function linkIssueRefs(text: string, link: (number: string) => string): s
       inFence = fence;
       return line;
     }
-    const spans = inlineCodeSpans(line);
-    for (const match of line.matchAll(/\[[^\]\n]*\]\([^)\n]*\)/g)) spans.push([match.index ?? 0, (match.index ?? 0) + match[0].length]);
+    return edit(line);
+  }).join("\n");
+}
+
+/** Spans of complete Markdown links, `[text](url)`, on one line. */
+function markdownLinkSpans(line: string): Array<[number, number]> {
+  return [...line.matchAll(/\[[^\]\n]*\]\([^)\n]*\)/g)].map((match) => [match.index ?? 0, (match.index ?? 0) + match[0].length]);
+}
+
+// `#123` after a line start, space or opening bracket; two digits or more, so "option #2" stays text.
+const ISSUE_REF = /(^|[\s([])#(\d{2,})(?![\w-])/g;
+
+/**
+ * Rewrites `#123` outside fenced blocks and inline code with `link(number)`, e.g. into a Markdown link.
+ * Text inside existing Markdown links (`[see #12](…)`) is left alone.
+ */
+export function linkIssueRefs(text: string, link: (number: string) => string): string {
+  return mapProseLines(text, (line) => {
+    const spans = [...inlineCodeSpans(line), ...markdownLinkSpans(line)];
     return line.replace(ISSUE_REF, (whole, lead: string, number: string, offset: number) =>
       isInside(spans, offset + lead.length) ? whole : `${lead}${link(number)}`);
-  }).join("\n");
+  });
+}
+
+// `#rgb`, `#rrggbb` or `#rrggbbaa` as a whole token: not after a word character, a backslash
+// escape or URL punctuation (`page#abc`, `/#fff`, `&#123;`), and not followed by more of a word.
+const HEX_COLOR = /(?<![\w#&/?=%\\])#(?:[\da-f]{8}|[\da-f]{6}|[\da-f]{3})(?![\w-])/gi;
+
+/**
+ * Inserts `swatch(hex)` before each hex colour outside fenced blocks and Markdown links. Inside
+ * inline code the swatch goes before the code span. All-digit hexes (`#000`, `#123`) count only
+ * inside inline code: in prose they are GitHub issue numbers. Headings and table rows (any `|`
+ * outside inline code) are skipped: Paseo draws an image there at full picture size, not inline.
+ */
+export function addColorSwatches(text: string, swatch: (hex: string) => string): string {
+  return mapProseLines(text, (line) => {
+    const code = inlineCodeSpans(line);
+    if (/^\s{0,3}#{1,6}\s/.test(line) || [...line.matchAll(/\|/g)].some((pipe) => !isInside(code, pipe.index ?? 0))) return line;
+    const links = markdownLinkSpans(line);
+    let out = "";
+    let cursor = 0;
+    for (const match of line.matchAll(HEX_COLOR)) {
+      const at = match.index ?? 0;
+      const span = code.find(([start, end]) => at >= start && at < end);
+      if (isInside(links, at) || (!span && /^#\d+$/.test(match[0]))) continue;
+      const before = span ? span[0] : at;
+      out += line.slice(cursor, before) + swatch(match[0]);
+      cursor = before;
+    }
+    return out ? out + line.slice(cursor) : line;
+  });
 }
 
 /**

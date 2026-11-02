@@ -2,7 +2,7 @@ Shows inline file previews when an assistant writes an Obsidian-style embed such
 
 Only complete embeds in assistant messages are converted. Fenced code blocks, inline code, and half-typed embeds stay as the assistant wrote them. Relative paths use the chat's working directory. Absolute paths and `~/` paths are accepted only when they resolve inside that directory. Missing, unreadable, binary, and oversized requests show a muted error instead of breaking the message.
 
-The plugin is enabled by default, and one switch covers every embed kind below. Use **⌘K → Toggle file embeds** (or Ctrl+K on Windows and Linux) for a quick switch. The same setting is available at **Settings → Plugins → noice-chat-embeds → File embeds**. Turning it off leaves native Paseo message rendering untouched. Opening Paseo tab links in place (last section) has its own switch next to it.
+The plugin is enabled by default, and one switch covers every embed kind below, colour swatches included. Use **⌘K → Toggle file embeds** (or Ctrl+K on Windows and Linux) for a quick switch. The same setting is available at **Settings → Plugins → noice-chat-embeds → File embeds**. Turning it off leaves native Paseo message rendering untouched. Opening Paseo tab links in place (last section) has its own switch next to it.
 
 ## Images
 
@@ -26,6 +26,29 @@ resolve; inline them. The phone app shows a one-line note instead.
 repository (its `origin` remote; GitHub forwards `/issues/123` to the PR when it is one). Inline
 code, code blocks, existing links and `abc#12` stay as written; folders without a GitHub remote
 keep plain text. Links appear once the reply finishes streaming.
+
+## Colour swatches
+
+A hex colour, `#rgb`, `#rrggbb` or `#rrggbbaa` in any case, gets a small rounded square of that
+colour just before it, from the baseline to about cap height, with a grey hairline so `#000` shows
+on dark themes and `#fff` on light ones; alpha shows as see-through. In inline code the square sits
+just before the code span (one per colour in the span). The hex text is untouched, and selecting
+and copying gives the text without the square. Clicking a square shows the colour enlarged.
+
+- A hex counts only as a whole token: not after a letter, digit, `/`, `?`, `=`, `&`, `%` or `\`,
+  and not followed by more letters, so `page#abc`, `example.com/#fff`, `&#123;` and `#58F2871`
+  stay plain. Text inside a Markdown link and fenced code blocks is left alone.
+- A hex of digits only (`#000`, `#123`) counts only inside inline code. In prose it stays a GitHub
+  issue number (see above), so `#000` gets a swatch as `` `#000` `` and an issue link as #000.
+- Headings and table rows (any line with a `|` outside inline code) get no swatches: Paseo draws an
+  image there at full picture size instead of inline.
+- Swatches show once the reply finishes, like issue links. Desktop and web app only: the phone app
+  drops SVG images from messages, so phones show plain hexes.
+- A square can end one line while its hex starts the next.
+- Like any reply this plugin changes (issue links, embeds), a reply with a swatch loses Paseo's
+  turn footer (duration, copy-turn and fork buttons): Paseo only treats its own message rows as a
+  turn's reply. By the same rule, Paseo's code would not fold that turn under **Collapse turns**
+  (not tried).
 
 ## SVG code blocks
 
@@ -118,3 +141,7 @@ These verifier screenshots are saved under `screenshots/`:
 - `screenshots/link-settings.webp`
 - `screenshots/link-click-off.webp`
 - `screenshots/agent-card-with-links.webp`
+- `screenshots/hex-swatch-light.webp`
+- `screenshots/hex-swatch-dark.webp`
+- `screenshots/hex-swatch-blocks.webp`
+- `screenshots/hex-swatch-phone.webp`

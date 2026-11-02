@@ -65,11 +65,34 @@ const AGENT_TEXT_CSS = `
 [data-message-embeds-agent-text] p { margin-bottom: 0.5em !important; }
 `;
 
-/** Adds the agent card text styles to the page. Returns the remover; a no-op off the web. */
-export function installAgentTextStyles(): () => void {
+/** Phone apps drop SVG images from Markdown, so colour swatches are web and desktop only. */
+export const SWATCHES = Platform.OS === "web";
+
+const SWATCH_SVG_START = `<svg class="noice-swatch" xmlns="http://www.w3.org/2000/svg"`;
+
+/**
+ * An inline Markdown image showing `hex` as a rounded square. Paseo draws inline images as a
+ * line-height square, vertically centred on the text's x-height; in that 14-unit box (1 unit is
+ * a tenth of the font size) the square spans roughly baseline to cap height, close to the hex.
+ * The grey hairline keeps `#000` visible on dark themes and `#fff` on light ones. With an empty
+ * alt, a failed image leaves nothing behind; the title names the colour.
+ */
+export function swatch(hex: string): string {
+  const svg = `${SWATCH_SVG_START} width="14" height="14" viewBox="0 0 14 14"><rect x="5.6" y="3.1" width="6.5" height="6.5" rx="1.4" fill="${hex}" stroke="#808080" stroke-opacity=".6" stroke-width=".5"/></svg>`;
+  return `![](<data:image/svg+xml,${encodeURIComponent(svg)}> "${hex}")`;
+}
+
+// The browser copies an image's alt text, which Markdown fills from the title: unselectable
+// swatches keep a copied `#58F287` from reading `#58F287#58F287`.
+const SWATCH_CSS = `
+img[src^="data:image/svg+xml,${encodeURIComponent(SWATCH_SVG_START)}"] { user-select: none; -webkit-user-select: none; }
+`;
+
+/** Adds the agent card text and colour swatch styles to the page. Returns the remover; a no-op off the web. */
+export function installStyles(): () => void {
   if (Platform.OS !== "web") return () => {};
   const style = document.createElement("style");
-  style.textContent = AGENT_TEXT_CSS;
+  style.textContent = AGENT_TEXT_CSS + SWATCH_CSS;
   document.head.appendChild(style);
   return () => style.remove();
 }

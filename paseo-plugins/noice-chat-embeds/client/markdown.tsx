@@ -4,7 +4,8 @@ import { Markdown, StreamedText } from "@getpaseo/plugin/client/ui";
 import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import { readChatRepo } from "../shared/preferences";
-import { linkIssueRefs } from "./parse";
+import { addColorSwatches, linkIssueRefs } from "./parse";
+import { swatch, SWATCHES } from "./web";
 
 export const markdownSchema = z.object({
   text: z.string(),
@@ -35,6 +36,9 @@ export function MarkdownChunk({ item, agentId }: PluginTimelineItemProps<Markdow
     return () => { live = false; };
   }, [agentId, wantsRepo, readRepo]);
   // GitHub's /issues/N redirects to /pull/N when N is a pull request.
-  const linked = useMemo(() => (repo && wantsRepo ? linkIssueRefs(text, (n) => `[#${n}](${repo}/issues/${n})`) : text), [repo, text, wantsRepo]);
+  const linked = useMemo(() => {
+    const issues = repo && wantsRepo ? linkIssueRefs(text, (n) => `[#${n}](${repo}/issues/${n})`) : text;
+    return SWATCHES ? addColorSwatches(issues, swatch) : issues;
+  }, [repo, text, wantsRepo]);
   return phase === "streaming" ? <StreamedText text={text} phase="streaming" /> : <Markdown>{linked}</Markdown>;
 }

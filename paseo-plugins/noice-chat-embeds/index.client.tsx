@@ -7,10 +7,10 @@ import { useSettings } from "@getpaseo/plugin/client";
 import { AGENT_CARD_KIND, agentCardSchema, createAgentCard } from "./client/agent-card";
 import { EmbedCard, embedCardSchema, SvgBlockCard, svgBlockSchema } from "./client/card";
 import { MarkdownChunk, markdownSchema } from "./client/markdown";
-import { linkIssueRefs, parseMessage, SVG_FENCE } from "./client/parse";
+import { addColorSwatches, linkIssueRefs, parseMessage, SVG_FENCE } from "./client/parse";
 import { type FeatureSwitch, featureSwitch } from "./client/feature-switch";
 import { startLinkClicks } from "./client/link-clicks";
-import { installAgentTextStyles } from "./client/web";
+import { installStyles, SWATCHES } from "./client/web";
 import { DEFAULTS, type Preferences, preferences } from "./shared/preferences";
 
 /** Timeline rows and page clicks have no navigation; agent cards and links open their chat through this screen. */
@@ -45,7 +45,7 @@ function Settings() {
     return <SettingsSection title="File embeds"><SettingsCard><SettingsSwitch label="Enable file embeds" value={current.enabled} disabled onValueChange={() => {}} /></SettingsCard></SettingsSection>;
   }
   return (
-    <SettingsSection title="File embeds" info="Turn Obsidian-style ![[path]] file, image and HTML previews, ![[agent link]] chat previews, and #123 GitHub links on or off in assistant messages, and choose where Paseo tab links open.">
+    <SettingsSection title="File embeds" info="Turn Obsidian-style ![[path]] file, image and HTML previews, ![[agent link]] chat previews, #123 GitHub links and colour swatches before #58F287-style hex colours on or off in assistant messages, and choose where Paseo tab links open.">
       <SettingsCard>
         <SettingsSwitch
           label="Enable file embeds"
@@ -130,7 +130,7 @@ export default function contribute(client: PluginClientContext) {
   });
 
   const openAgent = client.addScreen({ id: "open-agent", title: "Opening chat", Component: OpenAgent });
-  const agentTextStyles = installAgentTextStyles();
+  const styles = installStyles();
   const markdown = client.addTimelineRenderer({ kind: "message-embeds-markdown", version: 1, schema: markdownSchema, Component: MarkdownChunk });
   const card = client.addTimelineRenderer({ kind: "message-embeds-card", version: 1, schema: embedCardSchema, Component: EmbedCard });
   const svgCard = client.addTimelineRenderer({ kind: "message-embeds-svg", version: 1, schema: svgBlockSchema, Component: SvgBlockCard });
@@ -147,14 +147,16 @@ export default function contribute(client: PluginClientContext) {
       if (!current.enabled) return undefined;
       // Only finished replies, and not on phones: while streaming, a ```svg block stays code.
       const svg = current.svgBlocks && phase === "complete" && Platform.OS === "web";
-      // Cheap checks first; most messages have no embed, `#123` or ```svg block.
+      // Cheap checks first; most messages have no embed, `#123`, hex colour or ```svg block.
       const hasEmbed = item.text.includes("![[");
       const hasRef = /#\d\d/.test(item.text) && linkIssueRefs(item.text, () => "") !== item.text;
+      // Swatches show in finished replies only; while streaming such a chunk would lose its Markdown.
+      const hasHex = SWATCHES && phase === "complete" && /#[\da-f]{3}/i.test(item.text) && addColorSwatches(item.text, () => "x") !== item.text;
       const hasSvg = svg && SVG_FENCE.test(item.text);
-      if (!hasEmbed && !hasRef && !hasSvg) return undefined;
+      if (!hasEmbed && !hasRef && !hasHex && !hasSvg) return undefined;
       const segments = parseMessage(item.text, { svg });
-      // Unchanged text (half-typed or code-only embeds, unclosed ```svg, no `#123`) keeps Paseo's own rendering.
-      if (!hasRef && segments.length === 1 && segments[0].kind === "markdown" && segments[0].text === item.text) return undefined;
+      // Unchanged text (half-typed or code-only embeds, unclosed ```svg, no `#123` or hex) keeps Paseo's own rendering.
+      if (!hasRef && !hasHex && segments.length === 1 && segments[0].kind === "markdown" && segments[0].text === item.text) return undefined;
       // No `id` on the rows: Paseo then uses `<source message id>/<index>`, unique across the chat.
       // Its chat list keys each row's measured height by id; the parser's per-message ids
       // (`markdown-0`, `embed-0`) repeated in every converted message, rows fought over one height
@@ -199,7 +201,7 @@ export default function contribute(client: PluginClientContext) {
     svgCard();
     agentCard();
     openAgent();
-    agentTextStyles();
+    styles();
     transformer();
     void events.release().catch(() => {});
     revision = undefined;
