@@ -1,12 +1,10 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { deskRead } from "./shared/desk";
-import { inboxWrite, preferences } from "./shared/preferences";
+import { deskRead, inboxWrite } from "./shared/desk";
 
 /** Axalon Mainframe, on this machine; it owns the desk parser and Nilometer write API. */
 const MAINFRAME = "http://127.0.0.1:7070";
 
 export default function contribute(server: PluginServerContext) {
-  server.registerSettings(preferences);
   server.handle(deskRead, async () => {
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), 10_000);
@@ -23,7 +21,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(inboxWrite, async (input) => {
     const response = await fetch(`${MAINFRAME}/api/inbox/${encodeURIComponent(input.name)}/${input.action}`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${input.token}`, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ outcome: input.outcome, reply: input.reply, answerId: input.answerId }),
     });
     const body = await response.json().catch(() => ({}));

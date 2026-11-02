@@ -1,6 +1,6 @@
 # Nilometer
 
-Nilometer is the inbox and doing board inside Paseo. It displays the cards Axalon Mainframe exposes through `/desk.json`, with Inbox and Doing tabs, and writes memo actions through Mainframe's bearer-token API.
+Nilometer is the inbox and doing board inside Paseo. It displays the cards Axalon Mainframe exposes through `/desk.json`, with Inbox and Doing tabs, and writes memo actions through Mainframe's `/api/inbox`.
 
 Open it from the "Nilometer" row at the top of the sidebar or from the command center. The row shows how many unsettled, blocking Inbox cards are waiting.
 
@@ -19,9 +19,9 @@ The screen uses Paseo's own style: its tab strip, project badges and status colo
 
 When the screen is narrower than three columns (956 px of its own width, so a docked sidebar counts) or on a phone, the groups become full-width sections in one list; folding still moves a group to the pills above. Pull down to read the desk again.
 
-## Token and writes
+## Writes
 
-Open **Settings → Plugins → Nilometer → Token** and paste the value from the Mainframe token file. The setting is stored per Paseo host. Without it, reads continue to work but Star, Settle and Send report that Stefan must paste the token. The plugin calls:
+Writes need no token: Mainframe's `/api/inbox` is open on the local network. The plugin calls:
 
 - `POST /api/inbox/<name>/star` with `{}` to toggle the star;
 - `POST /api/inbox/<name>/settle` with `{outcome?}`;

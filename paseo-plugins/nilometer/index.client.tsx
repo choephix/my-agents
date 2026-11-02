@@ -1,5 +1,4 @@
 import { type PluginClientContext } from "@getpaseo/plugin/client";
-import { NilometerSettings } from "./client/settings";
 import { DeskScreen, DeskSidebarItem, SCREEN_ID } from "./client/screen";
 import { setClient } from "./client/store";
 
@@ -8,7 +7,6 @@ export default function contribute(client: PluginClientContext) {
   const cleanups = [
     client.addScreen({ id: SCREEN_ID, title: "Nilometer", Component: DeskScreen }),
     client.addSidebarHeaderItem({ id: SCREEN_ID, title: "Nilometer", Component: DeskSidebarItem }),
-    client.addSettingsScreen({ id: "nilometer", title: "Token", icon: "Lock", Component: NilometerSettings }),
     client.addCommandCenterItem({
       id: "open-nilometer",
       title: "Nilometer",
