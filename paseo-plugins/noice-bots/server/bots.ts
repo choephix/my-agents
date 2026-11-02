@@ -39,8 +39,6 @@ export class Bots {
   readonly #reopening = new Set<string>();
   readonly #countTimers = new Map<string, NodeJS.Timeout>();
   #sweeper: NodeJS.Timeout | undefined;
-  /** Hub agents made by the migration, to be drawn in full with each question on their first open. */
-  readonly #fresh = new Set<string>();
   /** Hub sessions can open before `load` is done; they wait for the bots file. */
   #storeLoaded: Promise<void> | undefined;
 
@@ -65,7 +63,6 @@ export class Bots {
       if (agent?.status === "running" || agent?.status === "initializing") continue;
       await this.turnEnded(thread.id, thread.workspaceId, agent?.status === "error" ? "failed" : "done").catch(error => console.error(`noice-bots: settling ${thread.id} failed`, error));
     }
-    await this.#migrate();
     for (const bot of this.store.bots) void this.#schedule(bot.id);
     void this.sweep();
     this.#sweeper = setInterval(() => void this.sweep(), 3_600_000);
@@ -96,8 +93,14 @@ export class Bots {
     this.store.bots.push(bot);
     await this.store.saveBots();
     try {
-      // Explicit: otherwise Paseo picks a model (an `omp-nilo` hub got Fable 5 at low).
-      await this.#createHub(bot, { model: DEFAULT_MODEL, thinkingOptionId: DEFAULT_THINKING });
+      // Its session opens while it is created, and asks for its bot. The model is explicit: otherwise
+      // Paseo picks one (an `omp-nilo` hub got Fable 5 at low).
+      await client.createAgent({
+        agentId: bot.hubAgentId,
+        workspaceId: bot.workspaceId,
+        config: { provider: PROVIDER_ID, cwd: bot.cwd, title: bot.name, providerOptions: { botId: bot.id }, model: DEFAULT_MODEL, thinkingOptionId: DEFAULT_THINKING },
+        labels: { [ROLE_LABEL]: "hub", [HUB_LABEL]: bot.id, [EMOJI_LABEL]: bot.emoji, [COUNTS_LABEL]: "0,0" },
+      });
     } catch (error) {
       this.store.bots = this.store.bots.filter(other => other !== bot);
       await this.store.saveBots();
@@ -105,42 +108,6 @@ export class Bots {
       throw error;
     }
     return bot;
-  }
-
-  /** Its session opens while it is created, and asks for its bot. */
-  async #createHub(bot: Bot, picks: { model?: string; thinkingOptionId?: string; modeId?: string } = {}): Promise<void> {
-    await (await daemon()).createAgent({
-      agentId: bot.hubAgentId,
-      workspaceId: bot.workspaceId,
-      config: { provider: PROVIDER_ID, cwd: bot.cwd, title: bot.name, providerOptions: { botId: bot.id }, ...picks },
-      labels: { [ROLE_LABEL]: "hub", [HUB_LABEL]: bot.id, [EMOJI_LABEL]: bot.emoji, [COUNTS_LABEL]: "0,0" },
-    });
-  }
-
-  /**
-   * Once: a bot from the days of a new hub each day (`hubSince`) gets one new hub for good, with the
-   * old hub's model, thinking and mode, every thread drawn in it under its question. The old hub is
-   * deleted.
-   */
-  async #migrate(): Promise<void> {
-    const client = await daemon();
-    for (const bot of this.store.bots.filter(bot => bot.hubSince !== undefined)) {
-      const old = bot.hubAgentId;
-      try {
-        const agent = (await client.fetchAgent(old).catch(() => null))?.agent;
-        bot.hubAgentId = randomUUID();
-        this.#fresh.add(bot.hubAgentId);
-        await this.#createHub(bot, { model: agent?.model ?? undefined, thinkingOptionId: agent?.thinkingOptionId ?? undefined, modeId: agent?.currentModeId ?? undefined });
-        await this.store.saveBots();
-      } catch (error) {
-        bot.hubAgentId = old;
-        console.error(`noice-bots: a new hub for ${bot.name} failed`, error);
-        continue;
-      }
-      // Archived first: an archive reaches every client, so an open tab of the old hub closes.
-      await client.archiveAgent(old).then(() => client.deleteAgent(old))
-        .catch(error => console.error(`noice-bots: deleting ${bot.name}'s old hub failed`, error));
-    }
   }
 
   async updateBot(id: string, raw: BotInput): Promise<void> {
@@ -250,18 +217,6 @@ export class Bots {
     const bot = this.store.bot(hub.botId);
     if (this.#hubs.get(sessionId) !== hub || bot?.hubAgentId !== hub.agentId) return;
     hub.ready = true;
-    if (this.#fresh.delete(hub.agentId)) {
-      for (const day of await this.store.days(bot.id)) {
-        for (const thread of await this.store.day(bot.id, day)) {
-          hub.emit({ type: "timeline.item", sessionId, item: { type: "user_message", id: `question-${thread.id}`, text: asked(thread.question, thread.files?.length ?? 0) } });
-          hub.emit(this.#threadItem(sessionId, thread));
-        }
-      }
-      delete bot.hubSince;
-      bot.redraw = undefined;
-      await this.store.saveBots();
-      return;
-    }
     const ids = bot.redraw ?? [];
     if (!ids.length) return;
     bot.redraw = undefined;
@@ -324,7 +279,7 @@ export class Bots {
       await writeFile(file, Buffer.from(image.data, "base64"));
       files.push(file);
     }
-    const shown = asked(text, files.length);
+    const shown = files.length ? `${text}${text ? "\n" : ""}📎 ${files.length} attached` : text;
     hub.emit({ type: "timeline.item", sessionId, item: { type: "user_message", id: `question-${id}`, text: shown, clientMessageId } });
     hub.emit({ type: "session.prompt_result", sessionId, clientMessageId, result: { type: "completed" } });
     const thread: Thread = {
@@ -560,8 +515,6 @@ export class Bots {
 }
 
 const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
-/** A question as the hub shows it. */
-const asked = (question: string, files: number) => files ? `${question}${question ? "\n" : ""}📎 ${files} attached` : question;
 
 function titleOf(text: string): string {
   const line = text.trim().split("\n")[0].replace(/\s+/g, " ");

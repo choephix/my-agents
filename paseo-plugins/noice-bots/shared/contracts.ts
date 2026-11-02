@@ -76,8 +76,6 @@ export const defaultName = (emoji: string) => ANIMALS[emoji] ?? "Bot";
 export const defaultFolder = (root: string, name: string) => `${root.replace(/\/+$/, "")}/${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "bot"}`;
 export const Bot = BotInput.extend({
   id: z.string(), workspaceId: z.string(), hubAgentId: z.string(), createdAt: z.number(),
-  /** Set only on bots from the days of a new hub each day: they get one hub for good on load. */
-  hubSince: z.number().optional(),
   /** Threads that changed while the hub was closed: it redraws their blocks when it opens. */
   redraw: z.array(z.string()).optional(),
   /** The last day whose threads are all read-only. */
