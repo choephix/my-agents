@@ -47,8 +47,10 @@ export const Thread = z.object({
   readOnly: z.boolean(),
   /** Its chat was opened (Open on a running block, or Wake): no sleep at turn end until its tab closes. */
   awake: z.boolean().optional(),
-  /** When you settled it (done with it): read, one line in the hub. A follow-up or Wake clears it. */
+  /** When you settled it (done with it): read, one faint line in the hub, its question hidden. A follow-up or Wake clears it. */
   settled: z.number().optional(),
+  /** Paseo's id of your question's row in the hub (its `messageId`): hidden while the thread is settled. */
+  questionId: z.string().optional(),
   workspaceId: z.string(),
   /** The hub's model, thinking and mode when the thread was asked. */
   model: z.string().optional(),
@@ -103,6 +105,8 @@ export const markAllRead = defineRpc({ name: "bots.mark-read", input: z.object({
 export const settleThread = defineRpc({ name: "bots.settle", input: z.object({ id: z.string(), settled: z.boolean() }), output: z.object({}) });
 /** Settles every finished thread of the bot that is read. */
 export const settleAllRead = defineRpc({ name: "bots.settle-read", input: z.object({ botId: z.string() }), output: z.object({}) });
+/** The `questionId`s of every settled thread: the hub hides those question rows. */
+export const listSettledQuestions = defineRpc({ name: "bots.settled-questions", input: z.object({}), output: z.array(z.string()) });
 /** Unread threads newest first, over the days the sidebar's green dot counts. */
 export const listUnread = defineRpc({ name: "bots.unread", input: z.object({ botId: z.string() }), output: z.array(Thread) });
 /** The user opened a thread's chat: it stays up after its turn until the tab is closed. */

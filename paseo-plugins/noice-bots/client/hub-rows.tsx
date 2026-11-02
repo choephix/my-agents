@@ -8,8 +8,10 @@ import type { Thread } from "../shared/contracts";
 export interface ThreadActions {
   /** Finished: its 🌙 read tab. Running or queued: its chat. */
   open(thread: Thread): void;
-  /** Done with a finished thread (one line in the hub), or its full block back. */
+  /** Done with a finished thread (one faint line in the hub, its question hidden), or its full block back. */
   settle(thread: Thread, settled: boolean): void;
+  /** A block was drawn with this thread's latest state. */
+  drawn(thread: Thread): void;
 }
 
 const clock = (ms: number) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -30,8 +32,8 @@ function Elapsed({ since, color }: { since: number; color: string }) {
 
 /** Space after each thread: between one thread and the next, and under the last one above the composer. */
 const THREAD_GAP = 80;
-/** Under a settled thread's one line: settled threads sit close together. */
-const SETTLED_GAP = 24;
+/** A settled line at rest: very faint; full strength while hovered or pressed. */
+const SETTLED_OPACITY = 0.3;
 /** The answer preview's height (~7 lines). The top ~2 stay solid; the rest is the fade. */
 const PREVIEW = 150;
 /** How far up from a cut preview's bottom edge the answer fades out: about four lines, starting on the line before. */
@@ -61,7 +63,7 @@ function InlineButton({ label, title, theme, onPress }: { label: string; title: 
   );
 }
 
-/** A settled thread: one muted line. Pressing it opens the read tab; Unsettle brings the block back. */
+/** A settled thread: one faint line, no gap after it, so settled threads stack as a list. Pressing it opens the read tab; Unsettle brings the block back. */
 function SettledRow({ thread, theme, actions }: { thread: Thread; theme: PluginTheme; actions: ThreadActions }) {
   const { colors } = theme;
   const [hover, setHover] = useState(false);
@@ -73,7 +75,10 @@ function SettledRow({ thread, theme, actions }: { thread: Thread; theme: PluginT
       onPress={() => actions.open(thread)}
       onHoverIn={() => setHover(true)}
       onHoverOut={() => setHover(false)}
-      style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6, paddingHorizontal: 16, borderRadius: 12, backgroundColor: hover ? colors.surface1 : "transparent" }}
+      style={({ pressed }) => ({
+        flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 3, paddingHorizontal: 16, borderRadius: 8,
+        opacity: hover || pressed ? 1 : SETTLED_OPACITY, backgroundColor: hover ? colors.surface1 : "transparent",
+      })}
     >
       <Text style={muted}>✓</Text>
       <Text numberOfLines={1} style={{ ...muted, flexShrink: 1 }}>{thread.title}</Text>
@@ -146,12 +151,9 @@ export function createHubRows(actions: ThreadActions) {
   /** A hub turn has no Paseo turn footer to close it: the block's own gap separates threads and clears the composer under the last. */
   function ThreadRow({ item, theme }: PluginTimelineItemProps<Thread>) {
     const thread = item.data;
-    const settled = !!thread.settled;
-    return (
-      <View style={{ paddingBottom: settled ? SETTLED_GAP : THREAD_GAP }}>
-        {settled ? <SettledRow thread={thread} theme={theme} actions={actions} /> : <ThreadBlock thread={thread} theme={theme} actions={actions} />}
-      </View>
-    );
+    useEffect(() => actions.drawn(thread), [thread.questionId, thread.settled]);
+    if (thread.settled) return <SettledRow thread={thread} theme={theme} actions={actions} />;
+    return <View style={{ paddingBottom: THREAD_GAP }}><ThreadBlock thread={thread} theme={theme} actions={actions} /></View>;
   }
   return { ThreadRow };
 }

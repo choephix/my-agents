@@ -55,11 +55,25 @@ Running: spinner, timer, latest `thread_progress` note, **Open ›**. Queued: `q
 A thread that named itself shows its title in bold at the top of the block.
 
 **Settle** (finished blocks, footer, before **Read ›**; one press, no confirm): you're done with the
-thread. It becomes read, its row stores `settled: <ts>`, and the block is re-emitted as one muted
-line (`✓ title · 14:05`, then 24 px of space) with **Unsettle**, which brings the full block back;
-pressing the line opens the read tab. Settled threads are out of Unread, the sidebar's green dot and
-Mark all read (they are read); Search still finds them. A follow-up (`turnStarted`) or **Wake**
-clears `settled`. Nothing is deleted, and read-only after N days is unchanged.
+thread. It becomes read, its row stores `settled: <ts>`, your question above it is hidden, and the
+block is re-emitted as one line (`✓ title · 14:05`) at 30% opacity (full while hovered or pressed),
+with no space after it, so settled threads stack as a list of faint lines. **Unsettle** brings the
+question and the full block back; pressing the line opens the read tab. Settled threads are out of
+Unread, the sidebar's green dot and Mark all read (they are read); Search still finds them. A
+follow-up (`turnStarted`) or **Wake** clears `settled`. Nothing is deleted, and read-only after N
+days is unchanged.
+
+Hiding the question (`client/questions.ts`): a re-emit can't change Paseo's `user_message` row
+(`collapseByIdentity` merges only tool calls and plugin rows), so a client timeline transformer on
+`user_message` drops the rows whose `messageId`/`clientMessageId` is a settled thread's
+`questionId`, and leaves every other row to Paseo (images, time, copy button unchanged). A thread
+stores its `questionId` when asked (the message's `clientMessageId`, which Paseo keeps as the row's
+`messageId`); a thread asked before that gets it on its first settle, from the hub's `user_message`
+right before its block. The client learns the hidden set from `bots.settled-questions` at start and
+from each drawn block. Paseo transforms a row once and caches the result per transformer
+(`projectPluginTimelineItems`), so a change registers the transformer again: that makes Paseo
+re-transform the rows of every open chat once per settle or unsettle (batched for Settle all read).
+Another device's settle shows once that device draws the block.
 
 Each bot has **one hub agent for its whole life**. Paseo keeps its own durable copy of a hub's
 timeline and ignores what a reopened plugin session replays (`historyPrimed` in
@@ -175,12 +189,6 @@ an hour with no thread, the next one pays like the first.
   goes when the thread sleeps.
 - Codex ignores Paseo's per-agent system prompt, so threads run on OMP providers only. Tool calls
   aren't in the saved copy.
-- Your question above a settled thread stays full size. It is Paseo's `user_message` row, which a
-  re-emit can't change (`collapseByIdentity` merges only tool calls and plugin rows). The one hook
-  is a client timeline transformer on `user_message` (`addTimelineTransformer`): it would have to
-  replace every hub question with a plugin-drawn copy, as Paseo transforms each row once and caches
-  it (`projectPluginTimelineItems`); the copy gets only the text, so the row's images, time and copy
-  button would go. Not done.
 
 ## Screenshots
 
@@ -189,4 +197,5 @@ an hour with no thread, the next one pays like the first.
 `queued`, `read-only`, `search`, `new-bot`, `edit-bot`, `settings`, `history`,
 `phone-hub`, `phone-drawer`, `phone-bots-menu`, `phone-read`, `writer-hub`, `one-hub-lab` (two
 questions, a follow-up on the first, a plugin reload), `one-hub-scribe` (after the move to one hub),
-`settled` and `phone-settled` (one settled thread above a full block).
+`settled` and `phone-settled` (settled threads stacked above an unsettled one; phone: after an
+unsettle), `settled-hover` (a hovered settled line).

@@ -5,6 +5,7 @@ import { markAllRead, openedThread, settleAllRead, settleThread, Thread, THREAD_
 import { BotForm } from "./client/form";
 import { createHubRows } from "./client/hub-rows";
 import { watchHubs } from "./client/hubs";
+import { hideSettledQuestions } from "./client/questions";
 import { BotsSettings } from "./client/settings";
 import { ReadPanel, showThread } from "./client/read";
 import { SearchThreads, UnreadThreads } from "./client/search";
@@ -40,11 +41,12 @@ export default function contribute(client: PluginClientContext) {
     showThread(thread.workspaceId, thread.id);
     client.openPanel("read", { workspaceId: thread.workspaceId });
   };
-  // The server redraws the block, or its one line, in the hub.
+  // The server redraws the block, or its one line, in the hub; the drawn block then shows or hides its question.
   const settle = (thread: Thread, settled: boolean) => {
     client.rpc(settleThread, { id: thread.id, settled }).catch(error => console.error(`noice-bots: settling ${thread.id} failed`, error));
   };
-  const rows = createHubRows({ open: openThread, settle });
+  const questions = hideSettledQuestions(client);
+  const rows = createHubRows({ open: openThread, settle, drawn: questions.sync });
   /** After Delete bot (pressed in that bot's workspace): the next bot's hub, else the most recently active workspace. */
   const openNextHub = async (deleted: string) => {
     const next = hubs.current().find(hub => hub.botId !== deleted);
@@ -97,6 +99,7 @@ export default function contribute(client: PluginClientContext) {
   return () => {
     offHubs();
     hubs.stop();
+    questions.stop();
     for (const registered of buttons.values()) for (const button of registered) button.remove();
     for (const remove of removers) remove();
   };

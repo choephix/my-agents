@@ -285,7 +285,7 @@ export class Bots {
     const thread: Thread = {
       id, botId: bot.id, workspaceId: bot.workspaceId, title: titleOf(text) || "📎 Attachment", question: text, answer: "", status: "queued",
       createdAt: Date.now(), startedAt: null, endedAt: null, followUps: 0, note: "", unread: false, readOnly: false,
-      model: hub.config.model, thinking: hub.config.thinkingOption, mode: hub.config.mode,
+      model: hub.config.model, thinking: hub.config.thinkingOption, mode: hub.config.mode, questionId: clientMessageId,
       ...(files.length ? { files } : {}),
     };
     this.#active.set(id, thread);
@@ -437,23 +437,64 @@ export class Bots {
     const thread = this.#active.get(id) ?? await this.store.thread(id);
     if (!thread) throw new Error("Unknown thread");
     if (settled && this.#active.has(id)) throw new Error("Only a finished thread can be settled.");
+    if (settled) await this.#findQuestions([thread]);
     this.#setSettled(thread, settled);
   }
 
   async settleAllRead(botId: string): Promise<void> {
+    const threads: Thread[] = [];
     for (const day of await this.store.days(botId)) {
-      for (const thread of await this.store.day(botId, day)) {
-        if (!thread.unread && !this.#active.has(thread.id)) this.#setSettled(thread, true);
-      }
+      threads.push(...(await this.store.day(botId, day)).filter(thread => !thread.unread && !thread.settled && !this.#active.has(thread.id)));
     }
+    await this.#findQuestions(threads);
+    for (const thread of threads) this.#setSettled(thread, true);
   }
 
-  /** Settled: read, and one line in the hub. */
+  /** Settled: read, one line in the hub, and the question above it hidden (`settledQuestions`). */
   #setSettled(thread: Thread, settled: boolean): void {
     if (!!thread.settled === settled) return;
     thread.settled = settled ? Date.now() : undefined;
     if (settled) thread.unread = false;
     this.#changed(thread);
+  }
+
+  /** The questions above settled threads, every bot's: the hub hides these rows. */
+  async settledQuestions(): Promise<string[]> {
+    const ids: string[] = [];
+    for (const bot of this.store.bots) {
+      for (const day of await this.store.days(bot.id)) {
+        for (const thread of await this.store.day(bot.id, day)) if (thread.settled && thread.questionId) ids.push(thread.questionId);
+      }
+    }
+    return ids;
+  }
+
+  /**
+   * Threads asked before `questionId` was stored (all of one bot's): their question is the hub's
+   * `user_message` right before their block.
+   */
+  async #findQuestions(threads: readonly Thread[]): Promise<void> {
+    const missing = threads.filter(thread => !thread.questionId);
+    if (!missing.length) return;
+    const hubId = this.#bot(missing[0].botId).hubAgentId;
+    const client = await daemon();
+    const items: AgentTimelineItem[] = [];
+    let page = await client.fetchAgentTimeline(hubId, { direction: "tail", limit: 1000, projection: "projected" });
+    for (;;) {
+      items.unshift(...page.entries.map(entry => entry.item as AgentTimelineItem));
+      if (!page.hasOlder || !page.startCursor) break;
+      page = await client.fetchAgentTimeline(hubId, { direction: "before", cursor: page.startCursor, limit: 1000, projection: "projected" });
+    }
+    const questionOf = new Map<string, string>();
+    let question: string | undefined;
+    for (const item of items) {
+      if (item.type === "user_message") question = item.messageId ?? item.clientMessageId;
+      else if (item.type === "plugin" && item.id?.startsWith("thread-") && question) {
+        questionOf.set(item.id.slice("thread-".length), question);
+        question = undefined;
+      }
+    }
+    for (const thread of missing) thread.questionId = questionOf.get(thread.id);
   }
 
   /** Newest first; every word in your messages or the answers. Rows first, saved copies only where they hold more. */
