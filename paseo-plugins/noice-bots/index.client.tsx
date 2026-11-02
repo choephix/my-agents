@@ -1,7 +1,7 @@
 import type { PluginButtonRegistration, PluginClientContext, PluginScreenProps } from "@getpaseo/plugin/client";
 import { useEffect } from "react";
 import { Text } from "react-native";
-import { markAllRead, openedThread, Thread, THREAD_KIND } from "./shared/contracts";
+import { markAllRead, openedThread, settleAllRead, settleThread, Thread, THREAD_KIND } from "./shared/contracts";
 import { BotForm } from "./client/form";
 import { createHubRows } from "./client/hub-rows";
 import { watchHubs } from "./client/hubs";
@@ -40,7 +40,11 @@ export default function contribute(client: PluginClientContext) {
     showThread(thread.workspaceId, thread.id);
     client.openPanel("read", { workspaceId: thread.workspaceId });
   };
-  const rows = createHubRows({ open: openThread });
+  // The server redraws the block, or its one line, in the hub.
+  const settle = (thread: Thread, settled: boolean) => {
+    client.rpc(settleThread, { id: thread.id, settled }).catch(error => console.error(`noice-bots: settling ${thread.id} failed`, error));
+  };
+  const rows = createHubRows({ open: openThread, settle });
   /** After Delete bot (pressed in that bot's workspace): the next bot's hub, else the most recently active workspace. */
   const openNextHub = async (deleted: string) => {
     const next = hubs.current().find(hub => hub.botId !== deleted);
@@ -73,6 +77,7 @@ export default function contribute(client: PluginClientContext) {
                 { kind: "item", id: "unread", title: "Unread threads", icon: "Inbox", behavior: { kind: "popover", Content: ({ theme, close }) => <UnreadThreads botId={hub.botId} theme={theme} open={thread => { close(); openThread(thread); }} /> } },
                 { kind: "item", id: "search", title: "Search threads", icon: "Search", behavior: { kind: "popover", Content: ({ theme, close }) => <SearchThreads botId={hub.botId} theme={theme} open={thread => { close(); openThread(thread); }} /> } },
                 { kind: "item", id: "mark-read", title: "Mark all read", icon: "CheckCheck", behavior: { kind: "action", onPress: async () => { await client.rpc(markAllRead, { botId: hub.botId }); } } },
+                { kind: "item", id: "settle-read", title: "Settle all read", icon: "ListChecks", behavior: { kind: "action", onPress: async () => { await client.rpc(settleAllRead, { botId: hub.botId }); } } },
               ],
             },
           },

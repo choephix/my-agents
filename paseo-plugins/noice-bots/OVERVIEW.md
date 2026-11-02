@@ -54,6 +54,13 @@ has no Paseo turn footer, so the last block would otherwise touch the composer).
 Running: spinner, timer, latest `thread_progress` note, **Open ›**. Queued: `queued`, not pressable.
 A thread that named itself shows its title in bold at the top of the block.
 
+**Settle** (finished blocks, footer, before **Read ›**; one press, no confirm): you're done with the
+thread. It becomes read, its row stores `settled: <ts>`, and the block is re-emitted as one muted
+line (`✓ title · 14:05`, then 24 px of space) with **Unsettle**, which brings the full block back;
+pressing the line opens the read tab. Settled threads are out of Unread, the sidebar's green dot and
+Mark all read (they are read); Search still finds them. A follow-up (`turnStarted`) or **Wake**
+clears `settled`. Nothing is deleted, and read-only after N days is unchanged.
+
 Each bot has **one hub agent for its whole life**. Paseo keeps its own durable copy of a hub's
 timeline and ignores what a reopened plugin session replays (`historyPrimed` in
 `agent-manager.ts`). So:
@@ -105,13 +112,14 @@ Built for a handful of questions a day per bot; the hub keeps all of them (see G
   saved copies are read only for threads with follow-ups or cut answers.
 - **Unread threads** (hub header menu): the unread threads over the read-only period, newest first;
   the same set the sidebar's green dot counts. Pressing one opens its read tab, which marks it read.
-- **Mark all read** (hub header menu).
+- **Mark all read** and **Settle all read** (hub header menu); the second settles every finished
+  thread that is read.
 - **Read-only after N days** (setting, default 7), checked on load and hourly: the agent is
   deleted, its session file too (only inside the plugin's sessions folder), the saved copy stays.
 - **Hidden threads**: History lists no background-workspace agents. `noice-past-sessions` lists
   Paseo agents without `includeBackground` and OMP files under `~/.omp`; thread session files go
   to `~/.paseo/plugin-data/noice-bots/sessions` (`PI_CODING_AGENT_SESSION_DIR`).
-- **Start-up**: on load Bots settles turns that ended while it was down, starts queued threads and
+- **Start-up**: on load Bots finishes turns that ended while it was down, starts queued threads and
   sweeps read-only threads (then hourly). A starting daemon loads its
   plugins before it writes its address to `paseo.pid`, so this step retries its connection with
   backoff (250 ms doubling to 5 s) for up to two minutes, then logs one line and gives up until
@@ -134,7 +142,7 @@ Built for a handful of questions a day per bot; the hub keeps all of them (see G
 - The counts come from a label on each hub agent (`noice-bots.counts = running,unread`, debounced)
   read through one agent-list subscription, so the client polls nothing.
 - Each bot workspace header: **System prompt** (the bot form; changes apply to new threads) and a
-  menu with **Unread threads**, **Search threads** and **Mark all read**.
+  menu with **Unread threads**, **Search threads**, **Mark all read** and **Settle all read**.
 
 ## The one session-open hook
 
@@ -167,6 +175,12 @@ an hour with no thread, the next one pays like the first.
   goes when the thread sleeps.
 - Codex ignores Paseo's per-agent system prompt, so threads run on OMP providers only. Tool calls
   aren't in the saved copy.
+- Your question above a settled thread stays full size. It is Paseo's `user_message` row, which a
+  re-emit can't change (`collapseByIdentity` merges only tool calls and plugin rows). The one hook
+  is a client timeline transformer on `user_message` (`addTimelineTransformer`): it would have to
+  replace every hub question with a plugin-drawn copy, as Paseo transforms each row once and caches
+  it (`projectPluginTimelineItems`); the copy gets only the text, so the row's images, time and copy
+  button would go. Not done.
 
 ## Screenshots
 
@@ -174,4 +188,5 @@ an hour with no thread, the next one pays like the first.
 `strip/` (before/after, light/dark, 1×/2×: rest, hover, selected, running, focus),
 `queued`, `read-only`, `search`, `new-bot`, `edit-bot`, `settings`, `history`,
 `phone-hub`, `phone-drawer`, `phone-bots-menu`, `phone-read`, `writer-hub`, `one-hub-lab` (two
-questions, a follow-up on the first, a plugin reload), `one-hub-scribe` (after the move to one hub).
+questions, a follow-up on the first, a plugin reload), `one-hub-scribe` (after the move to one hub),
+`settled` and `phone-settled` (one settled thread above a full block).

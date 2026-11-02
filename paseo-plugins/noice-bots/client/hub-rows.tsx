@@ -8,6 +8,8 @@ import type { Thread } from "../shared/contracts";
 export interface ThreadActions {
   /** Finished: its 🌙 read tab. Running or queued: its chat. */
   open(thread: Thread): void;
+  /** Done with a finished thread (one line in the hub), or its full block back. */
+  settle(thread: Thread, settled: boolean): void;
 }
 
 const clock = (ms: number) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -28,6 +30,8 @@ function Elapsed({ since, color }: { since: number; color: string }) {
 
 /** Space after each thread: between one thread and the next, and under the last one above the composer. */
 const THREAD_GAP = 80;
+/** Under a settled thread's one line: settled threads sit close together. */
+const SETTLED_GAP = 24;
 /** The answer preview's height (~7 lines). The top ~2 stay solid; the rest is the fade. */
 const PREVIEW = 150;
 /** How far up from a cut preview's bottom edge the answer fades out: about four lines, starting on the line before. */
@@ -44,6 +48,39 @@ function Fade({ background }: { background: string }) {
       pointerEvents="none"
       style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: FADE, experimental_backgroundImage: `linear-gradient(to bottom, ${clear}, ${background})` }}
     />
+  );
+}
+
+/** A small text button inside a block: its press doesn't open the block. */
+function InlineButton({ label, title, theme, onPress }: { label: string; title: string; theme: PluginTheme; onPress(): void }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={title} hitSlop={10} onPress={onPress} onHoverIn={() => setHover(true)} onHoverOut={() => setHover(false)}>
+      <Text style={{ color: hover ? theme.colors.foreground : theme.colors.foregroundMuted, fontSize: 13 }}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/** A settled thread: one muted line. Pressing it opens the read tab; Unsettle brings the block back. */
+function SettledRow({ thread, theme, actions }: { thread: Thread; theme: PluginTheme; actions: ThreadActions }) {
+  const { colors } = theme;
+  const [hover, setHover] = useState(false);
+  const muted = { color: colors.foregroundMuted, fontSize: 13 };
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Read settled thread ${thread.title}`}
+      onPress={() => actions.open(thread)}
+      onHoverIn={() => setHover(true)}
+      onHoverOut={() => setHover(false)}
+      style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6, paddingHorizontal: 16, borderRadius: 12, backgroundColor: hover ? colors.surface1 : "transparent" }}
+    >
+      <Text style={muted}>✓</Text>
+      <Text numberOfLines={1} style={{ ...muted, flexShrink: 1 }}>{thread.title}</Text>
+      <Text style={{ ...muted, flexShrink: 0 }}>· {clock(thread.endedAt ?? thread.createdAt)}</Text>
+      <View style={{ flex: 1 }} />
+      <InlineButton label="Unsettle" title={`Unsettle thread ${thread.title}`} theme={theme} onPress={() => actions.settle(thread, false)} />
+    </Pressable>
   );
 }
 
@@ -97,7 +134,8 @@ function ThreadBlock({ thread, theme, actions }: { thread: Thread; theme: Plugin
           <Text style={muted}>{thread.followUps || thread.unread || thread.status !== "done" ? "· " : ""}{clock(thread.endedAt ?? thread.createdAt)}</Text>
           {thread.readOnly ? <Text style={muted}>· read-only</Text> : null}
           <View style={{ flex: 1 }} />
-          <Text style={muted}>Read ›</Text>
+          <InlineButton label="Settle" title={`Settle thread ${thread.title}`} theme={theme} onPress={() => actions.settle(thread, true)} />
+          <Text style={{ ...muted, marginLeft: 8 }}>Read ›</Text>
         </View>
       </>}
     </Pressable>
@@ -107,7 +145,13 @@ function ThreadBlock({ thread, theme, actions }: { thread: Thread; theme: Plugin
 export function createHubRows(actions: ThreadActions) {
   /** A hub turn has no Paseo turn footer to close it: the block's own gap separates threads and clears the composer under the last. */
   function ThreadRow({ item, theme }: PluginTimelineItemProps<Thread>) {
-    return <View style={{ paddingBottom: THREAD_GAP }}><ThreadBlock thread={item.data} theme={theme} actions={actions} /></View>;
+    const thread = item.data;
+    const settled = !!thread.settled;
+    return (
+      <View style={{ paddingBottom: settled ? SETTLED_GAP : THREAD_GAP }}>
+        {settled ? <SettledRow thread={thread} theme={theme} actions={actions} /> : <ThreadBlock thread={thread} theme={theme} actions={actions} />}
+      </View>
+    );
   }
   return { ThreadRow };
 }

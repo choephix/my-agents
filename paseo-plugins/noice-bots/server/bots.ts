@@ -61,7 +61,7 @@ export class Bots {
     for (const thread of [...this.#active.values()].filter(thread => thread.status === "running")) {
       const agent = (await client.fetchAgent(thread.id).catch(() => null))?.agent;
       if (agent?.status === "running" || agent?.status === "initializing") continue;
-      await this.turnEnded(thread.id, thread.workspaceId, agent?.status === "error" ? "failed" : "done").catch(error => console.error(`noice-bots: settling ${thread.id} failed`, error));
+      await this.turnEnded(thread.id, thread.workspaceId, agent?.status === "error" ? "failed" : "done").catch(error => console.error(`noice-bots: finishing ${thread.id} failed`, error));
     }
     for (const bot of this.store.bots) void this.#schedule(bot.id);
     void this.sweep();
@@ -340,9 +340,10 @@ export class Bots {
     if (!this.#known(workspaceId)) return;
     const thread = this.#active.get(agentId) ?? await this.store.thread(agentId);
     if (!thread || thread.status === "running") return;
-    // A follow-up in a woken thread.
+    // A follow-up in a woken thread; a settled thread is back in play.
     thread.status = "running";
     thread.endedAt = null;
+    thread.settled = undefined;
     this.#active.set(thread.id, thread);
     this.#changed(thread);
   }
@@ -394,6 +395,7 @@ export class Bots {
     if (!thread) throw new Error("Unknown thread");
     if (thread.readOnly) throw new Error("This thread is read-only now; its agent was removed.");
     await this.#setAwake(id, true);
+    if (thread.settled) this.#setSettled(thread, false);
     await (await daemon()).refreshAgent(id);
   }
 
@@ -429,6 +431,29 @@ export class Bots {
     for (const day of await this.store.days(botId)) {
       for (const thread of await this.store.day(botId, day)) await this.markRead(thread);
     }
+  }
+
+  async settle(id: string, settled: boolean): Promise<void> {
+    const thread = this.#active.get(id) ?? await this.store.thread(id);
+    if (!thread) throw new Error("Unknown thread");
+    if (settled && this.#active.has(id)) throw new Error("Only a finished thread can be settled.");
+    this.#setSettled(thread, settled);
+  }
+
+  async settleAllRead(botId: string): Promise<void> {
+    for (const day of await this.store.days(botId)) {
+      for (const thread of await this.store.day(botId, day)) {
+        if (!thread.unread && !this.#active.has(thread.id)) this.#setSettled(thread, true);
+      }
+    }
+  }
+
+  /** Settled: read, and one line in the hub. */
+  #setSettled(thread: Thread, settled: boolean): void {
+    if (!!thread.settled === settled) return;
+    thread.settled = settled ? Date.now() : undefined;
+    if (settled) thread.unread = false;
+    this.#changed(thread);
   }
 
   /** Newest first; every word in your messages or the answers. Rows first, saved copies only where they hold more. */

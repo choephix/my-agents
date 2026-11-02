@@ -1,6 +1,9 @@
 import { defineAgentTool, type PluginServerContext } from "@getpaseo/plugin/server";
 import { z } from "zod";
-import { createBot, deleteBot, getBot, getThread, listProviders, listUnread, markAllRead, openedThread, searchThreads, settings, THREAD_LABEL, updateBot, wakeThread } from "./shared/contracts";
+import {
+  createBot, deleteBot, getBot, getThread, listProviders, listUnread, markAllRead, openedThread, searchThreads, settings, settleAllRead, settleThread, THREAD_LABEL, updateBot,
+  wakeThread,
+} from "./shared/contracts";
 import { Bots } from "./server/bots";
 import { closeDaemon } from "./server/daemon";
 import { hubProvider } from "./server/hub";
@@ -31,6 +34,8 @@ export default function contribute(server: PluginServerContext) {
     return { ...found, bot: { name: bot.name, emoji: bot.emoji } };
   });
   server.handle(wakeThread, async ({ id }) => { await bots.wake(id); return {}; });
+  server.handle(settleThread, async ({ id, settled }) => { await bots.settle(id, settled); return {}; });
+  server.handle(settleAllRead, async ({ botId }) => { await bots.settleAllRead(botId); return {}; });
   server.handle(openedThread, async ({ id }) => { await bots.opened(id); return {}; });
   server.handle(searchThreads, ({ botId, query }) => bots.search(botId, query));
   server.handle(markAllRead, async ({ botId }) => { await bots.markAllRead(botId); return {}; });

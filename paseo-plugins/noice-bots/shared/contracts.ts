@@ -47,6 +47,8 @@ export const Thread = z.object({
   readOnly: z.boolean(),
   /** Its chat was opened (Open on a running block, or Wake): no sleep at turn end until its tab closes. */
   awake: z.boolean().optional(),
+  /** When you settled it (done with it): read, one line in the hub. A follow-up or Wake clears it. */
+  settled: z.number().optional(),
   workspaceId: z.string(),
   /** The hub's model, thinking and mode when the thread was asked. */
   model: z.string().optional(),
@@ -97,6 +99,10 @@ export const searchThreads = defineRpc({
   output: z.array(Thread),
 });
 export const markAllRead = defineRpc({ name: "bots.mark-read", input: z.object({ botId: z.string() }), output: z.object({}) });
+/** `settled`: done with a finished thread (it also becomes read), or back to its full block. */
+export const settleThread = defineRpc({ name: "bots.settle", input: z.object({ id: z.string(), settled: z.boolean() }), output: z.object({}) });
+/** Settles every finished thread of the bot that is read. */
+export const settleAllRead = defineRpc({ name: "bots.settle-read", input: z.object({ botId: z.string() }), output: z.object({}) });
 /** Unread threads newest first, over the days the sidebar's green dot counts. */
 export const listUnread = defineRpc({ name: "bots.unread", input: z.object({ botId: z.string() }), output: z.array(Thread) });
 /** The user opened a thread's chat: it stays up after its turn until the tab is closed. */
