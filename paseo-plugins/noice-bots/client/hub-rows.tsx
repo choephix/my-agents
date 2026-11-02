@@ -2,7 +2,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { Markdown } from "@getpaseo/plugin/client/ui";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, Text, View } from "react-native";
 import type { Thread } from "../shared/contracts";
 
 export interface ThreadActions {
@@ -29,16 +29,21 @@ function Elapsed({ since, color }: { since: number; color: string }) {
 /** Space after each thread: between one thread and the next, and under the last one above the composer. */
 const THREAD_GAP = 80;
 /** The answer preview's height (~5 lines). */
-const PREVIEW = 92;
+const PREVIEW = 112;
+/** How far up from a cut preview's bottom edge the answer fades out: about two lines. */
+const FADE = 56;
+/** Web: the cut preview's text itself fades out, whatever the background behind it. */
+const webMask = { maskImage: `linear-gradient(to bottom, #000 calc(100% - ${FADE}px), transparent)` } as object;
 
-/** Eight stepped strips of the background under a cut preview: a fade that needs no gradient library. */
+/** Native has no mask: a gradient into the background colour is painted over the cut preview. */
 function Fade({ background }: { background: string }) {
+  // The background at zero alpha, so the gradient doesn't pass through grey on its way from "transparent".
+  const clear = /^#[0-9a-f]{6}$/i.test(background) ? `${background}00` : "transparent";
   return (
-    <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 32 }}>
-      {Array.from({ length: 8 }, (_, index) => (
-        <View key={index} style={{ position: "absolute", left: 0, right: 0, bottom: index * 4, height: 5, backgroundColor: background, opacity: 1 - index / 8 }} />
-      ))}
-    </View>
+    <View
+      pointerEvents="none"
+      style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: FADE, experimental_backgroundImage: `linear-gradient(to bottom, ${clear}, ${background})` }}
+    />
   );
 }
 
@@ -74,12 +79,12 @@ function ThreadBlock({ thread, theme, actions }: { thread: Thread; theme: Plugin
         </View>
       ) : <>
         {thread.answer ? (
-          <View style={{ maxHeight: PREVIEW, overflow: "hidden", paddingHorizontal: 8, alignItems: "flex-start" }} pointerEvents="none">
+          <View style={[{ maxHeight: PREVIEW, overflow: "hidden", paddingHorizontal: 8, alignItems: "flex-start" }, cut && Platform.OS === "web" ? webMask : null]} pointerEvents="none">
             <View onLayout={event => setCut(event.nativeEvent.layout.height > PREVIEW)}>
               <Markdown>{thread.answer}</Markdown>
             </View>
             {/* The stream is surface0 (Paseo's agent-stream container); a hovered block is surface1. */}
-            {cut ? <Fade background={hover ? colors.surface1 : colors.surface0} /> : null}
+            {cut && Platform.OS !== "web" ? <Fade background={hover ? colors.surface1 : colors.surface0} /> : null}
           </View>
         ) : null}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 8 }}>
