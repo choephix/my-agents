@@ -27,6 +27,22 @@ function Elapsed({ since, color }: { since: number; color: string }) {
   return <Text style={{ color, fontSize: 13 }}>running {elapsed(now - since)}</Text>;
 }
 
+/** Space after each thread: between one thread and the next, and under the last one above the composer. */
+const THREAD_GAP = 80;
+/** The answer preview's height (~5 lines). */
+const PREVIEW = 92;
+
+/** Eight stepped strips of the background under a cut preview: a fade that needs no gradient library. */
+function Fade({ background }: { background: string }) {
+  return (
+    <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 32 }}>
+      {Array.from({ length: 8 }, (_, index) => (
+        <View key={index} style={{ position: "absolute", left: 0, right: 0, bottom: index * 4, height: 5, backgroundColor: background, opacity: 1 - index / 8 }} />
+      ))}
+    </View>
+  );
+}
+
 /**
  * The answer cut to a few lines and a footer; one press target. In the hub Paseo draws your message
  * above it; folded days (`question`) draw it here.
@@ -35,6 +51,8 @@ export function ThreadBlock({ thread, theme, actions, question }: { thread: Thre
   const { colors } = theme;
   const live = thread.status === "running" || thread.status === "queued";
   const [hover, setHover] = useState(false);
+  /** The answer runs past the preview: its last lines fade out instead of being cut mid-line. */
+  const [cut, setCut] = useState(false);
   const muted = { color: colors.foregroundMuted, fontSize: 13 };
   return (
     <Pressable
@@ -65,8 +83,12 @@ export function ThreadBlock({ thread, theme, actions, question }: { thread: Thre
         </View>
       ) : <>
         {thread.answer ? (
-          <View style={{ maxHeight: 92, overflow: "hidden", paddingHorizontal: 8, alignItems: "flex-start" }} pointerEvents="none">
-            <Markdown>{thread.answer}</Markdown>
+          <View style={{ maxHeight: PREVIEW, overflow: "hidden", paddingHorizontal: 8, alignItems: "flex-start" }} pointerEvents="none">
+            <View onLayout={event => setCut(event.nativeEvent.layout.height > PREVIEW)}>
+              <Markdown>{thread.answer}</Markdown>
+            </View>
+            {/* The stream is surface0 (Paseo's agent-stream container); a hovered block is surface1. */}
+            {cut ? <Fade background={hover ? colors.surface1 : colors.surface0} /> : null}
           </View>
         ) : null}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 8 }}>
@@ -87,9 +109,9 @@ export function ThreadBlock({ thread, theme, actions, question }: { thread: Thre
 }
 
 export function createHubRows(actions: ThreadActions) {
-  /** A hub turn has no Paseo turn footer, whose 32 px closes every chat turn: the block adds it, so the last one clears the composer too. */
+  /** A hub turn has no Paseo turn footer to close it: the block's own gap separates threads and clears the composer under the last. */
   function ThreadRow({ item, theme }: PluginTimelineItemProps<Thread>) {
-    return <View style={{ paddingBottom: 32 }}><ThreadBlock thread={item.data} theme={theme} actions={actions} /></View>;
+    return <View style={{ paddingBottom: THREAD_GAP }}><ThreadBlock thread={item.data} theme={theme} actions={actions} /></View>;
   }
 
   /** "Yesterday · 480 threads · 2 new"; opens in place, loading that day only then. */
@@ -118,7 +140,11 @@ export function createHubRows(actions: ThreadActions) {
         </Pressable>
         {threads === "loading" ? <ActivityIndicator color={colors.foregroundMuted} /> : null}
         {threads === "failed" ? <Text style={{ color: colors.statusDanger, fontSize: 12, textAlign: "center" }}>Couldn't load this day. Press the divider to try again.</Text> : null}
-        {expanded ? threads.map(thread => <ThreadBlock key={thread.id} thread={thread} theme={theme} actions={actions} question />) : null}
+        {expanded ? (
+          <View style={{ gap: THREAD_GAP, paddingTop: 12, paddingBottom: THREAD_GAP }}>
+            {threads.map(thread => <ThreadBlock key={thread.id} thread={thread} theme={theme} actions={actions} question />)}
+          </View>
+        ) : null}
       </View>
     );
   }

@@ -46,9 +46,11 @@ workspace's `.scratch/paseo-bots/map.md`.
 ## Hub rows
 
 Paseo draws your message (its own `user_message` row); the plugin row under it is the thread
-block: the answer cut to ~5 lines, a footer (`1 follow-up · 14:05`; unread: a green dot in place of
-`↳` and a green `new`), one press target, then 32 px of space (a hub turn has no Paseo turn footer,
-so the last block would otherwise touch the composer).
+block: the answer cut to ~5 lines (a longer one fades out into the background: stepped strips of
+`surface0`, `surface1` while hovered), a footer (`1 follow-up · 14:05`; unread: a green dot in place
+of `↳` and a green `new`), one press target, then 80 px of space before the next thread (a hub turn
+has no Paseo turn footer, so the last block would otherwise touch the composer). An expanded day
+spaces its blocks the same way.
 Running: spinner, timer, latest `thread_progress` note, **Open ›**. Queued: `queued`, not pressable.
 A thread that named itself shows its title in bold at the top of the block.
 
