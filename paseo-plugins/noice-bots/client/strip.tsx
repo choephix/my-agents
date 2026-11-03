@@ -10,14 +10,36 @@ import type { Hub, Hubs } from "./hubs";
 /** Paseo's blue for work in progress; there is no theme token for it. */
 const RUNNING = "#60A5FA";
 
-/** The bot opened last from the strip or menu: the plugin can't see which workspace is on screen. */
+/**
+ * Web: the workspace on screen comes from the URL (`…/workspace/<id>`), followed through the
+ * Navigation API's `currententrychange` (fires on every in-app navigation; no polling), so leaving
+ * a bot unselects its tile. Native has neither, so the bot opened last from the strip or menu
+ * stands in there.
+ */
+/** The slice of the browser's Navigation API used here; React Native's types don't declare it. */
+interface BrowserNavigation extends EventTarget { readonly currentEntry: { readonly url: string | null } | null }
+const web: object = Platform.OS === "web" ? globalThis : {};
+// Checked to be an EventTarget; the DOM types that would describe the rest aren't loaded here.
+const navigationApi = "navigation" in web && web.navigation instanceof EventTarget ? web.navigation as BrowserNavigation : undefined;
+const workspaceInUrl = () => {
+  const id = /\/workspace\/([^/?#]+)/.exec(navigationApi?.currentEntry?.url ?? "")?.[1];
+  return id ? decodeURIComponent(id) : null;
+};
+const subscribeUrl = (listener: () => void) => {
+  navigationApi?.addEventListener("currententrychange", listener);
+  return () => navigationApi?.removeEventListener("currententrychange", listener);
+};
 let current: string | null = null;
 const currentListeners = new Set<() => void>();
 const setCurrent = (agentId: string) => {
   current = agentId;
   for (const listener of currentListeners) listener();
 };
-const useCurrent = () => useSyncExternalStore(listener => { currentListeners.add(listener); return () => { currentListeners.delete(listener); }; }, () => current);
+const subscribeCurrent = (listener: () => void) => { currentListeners.add(listener); return () => { currentListeners.delete(listener); }; };
+/** Whether a hub's tile is the selected one. */
+const useSelected: () => (hub: Hub) => boolean = navigationApi
+  ? () => { const shown = useSyncExternalStore(subscribeUrl, workspaceInUrl); return hub => hub.workspaceId === shown; }
+  : () => { const opened = useSyncExternalStore(subscribeCurrent, () => current); return hub => hub.agentId === opened; };
 
 function Badge({ hub, theme, ring = theme.colors.surface0, size = 7 }: { hub: Hub; theme: PluginTheme; ring?: string; size?: number }) {
   const color = hub.running ? RUNNING : hub.unread ? theme.colors.statusSuccess : null;
@@ -143,7 +165,7 @@ export function createStrip(hubs: Hubs, open: (agentId: string) => void) {
   /** Under Schedules: a strip of bot tiles on wide layouts, one Bots row on phones. */
   return function BotsStrip({ theme, layout, openPopover }: PluginSidebarItemProps) {
     const list = hubs.use();
-    const active = useCurrent();
+    const selected = useSelected();
     const motion = !useReduceMotion();
     const prefs = useSettings(settings);
     const showRobot = prefs.status !== "ready" || prefs.values.showRobot;
@@ -157,7 +179,7 @@ export function createStrip(hubs: Hubs, open: (agentId: string) => void) {
     return (
       <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 1, paddingHorizontal: 12, paddingVertical: 2 }}>
         {showRobot ? <View accessibilityLabel="Bots" style={{ width: 22, marginRight: 3, alignItems: "center" }}><Icon name="Bot" size={14} color={theme.colors.foregroundMuted} /></View> : null}
-        {list.map(hub => <Tile key={hub.agentId} hub={hub} theme={theme} active={hub.agentId === active} motion={motion} />)}
+        {list.map(hub => <Tile key={hub.agentId} hub={hub} theme={theme} active={selected(hub)} motion={motion} />)}
         <NewBotButton theme={theme} onPress={() => openPopover(NewBot)} />
       </View>
     );

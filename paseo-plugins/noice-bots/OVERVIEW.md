@@ -141,9 +141,12 @@ Built for a handful of questions a day per bot; the hub keeps all of them (see G
 
 ## Sidebar
 
-- Wide: a strip of emoji tiles under Schedules (sidebar header item). The bot opened last from the
-  strip sits on a highlighted tile (the plugin can't see which workspace is on screen); others are
-  dimmed until hover. Blue dot `#60A5FA`: a thread running; green: unread answers. **+**: New bot.
+- Wide: a strip of emoji tiles under Schedules (sidebar header item). The tile of the bot whose
+  workspace is on screen is highlighted; others are dimmed until hover. Web reads the workspace id
+  from the URL and follows it through the Navigation API (`currententrychange`, no polling), so
+  opening any other workspace or screen unselects the tile. Native has no URL, so there the bot
+  opened last from the strip stays highlighted. Blue dot `#60A5FA`: a thread running; green:
+  unread answers. **+**: New bot.
   A grey robot before the strip, setting **Show robot icon before bots** (on).
   The row is 28 px like the rows above: the robot sits on their icon column, the tiles start where
   their labels do. Tiles are 24 px with 1 px between; the 17 px emoji scales to 1.2× by transform
