@@ -27,8 +27,14 @@ const BUBBLE_RADIUS = 16;
 const BUBBLE_TAIL_RADIUS = 2;
 const BUBBLE_FONT = 15;
 const BUBBLE_LINE = 21;
-/** The question's colour: the card's (`surface2`) with this much of the text colour, near Paseo's own bubble (`surface3`, which plugins don't get). */
+/** The question's colour: the card's with this much of the text colour, near Paseo's own bubble (`surface3`, which plugins don't get). */
 const BUBBLE_MIX = 0.12;
+/**
+ * On a dark page the card stands at least this far above it in lightness (CIE L*), Paseo's dark
+ * themes' own step from surface0 to surface2 (6.9 to 7.5). Pure black's step is 5.1, and its card
+ * all but vanished on the black page.
+ */
+const CARD_MIN_STEP = 7;
 /** A settled line at rest: very faint; full strength while hovered or pressed. */
 const SETTLED_OPACITY = 0.3;
 /** The answer preview's height (~7 lines). The top ~2 stay solid; the rest is the fade. */
@@ -59,6 +65,26 @@ function mix(base: string, other: string, amount: number): string {
   if (!HEX.test(base) || !HEX.test(other)) return base;
   const channel = (hex: string, at: number) => parseInt(hex.slice(at, at + 2), 16);
   return `#${[1, 3, 5].map(at => Math.round(channel(base, at) * (1 - amount) + channel(other, at) * amount).toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** CIE L* (0–100) of a #rrggbb colour. */
+function lightness(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map(at => {
+    const c = parseInt(hex.slice(at, at + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return y > 0.008856 ? 116 * Math.cbrt(y) - 16 : 903.3 * y;
+}
+
+/** The answer card: surface2, on a dark page lifted toward the text colour until it stands CARD_MIN_STEP above the page. */
+function cardColor({ surface0, surface2, foreground }: PluginTheme["colors"]): string {
+  if (![surface0, surface2, foreground].every(color => HEX.test(color)) || lightness(surface0) > 50) return surface2;
+  for (let amount = 0; amount <= 0.3; amount += 0.01) {
+    const card = mix(surface2, foreground, amount);
+    if (lightness(card) - lightness(surface0) >= CARD_MIN_STEP) return card;
+  }
+  return surface2;
 }
 
 /** Ticks once a second while mounted; only running blocks mount it. */
@@ -142,7 +168,7 @@ function Question({ text, theme }: { text: string; theme: PluginTheme }) {
       {...userTextMark}
       style={{
         alignSelf: "flex-end", marginHorizontal: CARD_RADIUS, zIndex: 1, padding: BUBBLE_PAD, minWidth: 0,
-        borderRadius: BUBBLE_RADIUS, borderTopRightRadius: BUBBLE_TAIL_RADIUS, backgroundColor: mix(colors.surface2, colors.foreground, BUBBLE_MIX),
+        borderRadius: BUBBLE_RADIUS, borderTopRightRadius: BUBBLE_TAIL_RADIUS, backgroundColor: mix(cardColor(colors), colors.foreground, BUBBLE_MIX),
       }}
     >
       <Text {...messageTextMark} selectable style={[{ color: colors.foreground, fontSize: BUBBLE_FONT }, Platform.OS === "web" ? webQuestion : null]}>{text}</Text>
@@ -168,7 +194,7 @@ function ThreadCard({ thread, theme, actions, onOpen, asked }: { thread: Thread;
       onHoverIn={() => setHover(true)}
       onHoverOut={() => setHover(false)}
       style={{
-        marginTop: asked ? -OVERLAP : 0, gap: CARD_GAP, borderRadius: CARD_RADIUS, backgroundColor: colors.surface2,
+        marginTop: asked ? -OVERLAP : 0, gap: CARD_GAP, borderRadius: CARD_RADIUS, backgroundColor: cardColor(colors),
         paddingTop: (asked ? OVERLAP : 0) + CARD_PAD_Y, paddingBottom: CARD_PAD_Y, paddingHorizontal: CARD_PAD,
       }}
     >
@@ -190,7 +216,7 @@ function ThreadCard({ thread, theme, actions, onOpen, asked }: { thread: Thread;
             <View onLayout={event => setCut(event.nativeEvent.layout.height > PREVIEW)}>
               <Markdown>{thread.answer}</Markdown>
             </View>
-            {cut && Platform.OS !== "web" ? <Fade background={colors.surface2} /> : null}
+            {cut && Platform.OS !== "web" ? <Fade background={cardColor(colors)} /> : null}
           </View>
         ) : null}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
