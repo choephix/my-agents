@@ -149,9 +149,11 @@ Built for a handful of questions a day per bot; the hub keeps all of them (see G
   unread answers. **+**: New bot.
   A grey robot before the strip, setting **Show robot icon before bots** (on).
   The row is 28 px like the rows above: the robot sits on their icon column, the tiles start where
-  their labels do. Tiles are 24 px with 1 px between; the 17 px emoji scales to 1.2× by transform
-  on hover and on the selected bot (tile and hit area unchanged; the emoji ignores the pointer).
-  Web: CSS transitions, 120 ms in and 240 ms out, easing out; none under `prefers-reduced-motion`.
+  their labels do. Tiles are 24 px with 1 px between, and the 17 px emoji's text box is the tile
+  (line height 24), so no state moves or resizes anything: hover and the selected bot only raise
+  the emoji from 55% to full opacity, and the selected tile gets a background. Web: the opacity
+  eases 120 ms in, 240 ms out; none under `prefers-reduced-motion`. Until the robot setting and
+  the first bot list have come, the strip is an empty 28 px row, so the tiles arrive in one step.
   The selected tile uses the theme's `border` colour, since `surface2` is the light sidebar itself;
   the badge ring uses the sidebar colour (the darker of `surface0`/`surface2`). Keyboard focus draws
   an accent outline (web: only on `:focus-visible`, so clicks don't).
@@ -196,7 +198,8 @@ an hour with no thread, the next one pays like the first.
 ## Screenshots
 
 `screenshots/`: `hub`, `read-tab`, `waking`, `thread-awake`, `strip`, `strip-running`,
-`strip/` (before/after, light/dark, 1×/2×: rest, hover, selected, running, focus),
+`strip/` (before/after, light/dark, 1×/2×: rest, hover, selected, running, focus;
+`states-before/` and `states-after/`: the fixed-geometry change, page load through focus),
 `queued`, `read-only`, `search`, `new-bot`, `edit-bot`, `settings`, `history`,
 `phone-hub`, `phone-drawer`, `phone-bots-menu`, `phone-read`, `writer-hub`, `one-hub-lab` (two
 questions, a follow-up on the first, a plugin reload), `one-hub-scribe` (after the move to one hub),

@@ -30,12 +30,15 @@ export interface Hubs {
   current(): Hub[];
   /** The hubs, re-rendering on change. */
   use(): Hub[];
+  /** Whether the first list has come; before it, `current()` is empty for want of it. */
+  loaded(): boolean;
   stop(): void;
 }
 
 /** Hub agents of the client's host, kept current by one owned list subscription (no polling). */
 export function watchHubs(client: PluginClientContext): Hubs {
   let hubs: Hub[] = [];
+  let loaded = false;
   const byId = new Map<string, Hub>();
   const listeners = new Set<() => void>();
   const publish = () => {
@@ -55,6 +58,7 @@ export function watchHubs(client: PluginClientContext): Hubs {
         snapshot: ({ entries }) => {
           byId.clear();
           for (const { agent } of entries) put(agent);
+          loaded = true;
           publish();
         },
         update: message => {
@@ -66,7 +70,12 @@ export function watchHubs(client: PluginClientContext): Hubs {
         },
       });
     })
-    .catch(error => { if (!lifetime.signal.aborted) console.error("noice-bots: watching bots failed", error); });
+    .catch(error => {
+      if (lifetime.signal.aborted) return;
+      console.error("noice-bots: watching bots failed", error);
+      loaded = true;
+      publish();
+    });
   const subscribe = (listener: () => void) => {
     listeners.add(listener);
     return () => { listeners.delete(listener); };
@@ -75,6 +84,7 @@ export function watchHubs(client: PluginClientContext): Hubs {
     subscribe,
     current: () => hubs,
     use: () => useSyncExternalStore(subscribe, () => hubs),
+    loaded: () => loaded,
     stop: () => lifetime.abort(),
   };
 }

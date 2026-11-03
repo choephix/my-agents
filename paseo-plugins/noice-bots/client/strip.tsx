@@ -47,9 +47,9 @@ function Badge({ hub, theme, ring = theme.colors.surface0, size = 7 }: { hub: Hu
   return <View pointerEvents="none" style={{ position: "absolute", right: 0, bottom: 0, width: size, height: size, borderRadius: size / 2, backgroundColor: color, borderWidth: 1.5, borderColor: ring }} />;
 }
 
-/** Strip geometry: tiles sit on the sidebar's 28 px row; the emoji keeps its 17 px. */
+/** Strip geometry: tiles sit on the sidebar's 28 px row; the emoji's line box is the tile, in every state. */
 const TILE = 24;
-const SCALE = 1.2;
+const ROW = 28;
 
 const luma = (hex: string) => /^#[0-9a-f]{6}$/i.test(hex) ? [1, 3, 5].reduce((sum, at, i) => sum + parseInt(hex.slice(at, at + 2), 16) * [0.3, 0.59, 0.11][i], 0) : null;
 /**
@@ -60,8 +60,8 @@ const sidebarColor = ({ colors }: PluginTheme) => (luma(colors.surface2) ?? 0) <
 /** The selected tile: surface2 is the sidebar itself in the light theme, so the border colour. */
 const selectedColor = (theme: PluginTheme) => theme.colors.border;
 
-/** Web only: CSS transitions on the emoji, fast in and a little slower out, both easing out. */
-const ease = (ms: number) => ({ transitionProperty: "transform, opacity", transitionDuration: `${ms}ms`, transitionTimingFunction: "cubic-bezier(0.2, 0, 0, 1)" });
+/** Web only: a CSS transition on the emoji's opacity, fast in and a little slower out, both easing out. */
+const ease = (ms: number) => ({ transitionProperty: "opacity", transitionDuration: `${ms}ms`, transitionTimingFunction: "cubic-bezier(0.2, 0, 0, 1)" });
 
 /** `prefers-reduced-motion` (React Native Web reads the media query): end states without transitions. */
 function useReduceMotion() {
@@ -134,17 +134,14 @@ export function createStrip(hubs: Hubs, open: (agentId: string) => void) {
     const [hover, setHover] = useState(false);
     const { focused, handlers } = useKeyboardFocus();
     const label = [hub.name, status(hub)].filter(Boolean).join(" · ");
-    const lifted = active || hover;
     return (
       <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={() => openHub(hub.agentId)} {...handlers}
         onHoverIn={() => setHover(true)} onHoverOut={() => setHover(false)}
-        style={{ width: TILE, height: TILE, borderRadius: 6, alignItems: "center", justifyContent: "center", zIndex: hover ? 2 : active ? 1 : 0,
+        style={{ width: TILE, height: TILE, borderRadius: 6, alignItems: "center", justifyContent: "center",
           backgroundColor: active ? selectedColor(theme) : "transparent", ...focusRing(theme, focused) }}>
-        {/* Scaled by transform, so the tile keeps its size; it doesn't catch the pointer, so its edge never flickers. */}
-        <View pointerEvents="none" style={{ transform: [{ scale: lifted ? SCALE : 1 }], opacity: lifted ? 1 : 0.55,
-          ...(motion && Platform.OS === "web" ? ease(hover ? 120 : 240) : null) }}>
-          <Text style={{ fontSize: 17, color: theme.colors.foreground }}>{hub.emoji}</Text>
-        </View>
+        {/* Hover and selection change colour only: the emoji's box is the tile's, whatever the font's metrics. */}
+        <Text style={{ width: TILE, height: TILE, lineHeight: TILE, fontSize: 17, textAlign: "center", color: theme.colors.foreground,
+          opacity: active || hover ? 1 : 0.55, ...(motion && Platform.OS === "web" ? ease(hover ? 120 : 240) : null) }}>{hub.emoji}</Text>
         <Badge hub={hub} theme={theme} size={8} ring={active ? selectedColor(theme) : sidebarColor(theme)} />
       </Pressable>
     );
@@ -169,15 +166,18 @@ export function createStrip(hubs: Hubs, open: (agentId: string) => void) {
     const motion = !useReduceMotion();
     const prefs = useSettings(settings);
     const showRobot = prefs.status !== "ready" || prefs.values.showRobot;
+    // Nothing but the row until the robot setting and the bots are known, so nothing shifts in.
+    const settled = prefs.status !== "loading" && hubs.loaded();
     if (layout.compact) {
       const running = list.reduce((sum, hub) => sum + hub.running, 0);
       return <SidebarRow icon="Bot" label="Bots" onPress={() => openPopover(BotsMenu)}
         trailing={running ? <Text style={{ color: theme.colors.foregroundMuted, fontSize: 13 }}>{running} running</Text> : undefined} />;
     }
+    if (!settled) return <View style={{ height: ROW }} />;
     // 28 px tall like the rows above; the robot centres on their icon column and the tiles start
     // where their labels do.
     return (
-      <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 1, paddingHorizontal: 12, paddingVertical: 2 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 1, paddingHorizontal: 12, paddingVertical: (ROW - TILE) / 2 }}>
         {showRobot ? <View accessibilityLabel="Bots" style={{ width: 22, marginRight: 3, alignItems: "center" }}><Icon name="Bot" size={14} color={theme.colors.foregroundMuted} /></View> : null}
         {list.map(hub => <Tile key={hub.agentId} hub={hub} theme={theme} active={selected(hub)} motion={motion} />)}
         <NewBotButton theme={theme} onPress={() => openPopover(NewBot)} />
