@@ -1,26 +1,12 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { useRpc, useTabState, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
-import { Icon, Markdown, ScrollView } from "@getpaseo/plugin/client/ui";
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { z } from "zod";
-import { getThread, wakeThread, type RpcThread } from "../shared/contracts";
+import { useRpc } from "@getpaseo/plugin/client";
+import { Icon, Markdown, Modal, ScrollView } from "@getpaseo/plugin/client/ui";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, Modal as RNModal, Pressable, Text, View } from "react-native";
+import { getThread, type RpcThread } from "../shared/contracts";
 import { humanError } from "./errors";
 
-/**
- * Panels open without parameters, and an agent panel needs a live agent (a sleeping thread is
- * archived). So the 🌙 tab is a workspace panel: the thread to show is handed over here just
- * before it opens, and the tab keeps it in its own saved state.
- */
-const handoff = new Map<string, string>();
-const handoffListeners = new Set<() => void>();
-export function showThread(workspaceId: string, threadId: string): void {
-  handoff.set(workspaceId, threadId);
-  for (const listener of handoffListeners) listener();
-}
-const useHandoff = (workspaceId: string) => useSyncExternalStore(listener => { handoffListeners.add(listener); return () => { handoffListeners.delete(listener); }; }, () => handoff.get(workspaceId));
-
-export function SavedCopy({ messages, theme }: { messages: RpcThread["messages"]; theme: PluginTheme }) {
+function SavedCopy({ messages, theme }: { messages: RpcThread["messages"]; theme: PluginTheme }) {
   const { colors } = theme;
   return <>
     {messages.map((message, index) => message.role === "user"
@@ -31,73 +17,89 @@ export function SavedCopy({ messages, theme }: { messages: RpcThread["messages"]
   </>;
 }
 
-/** 🌙 A sleeping thread's saved copy: reading it loads nothing. Wake opens the real chat. */
-export function ReadPanel({ workspaceId, tab, theme, layout, navigation, revision }: PluginWorkspacePanelProps) {
+/** The dialog on wide layouts: Paseo's chat column is 820 px wide; the saved copy reads a little narrower. */
+const DIALOG_WIDTH = 780;
+
+/**
+ * 🌙 A sleeping thread's saved copy: reading it loads nothing and marks it read. Wake restores the
+ * thread and opens its chat as a normal tab; the modal closes. Phones get Paseo's plugin `Modal`
+ * (a sheet). Wide layouts get a dialog of the plugin's own, about a chat's width: Paseo's modal
+ * card stops at 520 px and the plugin `Modal` can't widen it.
+ */
+export function SavedThread({ threadId, theme, compact, wake, onClose }: { threadId: string; theme: PluginTheme; compact: boolean; wake(id: string): Promise<void>; onClose(): void }) {
   const { colors } = theme;
   const load = useRpc(getThread);
-  const wake = useRpc(wakeThread);
-  const [saved, setSaved] = useTabState(tab, z.object({ threadId: z.string() }), { threadId: "" });
-  const handed = useHandoff(workspaceId);
-  useEffect(() => {
-    if (!handed) return;
-    handoff.delete(workspaceId);
-    if (handed !== saved.threadId) setSaved({ threadId: handed });
-  }, [handed]);
-  const threadId = handed ?? saved.threadId;
   const [data, setData] = useState<RpcThread | null | "loading">("loading");
   const [waking, setWaking] = useState<"idle" | "waking" | string>("idle");
-  // `revision` grows each time the tab is opened again: a follow-up may have changed the copy.
   useEffect(() => {
-    if (!threadId) return;
     let live = true;
-    setData("loading");
-    setWaking("idle");
     load({ id: threadId, markRead: true }).then(next => { if (live) setData(next); }, () => { if (live) setData(null); });
     return () => { live = false; };
-  }, [threadId, revision]);
-  if (!threadId) return <View style={{ flex: 1, backgroundColor: colors.surface0, padding: 24 }}><Text style={{ color: colors.foregroundMuted }}>Press Read on a thread in the bot's hub to show it here.</Text></View>;
-  if (data === "loading") return <View style={{ flex: 1, backgroundColor: colors.surface0, justifyContent: "center" }}><ActivityIndicator color={colors.foregroundMuted} /></View>;
-  if (!data) return <View style={{ flex: 1, backgroundColor: colors.surface0, padding: 24 }}><Text style={{ color: colors.foregroundMuted }}>This thread's saved copy is gone.</Text></View>;
-  const pad = layout.compact ? 12 : 24;
+  }, [threadId]);
   const onWake = async () => {
     setWaking("waking");
     try {
-      await wake({ id: threadId });
-      navigation?.openAgent({ agentId: threadId });
-      setWaking("idle");
+      await wake(threadId);
+      onClose();
     } catch (error) {
       setWaking(humanError(error));
     }
   };
+  const title = data && data !== "loading" ? data.thread.title : "Thread";
+  const moon = <Icon name="Moon" size={18} color={colors.foreground} />;
+  const body = data === "loading" ? <View style={{ padding: 32 }}><ActivityIndicator color={colors.foregroundMuted} /></View>
+    : !data ? <Text style={{ color: colors.foregroundMuted, padding: 24 }}>This thread's saved copy is gone.</Text>
+    : <>
+            <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 16, gap: 14 }}>
+              <Text style={{ color: colors.foregroundMuted, fontSize: 12, paddingHorizontal: 8 }}>
+                {data.bot.emoji} {data.bot.name} · {data.thread.readOnly ? "read-only" : "asleep"} · saved copy: your messages and the answers
+              </Text>
+              <SavedCopy messages={data.messages} theme={theme} />
+            </ScrollView>
+            <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16, gap: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+              {data.thread.readOnly ? (
+                <Text style={{ color: colors.foregroundMuted, fontSize: 12, textAlign: "center" }}>Read-only: this thread's agent was removed after a few days; the saved copy stays.</Text>
+              ) : waking === "waking" ? (
+                <View style={{ flexDirection: "row", gap: 10, justifyContent: "center", alignItems: "center", padding: 12 }}>
+                  <ActivityIndicator color={colors.foregroundMuted} />
+                  <Text style={{ color: colors.foreground, fontWeight: "600" }}>Restoring thread…</Text>
+                  <Text style={{ color: colors.foregroundMuted }}>a few seconds</Text>
+                </View>
+              ) : <>
+                <Pressable accessibilityRole="button" onPress={onWake}
+                  style={{ flexDirection: "row", gap: 8, justifyContent: "center", alignItems: "center", paddingVertical: 11, borderRadius: 10, backgroundColor: colors.accent }}>
+                  <Icon name="Sunrise" size={16} color={colors.accentForeground} />
+                  <Text style={{ color: colors.accentForeground, fontWeight: "600", fontSize: 14 }}>Wake this thread</Text>
+                </Pressable>
+                <Text style={{ color: waking === "idle" ? colors.foregroundMuted : colors.statusDanger, fontSize: 12, textAlign: "center" }}>
+                  {waking === "idle" ? "Opens it as a regular chat tab, with the message box and tool calls. A few seconds." : waking}
+                </Text>
+              </>}
+            </View>
+    </>;
+  if (compact) {
+    return (
+      <Modal title={title} icon={moon} open onOpenChange={open => { if (!open) onClose(); }}>
+        <Modal.Content scrollable={false} contentContainerStyle={{ padding: 0, gap: 0 }}>{body}</Modal.Content>
+      </Modal>
+    );
+  }
+  // Paseo's modal card, wider: surface1 with a surface2 edge, a header row with a line under it.
   return (
-    <View style={{ flex: 1, backgroundColor: colors.surface0 }}>
-      <ScrollView contentContainerStyle={{ padding: pad, gap: 14, maxWidth: 820, width: "100%", alignSelf: "center" }}>
-        <Text style={{ color: colors.foreground, fontSize: 16, fontWeight: "600", paddingHorizontal: 8 }}>{data.thread.title}</Text>
-        <Text style={{ color: colors.foregroundMuted, fontSize: 12, paddingHorizontal: 8 }}>
-          {data.bot.emoji} {data.bot.name} · {data.thread.readOnly ? "read-only" : "asleep"} · saved copy: your messages and the answers
-        </Text>
-        <SavedCopy messages={data.messages} theme={theme} />
-      </ScrollView>
-      <View style={{ paddingHorizontal: pad, paddingTop: 8, paddingBottom: pad, gap: 6, maxWidth: 820, width: "100%", alignSelf: "center" }}>
-        {data.thread.readOnly ? (
-          <Text style={{ color: colors.foregroundMuted, fontSize: 12, textAlign: "center" }}>Read-only: this thread's agent was removed after a few days; the saved copy stays.</Text>
-        ) : waking === "waking" ? (
-          <View style={{ flexDirection: "row", gap: 10, justifyContent: "center", alignItems: "center", padding: 12 }}>
-            <ActivityIndicator color={colors.foregroundMuted} />
-            <Text style={{ color: colors.foreground, fontWeight: "600" }}>Restoring thread…</Text>
-            <Text style={{ color: colors.foregroundMuted }}>Un-archiving its saved session, a few seconds.</Text>
+    <RNModal transparent visible animationType="fade" onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
+        <Pressable accessibilityLabel="Close" onPress={onClose} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(0,0,0,0.5)" }} />
+        <View style={{ width: "100%", maxWidth: DIALOG_WIDTH, height: "85%", overflow: "hidden", backgroundColor: colors.surface1, borderRadius: 12, borderWidth: 1, borderColor: colors.surface2 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.surface2 }}>
+            {moon}
+            <Text numberOfLines={1} style={{ flex: 1, color: colors.foreground, fontSize: 16, fontWeight: "600" }}>{title}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={8} style={{ width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" }}>
+              <Icon name="X" size={18} color={colors.foregroundMuted} />
+            </Pressable>
           </View>
-        ) : <>
-          <Pressable accessibilityRole="button" onPress={onWake}
-            style={{ flexDirection: "row", gap: 8, justifyContent: "center", alignItems: "center", paddingVertical: 11, borderRadius: 10, backgroundColor: colors.accent }}>
-            <Icon name="Sunrise" size={16} color={colors.accentForeground} />
-            <Text style={{ color: colors.accentForeground, fontWeight: "600", fontSize: 14 }}>Wake this thread</Text>
-          </Pressable>
-          <Text style={{ color: waking === "idle" ? colors.foregroundMuted : colors.statusDanger, fontSize: 12, textAlign: "center" }}>
-            {waking === "idle" ? "Opens it as a regular chat, with the message box and tool calls. A few seconds." : waking}
-          </Text>
-        </>}
+          {body}
+        </View>
       </View>
-    </View>
+    </RNModal>
   );
 }

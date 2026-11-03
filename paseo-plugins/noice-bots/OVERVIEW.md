@@ -43,8 +43,7 @@ workspace's `.scratch/paseo-bots/map.md`.
   `thread_progress` with `title` (2-5 words; `note` and `title` are both optional, one is needed).
   Then Bots renames the agent in Paseo (`updateAgent` name, kept in Paseo's record, so the chat tab
   shows it after sleep and wake) and stores it on the thread row (`named: true`): the hub block's
-  bold first line, the read tab's heading, search, and read-only threads. A later title replaces it.
-  The read tab's own label stays `🌙 Thread`: a plugin panel's title is fixed at registration.
+  bold first line, the 🌙 modal's title, search, and read-only threads. A later title replaces it.
   Paseo stores one `title` per agent with no mark of whether it was chosen or derived, so a thread
   that never names itself and asked a one-line question under 49 characters has exactly Paseo's
   first-prompt placeholder as its title.
@@ -85,7 +84,7 @@ A thread that named itself shows its title in bold at the top of the card.
 thread. It becomes read, its row stores `settled: <ts>`, and the block is re-emitted as one line
 (`✓ title · 14:05`, no question) at 30% opacity (full while hovered or pressed),
 with no space after it, so settled threads stack as a list of faint lines. **Unsettle** brings the
-full block back; pressing the line opens the read tab. Settled threads are out of
+full block back; pressing the line opens the thread like a block does. Settled threads are out of
 Unread, the sidebar's green dot and Mark all read (they are read); Search still finds them. A
 follow-up (`turnStarted`) or **Wake** clears `settled`. Nothing is deleted, and read-only after N
 days is unchanged.
@@ -135,18 +134,27 @@ with the newest N threads under their questions (emitted as above), the old hub 
 - **Wake**: `refreshAgent` restores the archived agent with its history; the chat opens as a
   normal tab and takes follow-ups (~3 s on the lab).
 
-## 🌙 Read tab
+## 🌙 Thread modal
 
-One workspace panel per bot workspace, `🌙 Thread`. A finished block whose thread is still up (its
-chat was opened, so it isn't archived and Paseo shows it as a tab) goes to that chat tab instead,
-marking it read; the client asks Paseo (`fetchAgent`, which doesn't load the agent). Otherwise
-the block calls `showThread`
-(in-memory handoff, keyed by workspace) then `openPanel("read")`; the panel moves the id into its
-tab state, so a reload keeps the thread. It shows the **saved copy** (your messages and each
-turn's final reply, text only, from `copies/<thread>.json`), reloaded every time the tab is opened
-again (`revision`). Reading never loads the agent. **Wake this thread** at the bottom; read-only
-threads show a note instead. The plugin can't close its own tab when Wake opens the chat, so it
-stays (allowed fallback).
+Pressing a finished block (or a settled line, or a thread in Unread or Search) opens the thread:
+- **Still up** (its chat was opened, so it isn't archived and Paseo shows it as a tab): that chat
+  tab, marking it read. The client asks Paseo (`fetchAgent`, which doesn't load the agent).
+- **Asleep or read-only**: a modal titled with the thread's title, with a moon (`client/read.tsx`).
+  Wide layouts: a dialog of the plugin's own, 780 px wide (a little under Paseo's 820 px chat
+  column) and 85% of the window high, styled like Paseo's modal card; Paseo's plugin `Modal` stops
+  at 520 px wide and can't be widened. Phones: Paseo's plugin `Modal` (a sheet). It
+  shows the **saved copy** (your messages and each turn's final reply, text only, from
+  `copies/<thread>.json`), loaded each time it opens, and marks the thread read. Reading never
+  loads the agent. **Wake this thread** at the bottom restores the thread and opens its chat as a
+  normal tab, closing the modal; read-only threads show a note instead. Escape, the ✕ or a press
+  outside closes it.
+
+Where it's drawn (`client/reading.tsx`): not where it's opened. Opening marks the thread read,
+which redraws its hub row, maybe as a new component; and on web the plugin's own dialog inside an
+Unread/Search popover hung the page (2026-11-04). So Unread/Search close their popover first, and
+a host draws the modal: the sidebar strip, or (no strip on screen) the thread's own hub row; the
+first mounted wins. With no host at all, Unread/Search fall back to Paseo's modal inside the
+popover.
 
 ## Scale
 
@@ -157,7 +165,7 @@ Built for a handful of questions a day per bot; the hub keeps all of them (see G
 - **Search** (hub header menu): every word in the questions and answers, newest first, 50 max;
   saved copies are read only for threads with follow-ups or cut answers.
 - **Unread threads** (hub header menu): the unread threads over the read-only period, newest first;
-  the same set the sidebar's green dot counts. Pressing one opens its read tab, which marks it read.
+  the same set the sidebar's green dot counts. Pressing one opens it (the 🌙 modal for a sleeping one), which marks it read.
 - **Mark all read** and **Settle all read** (hub header menu); the second settles every finished
   thread that is read.
 - **Read-only after N days** (setting, default 7), checked on load and hourly: the agent is

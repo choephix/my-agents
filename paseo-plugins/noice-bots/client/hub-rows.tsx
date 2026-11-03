@@ -4,6 +4,7 @@ import { Markdown } from "@getpaseo/plugin/client/ui";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, Text, View } from "react-native";
 import type { Thread } from "../shared/contracts";
+import { readThread, ReadingHost, useReading } from "./reading";
 
 // The sizes of a thread row: the "Overlap" mock (bots-hub-mocks, variant A).
 /** Space between one thread and the next, Paseo's own gap between rows included. */
@@ -36,8 +37,10 @@ const PREVIEW = 150;
 const FADE = 96;
 
 export interface ThreadActions {
-  /** Finished: its 🌙 read tab. Running or queued: its chat. */
-  open(thread: Thread): void;
+  /** Running or up (its chat tab exists): its chat. Asleep: `read()`, its saved copy in the 🌙 modal. */
+  open(thread: Thread, read: () => void): void;
+  /** The 🌙 modal's Wake: restores the thread and opens its chat. */
+  wake(id: string): Promise<void>;
   /** Done with a finished thread (one faint line in the hub), or its full block back. */
   settle(thread: Thread, settled: boolean): void;
   /** A block was drawn: Paseo's row of its question goes, as the block draws the question itself. */
@@ -74,9 +77,6 @@ const webMask = { maskImage: `linear-gradient(to bottom, #000 calc(100% - ${FADE
 const webLeft = { textAlign: "left" } as object;
 /** Web: Paseo's user message line height and wrapping. */
 const webQuestion = { lineHeight: BUBBLE_LINE, overflowWrap: "anywhere" } as object;
-
-/** Native has no mask: a gradient into the card's colour is painted over the cut preview. */
-function Fade({ background }: { background: string }) {
 /**
  * Web: your question's markers. `data-noice-user-text` on the bubble means "text you wrote", without
  * Paseo's `user-message`, which other plugins read as a chat turn; noice-chat-message-polish,
@@ -85,6 +85,9 @@ function Fade({ background }: { background: string }) {
  */
 const userTextMark = { dataSet: { noiceUserText: "true" } } as object;
 const messageTextMark = { dataSet: { messageText: "true" } } as object;
+
+/** Native has no mask: a gradient into the card's colour is painted over the cut preview. */
+function Fade({ background }: { background: string }) {
   // The background at zero alpha, so the gradient doesn't pass through grey on its way from "transparent".
   const clear = HEX.test(background) ? `${background}00` : "transparent";
   return (
@@ -105,8 +108,8 @@ function InlineButton({ label, title, theme, onPress }: { label: string; title: 
   );
 }
 
-/** A settled thread: one faint line, no gap after it, so settled threads stack as a list. Pressing it opens the read tab; Unsettle brings the block back. */
-function SettledRow({ thread, theme, actions }: { thread: Thread; theme: PluginTheme; actions: ThreadActions }) {
+/** A settled thread: one faint line, no gap after it, so settled threads stack as a list. Pressing it opens the thread; Unsettle brings the block back. */
+function SettledRow({ thread, theme, actions, onOpen }: { thread: Thread; theme: PluginTheme; actions: ThreadActions; onOpen(): void }) {
   const { colors } = theme;
   const [hover, setHover] = useState(false);
   const muted = { color: colors.foregroundMuted, fontSize: 13 };
@@ -114,7 +117,7 @@ function SettledRow({ thread, theme, actions }: { thread: Thread; theme: PluginT
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`Read settled thread ${thread.title}`}
-      onPress={() => actions.open(thread)}
+      onPress={onOpen}
       onHoverIn={() => setHover(true)}
       onHoverOut={() => setHover(false)}
       style={({ pressed }) => ({
@@ -136,10 +139,10 @@ function Question({ text, theme }: { text: string; theme: PluginTheme }) {
   const { colors } = theme;
   return (
     <View
+      {...userTextMark}
       style={{
         alignSelf: "flex-end", marginHorizontal: CARD_RADIUS, zIndex: 1, padding: BUBBLE_PAD, minWidth: 0,
         borderRadius: BUBBLE_RADIUS, borderTopRightRadius: BUBBLE_TAIL_RADIUS, backgroundColor: mix(colors.surface2, colors.foreground, BUBBLE_MIX),
-      {...userTextMark}
       }}
     >
       <Text {...messageTextMark} selectable style={[{ color: colors.foreground, fontSize: BUBBLE_FONT }, Platform.OS === "web" ? webQuestion : null]}>{text}</Text>
@@ -148,7 +151,7 @@ function Question({ text, theme }: { text: string; theme: PluginTheme }) {
 }
 
 /** The answer card: the answer cut to a few lines and a footer; one press target. `asked`: your question sits on its top edge. */
-function ThreadCard({ thread, theme, actions, asked }: { thread: Thread; theme: PluginTheme; actions: ThreadActions; asked: boolean }) {
+function ThreadCard({ thread, theme, actions, onOpen, asked }: { thread: Thread; theme: PluginTheme; actions: ThreadActions; onOpen(): void; asked: boolean }) {
   const { colors } = theme;
   const live = thread.status === "running" || thread.status === "queued";
   const [hover, setHover] = useState(false);
@@ -160,7 +163,7 @@ function ThreadCard({ thread, theme, actions, asked }: { thread: Thread; theme: 
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={live ? `Open thread ${thread.title}` : `Read ${thread.unread ? "new " : ""}thread ${thread.title}`}
-      onPress={() => actions.open(thread)}
+      onPress={onOpen}
       disabled={thread.status === "queued"}
       onHoverIn={() => setHover(true)}
       onHoverOut={() => setHover(false)}
@@ -215,16 +218,21 @@ function ThreadCard({ thread, theme, actions, asked }: { thread: Thread; theme: 
 
 export function createHubRows(actions: ThreadActions) {
   /** Your question on its answer card. A hub turn has no Paseo turn footer to close it: the row's own space, with Paseo's 16 px under the stream, clears the composer under the last. */
-  function ThreadRow({ item, theme }: PluginTimelineItemProps<Thread>) {
+  function ThreadRow({ item, theme, layout }: PluginTimelineItemProps<Thread>) {
     const thread = item.data;
     useEffect(() => actions.drawn(thread), [thread.questionId]);
-    if (thread.settled) return <SettledRow thread={thread} theme={theme} actions={actions} />;
+    const open = useReading() === thread.id;
+    const onOpen = () => actions.open(thread, () => readThread(thread.id));
+    // Hosts the modal only while it's this thread's, in case no sidebar strip is there to.
+    const saved = open ? <ReadingHost theme={theme} compact={layout.compact} wake={actions.wake} /> : null;
+    if (thread.settled) return <>{saved}<SettledRow thread={thread} theme={theme} actions={actions} onOpen={onOpen} /></>;
     // A message with only attachments has no text to show; the footer counts them.
     const asked = thread.question !== "";
     return (
       <View style={{ paddingBottom: THREAD_GAP - STREAM_GAP }}>
+        {saved}
         {asked ? <Question text={thread.question} theme={theme} /> : null}
-        <ThreadCard thread={thread} theme={theme} actions={actions} asked={asked} />
+        <ThreadCard thread={thread} theme={theme} actions={actions} onOpen={onOpen} asked={asked} />
       </View>
     );
   }

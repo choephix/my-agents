@@ -6,6 +6,7 @@ import { AccessibilityInfo, Platform, Pressable, ScrollView, Text, View } from "
 import { settings } from "../shared/contracts";
 import { BotForm } from "./form";
 import type { Hub, Hubs } from "./hubs";
+import { ReadingHost } from "./reading";
 
 /** Paseo's blue for work in progress; there is no theme token for it. */
 const RUNNING = "#60A5FA";
@@ -105,7 +106,7 @@ const status = (hub: Hub) => [hub.running ? `${hub.running} running` : "", hub.u
 
 type OpenScreen = PluginSidebarItemProps["openScreen"];
 
-export function createStrip(hubs: Hubs) {
+export function createStrip(hubs: Hubs, wake: (id: string) => Promise<void>) {
   /** Through the item's (or its popover's) openScreen, which closes the phone drawer first. */
   const openHub = (openScreen: OpenScreen, agentId: string) => {
     setCurrent(agentId);
@@ -150,7 +151,7 @@ export function createStrip(hubs: Hubs) {
    * scrolling on only while the tiles overflow, so a swipe over a strip that fits still closes the
    * drawer (Android: the strip's own scroll wins once it starts).
    */
-  return function BotsStrip({ theme, layout, openScreen, openPopover }: PluginSidebarItemProps) {
+  function StripRow({ theme, layout, openScreen, openPopover }: PluginSidebarItemProps) {
     const list = hubs.use();
     const selected = useSelected();
     const motion = !useReduceMotion();
@@ -189,5 +190,10 @@ export function createStrip(hubs: Hubs) {
         </ScrollView>
       </View>
     );
+  }
+
+  /** The strip also hosts the 🌙 modal (`reading.tsx`): it is mounted wherever the sidebar is. */
+  return function BotsStrip(props: PluginSidebarItemProps) {
+    return <><ReadingHost theme={props.theme} compact={props.layout.compact} wake={wake} /><StripRow {...props} /></>;
   };
 }
