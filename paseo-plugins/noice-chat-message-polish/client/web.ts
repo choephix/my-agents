@@ -100,6 +100,7 @@ export function startPolishing(onFocus: () => void, skills: SkillStore): Polishe
     const entry = drawn.get(source);
     if (entry && entry.key === key && entry.view.isConnected && source.nextSibling === entry.view) {
       if (entry.view.className !== `${source.className} ump`) entry.view.className = `${source.className} ump`;
+      if (entry.view.style.color !== source.style.color) entry.view.style.color = source.style.color;
       return;
     }
     // A loaded skill shows the text as the agent read it after `User:`: the token cut out.
@@ -108,6 +109,9 @@ export function startPolishing(onFocus: () => void, skills: SkillStore): Polishe
     if (!tree) return restore(source);
     const view = entry?.view ?? document.createElement("div");
     view.className = `${source.className} ump`;
+    // The copied classes include React Native Web's text reset (black). A source that sets its
+    // colour inline, as noice-bots' hub questions do, needs that copied too.
+    view.style.color = source.style.color;
     view.setAttribute("data-message-text", "true");
     view.setAttribute("data-ump-view", "");
     view.replaceChildren(...renderView(tree, source, skill, mention));
