@@ -1,7 +1,7 @@
 import type { PluginButtonRegistration, PluginClientContext, PluginScreenProps } from "@getpaseo/plugin/client";
 import { useEffect } from "react";
 import { Text } from "react-native";
-import { markAllRead, openedThread, settleAllRead, settleThread, Thread, THREAD_KIND } from "./shared/contracts";
+import { getThread, markAllRead, openedThread, settleAllRead, settleThread, Thread, THREAD_KIND } from "./shared/contracts";
 import { BotForm } from "./client/form";
 import { createHubRows } from "./client/hub-rows";
 import { watchHubs } from "./client/hubs";
@@ -38,8 +38,17 @@ export default function contribute(client: PluginClientContext) {
       void client.rpc(openedThread, { id: thread.id }).finally(() => openChat(thread.id));
       return;
     }
-    showThread(thread.workspaceId, thread.id);
-    client.openPanel("read", { workspaceId: thread.workspaceId });
+    // Paseo shows every unarchived agent as a tab: a thread still up (its chat was opened) is that
+    // tab. Only a sleeping thread (archived) or a read-only one (deleted) gets the 🌙 tab.
+    void client.paseo.agents.ref(thread.id).refresh().then(found => !!found?.agent && !found.agent.archivedAt, () => false).then(live => {
+      if (!live) {
+        showThread(thread.workspaceId, thread.id);
+        return client.openPanel("read", { workspaceId: thread.workspaceId });
+      }
+      // The 🌙 tab marks a thread read when it shows it; so does going to its chat.
+      if (thread.unread) client.rpc(getThread, { id: thread.id, markRead: true }).catch(error => console.error(`noice-bots: marking ${thread.id} read failed`, error));
+      openChat(thread.id);
+    });
   };
   // The server redraws the block, or its one line, in the hub; the drawn block then shows or hides its question.
   const settle = (thread: Thread, settled: boolean) => {

@@ -113,7 +113,10 @@ with the newest N threads under their questions (emitted as above), the old hub 
 
 ## 🌙 Read tab
 
-One workspace panel per bot workspace, `🌙 Thread`. A finished block calls `showThread`
+One workspace panel per bot workspace, `🌙 Thread`. A finished block whose thread is still up (its
+chat was opened, so it isn't archived and Paseo shows it as a tab) goes to that chat tab instead,
+marking it read; the client asks Paseo (`fetchAgent`, which doesn't load the agent). Otherwise
+the block calls `showThread`
 (in-memory handoff, keyed by workspace) then `openPanel("read")`; the panel moves the id into its
 tab state, so a reload keeps the thread. It shows the **saved copy** (your messages and each
 turn's final reply, text only, from `copies/<thread>.json`), reloaded every time the tab is opened
