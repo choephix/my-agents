@@ -19,7 +19,6 @@ const person = z.object({
 export const PRIORITIES = ["blocking", "revisit", "whenever"] as const;
 export const KINDS = ["inbox", "doing"] as const;
 export const PR_STATES = ["merged", "ready", "open", "conflict", "closed", "draft", "unknown"] as const;
-export const MEMO_KINDS = ["revisit", "go", "ask", "notice", "parked", "musing"] as const;
 
 const cardFields = {
   name: z.string(),
@@ -31,7 +30,6 @@ const cardFields = {
   body: z.string(),
   title: z.string(),
   now: z.string().nullable().optional(),
-  answers: z.array(z.object({ label: z.string(), reply: z.string() })),
   hashtags: z.array(z.string()),
   starred: z.boolean(),
   links: z.array(z.string()),
@@ -48,8 +46,6 @@ const inboxCard = z.object({
   ...cardFields,
   kind: z.literal("inbox"),
   status: z.string(),
-  /** One round of a planning discussion (`<words>-r<round>`); open memos sharing it fold into one stack card. */
-  batch: z.string().nullable().optional(),
 });
 
 const doingCard = z.object({
@@ -90,11 +86,9 @@ export const deskRead = defineRpc({
 export const inboxWrite = defineRpc({
   name: "inbox.write",
   input: z.object({
-    action: z.enum(["settle", "answer", "star"]),
+    action: z.enum(["settle", "star"]),
     name: z.string(),
     outcome: z.string().optional(),
-    reply: z.string().optional(),
-    answerId: z.string().optional(),
   }),
-  output: z.object({ ok: z.boolean(), name: z.string(), starred: z.boolean().optional(), settled: z.boolean().optional(), sendError: z.string().nullable().optional(), watcherErrors: z.array(z.string()).optional(), error: z.string().optional() }),
+  output: z.object({ ok: z.boolean(), name: z.string(), starred: z.boolean().optional(), error: z.string().optional() }),
 });

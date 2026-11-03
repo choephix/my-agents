@@ -21,8 +21,8 @@ const listeners = new Set<() => void>();
 /** A surface mounting this soon after a read reuses it. */
 const FRESH_MS = 3_000;
 
-export type MemoWrite = { action: "settle" | "answer" | "star"; name: string; outcome?: string; reply?: string; answerId?: string };
-export type MemoWriteResult = { ok: boolean; name: string; starred?: boolean; settled?: boolean; sendError?: string | null; watcherErrors?: string[]; error?: string };
+export type MemoWrite = { action: "settle" | "star"; name: string; outcome?: string };
+export type MemoWriteResult = { ok: boolean; name: string; starred?: boolean; error?: string };
 export function writeMemo(input: MemoWrite): Promise<MemoWriteResult> {
   if (!client) return Promise.resolve({ ok: false, name: input.name, error: "Plugin is not connected." });
   return client.rpc(inboxWrite, input);

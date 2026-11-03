@@ -22,11 +22,11 @@ export default function contribute(server: PluginServerContext) {
     const response = await fetch(`${MAINFRAME}/api/inbox/${encodeURIComponent(input.name)}/${input.action}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ outcome: input.outcome, reply: input.reply, answerId: input.answerId }),
+      body: JSON.stringify({ outcome: input.outcome }),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) return { ok: false, name: input.name, error: body.message || body.error || `Mainframe answered ${response.status}` };
-    return { ok: true, name: input.name, starred: body.starred, settled: body.settled, sendError: body.sendError, watcherErrors: body.watcherErrors };
+    return { ok: true, name: input.name, starred: body.starred };
   });
   return () => {};
 }

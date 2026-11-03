@@ -2,7 +2,6 @@ import { openExternalUrl } from "@getpaseo/plugin/client";
 import { copyText, Icon, Markdown, Modal, useToast } from "@getpaseo/plugin/client/ui";
 import { type ReactNode, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { TextInput } from "@getpaseo/plugin/client/react-native";
 import type { Desk, DeskCard, DeskPerson, PrState } from "../shared/desk";
 import { Inline, prInfo, prsIn, prStyle, prUrl } from "./inline";
 import { type CardState, MONO, type Palette, TYPE } from "./palette";
@@ -185,13 +184,12 @@ function refsOf(card: DeskCard, desk: Desk, shown: string, rest: string) {
 function shownOf(card: DeskCard) {
   const doing = card.kind === "doing";
   const face = card.title;
-  const answers = card.answers.map((answer) => answer.reply).join("\n\n");
   const body = splitBody(card.body);
   const lead = body.lead.trim() === face.trim() ? "" : body.lead;
   const rest = body.rest;
   const nowLine = doing && "now" in card ? (card as DeskCard & { now?: string | null }).now ?? null : null;
-  const shown = `${face}\n${answers}\n${lead}\n${card.blocks ?? ""}`;
-  return { doing, face, nowLine, lead, rest: [answers, rest].filter(Boolean).join("\n\n"), shown };
+  const shown = `${face}\n${lead}\n${card.blocks ?? ""}`;
+  return { doing, face, nowLine, lead, rest, shown };
 }
 
 function Blocks({ card, desk, c, size }: { card: DeskCard; desk: Desk; c: Palette; size: { fontSize: number; lineHeight: number } }) {
@@ -199,25 +197,6 @@ function Blocks({ card, desk, c, size }: { card: DeskCard; desk: Desk; c: Palett
   return (
     <View style={{ backgroundColor: c.alpha(c.danger, 0.08), paddingHorizontal: 5, paddingVertical: 2 }}>
       <Inline text={`Blocks ${card.blocks}`} desk={desk} c={c} style={{ ...size, color: c.danger }} />
-    </View>
-  );
-}
-
-function Answer({ card, desk, c, size }: { card: DeskCard; desk: Desk; c: Palette; size: { fontSize: number; lineHeight: number } }) {
-  if (!card.answers.length) return null;
-  return (
-    <View style={{ flexDirection: "row", gap: 6 }}>
-      <View style={{ paddingTop: 2 }}>
-        <Icon name="CornerDownRight" size={12} color={c.ok} />
-      </View>
-      <View style={{ flex: 1, gap: 3 }}>
-        {card.answers.map((answer) => (
-          <Text key={answer.label} style={{ ...size, color: c.fg }}>
-            <Text style={{ color: c.muted }}>{answer.label}: </Text>
-            <Inline text={answer.reply} desk={desk} c={c} style={{ ...size, color: c.fg }} />
-          </Text>
-        ))}
-      </View>
     </View>
   );
 }
@@ -248,9 +227,6 @@ function CardModal({ card, scene, open, onOpenChange }: { card: DeskCard; scene:
     ...card.watchers.map((person) => ({ person, role: "Watcher" })),
   ];
   const writable = card.kind === "inbox" && !card.settled;
-  const [reply, setReply] = useState(card.answers[0]?.reply ?? "");
-  const [answerId, setAnswerId] = useState(card.answers[0]?.label);
-  const [answerOpen, setAnswerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
   const act = async (input: Parameters<typeof writeMemo>[0]) => {
@@ -260,9 +236,7 @@ function CardModal({ card, scene, open, onOpenChange }: { card: DeskCard; scene:
       const result = await writeMemo(input);
       if (!result.ok) throw new Error(result.error || "Write failed");
       await refresh();
-      if (result.sendError) setActionMessage(`Recorded, but sending failed: ${result.sendError}`);
-      else setActionMessage(result.watcherErrors?.length ? `Sent; watcher notice failed: ${result.watcherErrors.join("; ")}` : "Saved");
-      if (input.action === "answer" || input.action === "settle") setAnswerOpen(false);
+      setActionMessage("Saved");
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -279,7 +253,6 @@ function CardModal({ card, scene, open, onOpenChange }: { card: DeskCard; scene:
     >
       <Modal.Content contentContainerStyle={{ padding: 20, gap: 14 }}>
         <Inline text={face} desk={desk} c={c} style={{ ...MODAL.title, color: card.settled ? c.muted : c.fg }} />
-        <Answer card={card} desk={desk} c={c} size={MODAL.body} />
         {nowLine ? <Inline text={nowLine} desk={desk} c={c} style={{ ...MODAL.body, color: c.body }} /> : null}
         {lead ? <Inline text={lead} desk={desk} c={c} style={{ ...MODAL.body, color: c.body }} /> : null}
         {rest ? <Markdown>{rest}</Markdown> : null}
@@ -296,14 +269,6 @@ function CardModal({ card, scene, open, onOpenChange }: { card: DeskCard; scene:
               </Pressable>
               {card.asker?.agentId && scene.openAgent ? <Pressable disabled={busy} onPress={() => inner.openAgent?.(card.asker!.agentId!)} accessibilityRole="button" style={{ borderWidth: 1, borderColor: c.border, paddingHorizontal: 10, paddingVertical: 6 }}><Text style={{ ...MODAL.body, color: c.fg }}>Open tab</Text></Pressable> : null}
             </View>
-            {card.answers.length ? (
-              <View style={{ gap: 8 }}>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                  {card.answers.map((answer) => <Pressable key={answer.label} onPress={() => { setAnswerId(answer.label); setReply(answer.reply); setAnswerOpen(true); }} accessibilityRole="button" style={{ borderWidth: 1, borderColor: c.ok, paddingHorizontal: 10, paddingVertical: 6 }}><Text style={{ ...MODAL.body, color: c.ok }}>{answer.label}</Text></Pressable>)}
-                </View>
-                {answerOpen ? <View style={{ gap: 8 }}><TextInput value={reply} onChangeText={setReply} multiline placeholder="Reply to the asking agent" placeholderTextColor={c.faint} style={{ minHeight: 90, borderWidth: 1, borderColor: c.border, color: c.fg, padding: 8, textAlignVertical: "top" }} /><Pressable disabled={busy || !reply.trim()} onPress={() => void act({ action: "answer", name: card.name, reply, answerId })} accessibilityRole="button" style={{ alignSelf: "flex-start", backgroundColor: c.ok, paddingHorizontal: 12, paddingVertical: 7 }}><Text style={{ ...MODAL.body, color: c.s0 }}>{busy ? "Sending…" : "Send"}</Text></Pressable></View> : null}
-              </View>
-            ) : null}
             {actionMessage ? <Text style={{ ...MODAL.label, color: c.muted }}>{actionMessage}</Text> : null}
           </Section>
         ) : null}
@@ -398,7 +363,6 @@ export function Card({ card, scene }: { card: DeskCard; scene: CardScene }) {
             ))}
           </View>
         ) : null}
-        <Answer card={card} desk={desk} c={c} size={TYPE.body} />
         {nowLine ? <Inline text={nowLine} desk={desk} c={c} style={{ ...TYPE.body, color: c.body }} lines={3} /> : null}
         {lead ? <Inline text={lead} desk={desk} c={c} style={{ ...TYPE.body, color: c.body }} lines={3} /> : null}
         <Blocks card={card} desk={desk} c={c} size={TYPE.small} />

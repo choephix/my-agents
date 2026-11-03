@@ -10,12 +10,11 @@ The screen uses Paseo's own style: its tab strip, project badges and status colo
 
 - Inbox and Doing tabs show live counts. Inbox has a filter button that steps through blocking, revisit and whenever priorities.
 - Cards are grouped by their asker or owner. Tap a heading to fold a group into a pill above the board. Settled cards are kept in a folded group at the end.
-- Each card shows its title, answers, a short body lead, blocks in a small red callout, hashtags, the first link, pull requests not already in the text, and its asker or owner.
-- Open memos that share a `batch:` id (one round of a planning discussion) fold into a stack card in their group, placed and marked like its highest-priority memo. Its face shows the effort and round (or the raw id) and the counts by kind and blocking; tap it to open the memos in place, and tap it again to fold them. A batch down to one open memo shows as that memo; settled memos never stack. The filter applies before stacking, and the tab and group counts still count memos.
+- Each card shows its title, a short body lead, blocks in a small red callout, hashtags, the first link, pull requests not already in the text, and its asker or owner.
 - Doing cards include links to their memos. Links open externally, while a linked Paseo agent opens in its tab.
 - Pull request numbers are coloured by their GitHub state: purple for merged, green for ready to merge, amber for open but not ready, red for conflicts, gray for drafts, and struck through when closed.
-- Tap a card to open a Paseo dialog with the full body, answers, every pull request, people, links, hashtags and the source URL. Open unsettled memos also expose Star, Settle, answer buttons and Open tab. Choosing an answer opens an editable reply; **Send** records it, sends it as Stefan's input to the asker and settles the memo.
-- Tap the asker or owner to open that agent. On an Inbox card this also copies a `Re:` pointer to the card URL so it can be pasted into the prompt. The answer action has an explicit **Open tab** button; when a tab is gone, tapping copies the command that revives it.
+- Tap a card to open a Paseo dialog with the full body, every pull request, people, links, hashtags and the source URL. Open unsettled memos also expose Star, Settle and Open tab. Memos are answered on Mainframe's desk, by pressing one of their choices.
+- Tap the asker or owner to open that agent. On an Inbox card this also copies a `Re:` pointer to the card URL so it can be pasted into the prompt. The dialog has an explicit **Open tab** button; when a tab is gone, tapping copies the command that revives it.
 
 When the screen is narrower than three columns (956 px of its own width, so a docked sidebar counts) or on a phone, the groups become full-width sections in one list; folding still moves a group to the pills above. Pull down to read the desk again.
 
@@ -24,10 +23,7 @@ When the screen is narrower than three columns (956 px of its own width, so a do
 Writes need no token: Mainframe's `/api/inbox` is open on the local network. The plugin calls:
 
 - `POST /api/inbox/<name>/star` with `{}` to toggle the star;
-- `POST /api/inbox/<name>/settle` with `{outcome?}`;
-- `POST /api/inbox/<name>/answer` with `{reply, answerId?}`.
-
-Answering records the reply at the top of the memo body, notifies watchers with the permanent memo link, and settles with outcome `taken up`. If the asker tab is dead, the API reports the send failure after still recording and settling.
+- `POST /api/inbox/<name>/settle` with `{outcome?}`.
 
 ## Where the data comes from
 
