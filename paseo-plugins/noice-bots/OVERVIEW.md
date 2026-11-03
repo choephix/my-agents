@@ -32,8 +32,9 @@ workspace's `.scratch/paseo-bots/map.md`.
   default if the catalog lacks it.
 - **Attachments**: the hub takes images (`prompt.image`) and uploaded files. Images are written to
   `media/<thread>/<n>.<ext>` before the thread is queued; the thread gets the images and, under
-  its question, the paths of everything attached. The hub row says `📎 N attached`; a message
-  with only attachments is titled `📎 Attachment`.
+  its question, the paths of everything attached. The block's footer says `📎 N attached` (the hub
+  shows no thumbnails); a message with only attachments is titled `📎 Attachment` and has no
+  question bubble.
 - **Thread**: an agent of the bot's provider with the bot's prompt plus a hint to call
   `thread_progress` (and set its `title` on the first call), labelled `noice-bots.thread=<botId>`.
   Its id is the thread id. An agent a thread starts (Paseo's `create_agent`) stays up when the
@@ -50,35 +51,53 @@ workspace's `.scratch/paseo-bots/map.md`.
 
 ## Hub rows
 
-Paseo draws your message (its own `user_message` row); the plugin row under it is the thread
-block: the answer cut to ~7 lines (a longer one fades out over its last 96 px, so the fade starts on the line before: on web a CSS
-`maskImage` fades the text itself; native has no mask, so a `linear-gradient` into `surface0`,
-`surface1` while hovered, is painted over it), a footer (`1 follow-up · 14:05`; unread: a green dot in place
-of `↳` and a green `new`), one press target, then 80 px of space before the next thread (a hub turn
-has no Paseo turn footer, so the last block would otherwise touch the composer).
+Each thread is one plugin row, drawn as in the bots-hub mock's variant A ("Overlap",
+`~/www/webshare/pages/bots-hub-mocks/index.html`); every size is a named constant at the top of
+`client/hub-rows.tsx`:
+- **The answer card**: full content width, `surface2`, radius 16, padding 16 at the sides, 12 below,
+  and 12 under the question's overlap. Inside: the answer cut to ~7 lines (a longer one fades out
+  over its last 96 px, so the fade starts on the line before: on web a CSS `maskImage` fades the
+  text itself; native has no mask, so a `linear-gradient` into `surface2` is painted over it), a
+  footer (`1 follow-up · 14:05 · 📎 2 attached`; unread: a green dot in place of `↳` and a green
+  `new`), one press target. Hovered: a 1 px `border` outline inside the card, so nothing moves.
+- **Your question** (`thread.question`): a bubble the plugin draws, right-aligned on the card's top
+  edge and over it by 16 px (its own padding). Paseo's user bubble in shape and text (padding 16,
+  radius 16 with a 2 px top-right corner, 15 px text, web line height 21); 16 px inside the card's
+  left and right edges. Its colour is `surface2` with 12% of `foreground` mixed in, near Paseo's own
+  bubble (`surface3`, which a plugin theme doesn't have; `surface2` if a colour isn't `#rrggbb`).
+  It is the card's earlier sibling with `zIndex: 1` and the card moves up under it
+  (`marginTop: -16`), so it is drawn on top on web and native.
+- **Spacing**: 28 px between threads: Paseo puts 16 px between any two rows of the stream
+  (`getGapBetweenStreamItems`), the row adds 12 under its card. None under the last row, so the
+  last card has its 12 px plus Paseo's 16 px under the stream before the composer (a hub turn has
+  no Paseo turn footer). A question under a settled line has Paseo's 16 px above it.
+- **Web**: the card is a `<button>` (React Native Web renders `role="button"` as one), so the answer
+  sets `textAlign: "left"` against the browser's centred button text.
+
 Running: spinner, timer, latest `thread_progress` note, **Open ›**. Queued: `queued`, not pressable.
-A thread that named itself shows its title in bold at the top of the block.
+A thread that named itself shows its title in bold at the top of the card.
 
 **Settle** (finished blocks, footer, before **Read ›**; one press, no confirm): you're done with the
-thread. It becomes read, its row stores `settled: <ts>`, your question above it is hidden, and the
-block is re-emitted as one line (`✓ title · 14:05`) at 30% opacity (full while hovered or pressed),
+thread. It becomes read, its row stores `settled: <ts>`, and the block is re-emitted as one line
+(`✓ title · 14:05`, no question) at 30% opacity (full while hovered or pressed),
 with no space after it, so settled threads stack as a list of faint lines. **Unsettle** brings the
-question and the full block back; pressing the line opens the read tab. Settled threads are out of
+full block back; pressing the line opens the read tab. Settled threads are out of
 Unread, the sidebar's green dot and Mark all read (they are read); Search still finds them. A
 follow-up (`turnStarted`) or **Wake** clears `settled`. Nothing is deleted, and read-only after N
 days is unchanged.
 
-Hiding the question (`client/questions.ts`): a re-emit can't change Paseo's `user_message` row
+Hiding Paseo's question rows (`client/questions.ts`): the block draws the question, so Paseo's own
+`user_message` row of it goes, for every thread. A re-emit can't change that row
 (`collapseByIdentity` merges only tool calls and plugin rows), so a client timeline transformer on
-`user_message` drops the rows whose `messageId`/`clientMessageId` is a settled thread's
-`questionId`, and leaves every other row to Paseo (images, time, copy button unchanged). A thread
-stores its `questionId` when asked (the message's `clientMessageId`, which Paseo keeps as the row's
-`messageId`); a thread asked before that gets it on its first settle, from the hub's `user_message`
-right before its block. The client learns the hidden set from `bots.settled-questions` at start and
-from each drawn block. Paseo transforms a row once and caches the result per transformer
-(`projectPluginTimelineItems`), so a change registers the transformer again: that makes Paseo
-re-transform the rows of every open chat once per settle or unsettle (batched for Settle all read).
-Another device's settle shows once that device draws the block.
+`user_message` drops the rows whose `messageId`/`clientMessageId` is a thread's `questionId`, and
+leaves every other row to Paseo. A thread stores its `questionId` when asked (the message's
+`clientMessageId`, which Paseo keeps as the row's `messageId`); for a thread asked before that, the
+client calls `bots.find-question` the first time its block is drawn, and the server takes the
+hub's `user_message` right before the block and stores it. The client learns the hidden set from
+`bots.questions` at start and from each drawn block, so a question just sent shows as Paseo's
+bubble until its block arrives. Paseo transforms a row once and caches the result per transformer
+(`projectPluginTimelineItems`), so a new id registers the transformer again: that makes Paseo
+re-transform the rows of every open chat once per new question (batched at start).
 
 Each bot has **one hub agent for its whole life**. Paseo keeps its own durable copy of a hub's
 timeline and ignores what a reopened plugin session replays (`historyPrimed` in
@@ -90,7 +109,8 @@ timeline and ignores what a reopened plugin session replays (`historyPrimed` in
   open) goes on the bot's `redraw` list in `bots.json`, and a closed hub is reopened
   (`refreshAgent`). 1 s after a hub session opens (`#drawHub`) it draws only that list; an open
   never redraws the whole history;
-- a live question is Paseo's own row; the hub's echo (same `clientMessageId`) only gives it an id.
+- a live question is Paseo's own row (hidden once its block arrives); the hub's echo (same
+  `clientMessageId`) only gives it an id.
   A provider may also emit `user_message` rows on its own: one without `clientMessageId` is
   recorded as is. The one-off move to one hub per bot (2026-11-02) drew every existing thread
   into the new hub this way, under its question. A `user_message` has no identity in Paseo's
@@ -221,4 +241,7 @@ an hour with no thread, the next one pays like the first.
 `phone-strip-scrolled` (the phone strip, at rest and scrolled to its end), `phone-read`, `writer-hub`, `one-hub-lab` (two
 questions, a follow-up on the first, a plugin reload), `one-hub-scribe` (after the move to one hub),
 `settled` and `phone-settled` (settled threads stacked above an unsettled one; phone: after an
-unsettle), `settled-hover` (a hovered settled line).
+unsettle), `settled-hover` (a hovered settled line), `overlap/` (the Overlap hub rows, 2026-11-03:
+`desktop-dark-lab-live-a` running, queued, failed and unread cards; `desktop-light-scribe`;
+`desktop-dark-bandit` and `phone-light-bandit` settled lines above a card; `desktop-dark-hover`;
+`phone-dark-lab-live-a`).

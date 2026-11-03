@@ -447,7 +447,6 @@ export class Bots {
     const thread = this.#active.get(id) ?? await this.store.thread(id);
     if (!thread) throw new Error("Unknown thread");
     if (settled && this.#active.has(id)) throw new Error("Only a finished thread can be settled.");
-    if (settled) await this.#findQuestions([thread]);
     this.#setSettled(thread, settled);
   }
 
@@ -456,11 +455,10 @@ export class Bots {
     for (const day of await this.store.days(botId)) {
       threads.push(...(await this.store.day(botId, day)).filter(thread => !thread.unread && !thread.settled && !this.#active.has(thread.id)));
     }
-    await this.#findQuestions(threads);
     for (const thread of threads) this.#setSettled(thread, true);
   }
 
-  /** Settled: read, one line in the hub, and the question above it hidden (`settledQuestions`). */
+  /** Settled: read, and one line in the hub. */
   #setSettled(thread: Thread, settled: boolean): void {
     if (!!thread.settled === settled) return;
     thread.settled = settled ? Date.now() : undefined;
@@ -468,15 +466,26 @@ export class Bots {
     this.#changed(thread);
   }
 
-  /** The questions above settled threads, every bot's: the hub hides these rows. */
-  async settledQuestions(): Promise<string[]> {
+  /** Every bot's questions: the hub hides these rows, as each block draws its question. */
+  async questions(): Promise<string[]> {
     const ids: string[] = [];
     for (const bot of this.store.bots) {
       for (const day of await this.store.days(bot.id)) {
-        for (const thread of await this.store.day(bot.id, day)) if (thread.settled && thread.questionId) ids.push(thread.questionId);
+        for (const thread of await this.store.day(bot.id, day)) if (thread.questionId) ids.push(thread.questionId);
       }
     }
     return ids;
+  }
+
+  /** A block was drawn without its `questionId`: finds and stores it. */
+  async findQuestion(id: string): Promise<string | null> {
+    const thread = this.#active.get(id) ?? await this.store.thread(id);
+    if (!thread) return null;
+    if (!thread.questionId) {
+      await this.#findQuestions([thread]);
+      if (thread.questionId) await this.store.saveDay(thread);
+    }
+    return thread.questionId ?? null;
   }
 
   /**

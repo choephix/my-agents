@@ -1,7 +1,7 @@
 import { defineAgentTool, type PluginServerContext } from "@getpaseo/plugin/server";
 import { z } from "zod";
 import {
-  createBot, deleteBot, getBot, getThread, listProviders, listSettledQuestions, listUnread, markAllRead, openedThread, restoreHub, searchThreads, settings, settleAllRead,
+  createBot, deleteBot, findQuestion, getBot, getThread, listProviders, listQuestions, listUnread, markAllRead, openedThread, restoreHub, searchThreads, settings, settleAllRead,
   settleThread, THREAD_LABEL, updateBot, wakeThread,
 } from "./shared/contracts";
 import { Bots } from "./server/bots";
@@ -36,7 +36,8 @@ export default function contribute(server: PluginServerContext) {
   server.handle(wakeThread, async ({ id }) => { await bots.wake(id); return {}; });
   server.handle(settleThread, async ({ id, settled }) => { await bots.settle(id, settled); return {}; });
   server.handle(settleAllRead, async ({ botId }) => { await bots.settleAllRead(botId); return {}; });
-  server.handle(listSettledQuestions, async () => { await loaded; return bots.settledQuestions(); });
+  server.handle(listQuestions, async () => { await loaded; return bots.questions(); });
+  server.handle(findQuestion, async ({ id }) => { await loaded; return { questionId: await bots.findQuestion(id) }; });
   server.handle(openedThread, async ({ id }) => { await bots.opened(id); return {}; });
   server.handle(restoreHub, async ({ botId }) => { await loaded; await bots.restoreHub(botId); return {}; });
   server.handle(searchThreads, ({ botId, query }) => bots.search(botId, query));

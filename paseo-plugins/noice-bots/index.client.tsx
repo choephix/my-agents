@@ -5,7 +5,7 @@ import { getThread, markAllRead, openedThread, settleAllRead, settleThread, Thre
 import { BotForm } from "./client/form";
 import { createHubRows } from "./client/hub-rows";
 import { watchHubs } from "./client/hubs";
-import { hideSettledQuestions } from "./client/questions";
+import { hideQuestions } from "./client/questions";
 import { BotsSettings } from "./client/settings";
 import { ReadPanel, showThread } from "./client/read";
 import { SearchThreads, UnreadThreads } from "./client/search";
@@ -50,11 +50,11 @@ export default function contribute(client: PluginClientContext) {
       openChat(thread.id);
     });
   };
-  // The server redraws the block, or its one line, in the hub; the drawn block then shows or hides its question.
+  // The server redraws the block, or its one line, in the hub.
   const settle = (thread: Thread, settled: boolean) => {
     client.rpc(settleThread, { id: thread.id, settled }).catch(error => console.error(`noice-bots: settling ${thread.id} failed`, error));
   };
-  const questions = hideSettledQuestions(client);
+  const questions = hideQuestions(client);
   const rows = createHubRows({ open: openThread, settle, drawn: questions.sync });
   /** After Delete bot (pressed in that bot's workspace): the next bot's hub, else the most recently active workspace. */
   const openNextHub = async (deleted: string) => {
