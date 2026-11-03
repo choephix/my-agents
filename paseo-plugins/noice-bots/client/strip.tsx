@@ -139,7 +139,7 @@ export function createStrip(hubs: Hubs) {
     return (
       <Pressable accessibilityRole="button" accessibilityLabel="New bot" onPress={onPress} {...handlers}
         onHoverIn={() => setHover(true)} onHoverOut={() => setHover(false)}
-        style={{ width: size.tile, height: size.tile, borderRadius: 6, alignItems: "center", justifyContent: "center", ...focusRing(theme, focused) }}>
+        style={{ width: size.tile, height: size.tile, borderRadius: 6, alignItems: "center", justifyContent: "center", marginLeft: "auto", ...focusRing(theme, focused) }}>
         <Icon name="Plus" size={size.plus} color={hover ? theme.colors.foreground : theme.colors.foregroundMuted} />
       </Pressable>
     );
@@ -182,9 +182,9 @@ export function createStrip(hubs: Hubs) {
     return (
       <View style={{ flexDirection: "row", alignItems: "center", height: size.row, paddingLeft: size.pad }}>
         {robot}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEnabled={content > width + 0.5}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEnabled={content > width + 0.5} style={{ flex: 1 }}
           onLayout={event => setWidth(event.nativeEvent.layout.width)} onContentSizeChange={contentWidth => setContent(contentWidth)}
-          contentContainerStyle={{ alignItems: "center", gap: 1, paddingRight: size.pad }}>
+          contentContainerStyle={{ flexGrow: 1, alignItems: "center", gap: 1, paddingRight: size.pad }}>
           {tiles}
         </ScrollView>
       </View>

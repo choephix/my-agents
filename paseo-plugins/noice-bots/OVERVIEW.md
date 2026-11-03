@@ -151,7 +151,8 @@ Built for a handful of questions a day per bot; the hub keeps all of them (see G
   from the URL and follows it through the Navigation API (`currententrychange`, no polling), so
   opening any other workspace or screen unselects the tile. Native has no URL, so there the bot
   opened last from the strip stays highlighted. Blue dot `#60A5FA`: a thread running; green:
-  unread answers. **+**: New bot.
+  unread answers. **+** (New bot) sits at the right end of the row (of the last row, if the tiles
+  wrap; on phones, the end of the scrolled content once the tiles overflow).
   A grey robot before the strip, setting **Show robot icon before bots** (on).
   The row is 28 px like the rows above: the robot sits on their icon column, the tiles start where
   their labels do. Tiles are 24 px with 1 px between, and the 17 px emoji's text box is the tile
