@@ -9,3 +9,6 @@ paseo-plugins/*/screenshots/
 
 # Effort plans and notes are private working files; this repo is public.
 .scratch/
+
+# Private backlog, not for readers of this public repo.
+docs/herdr-plugin-ideas.md
