@@ -91,7 +91,7 @@ export default function contribute(client: PluginClientContext) {
 
   const removers = [
     client.addScreen({ id: "open", title: "Bots", Component: OpenAgent }),
-    client.addSidebarHeaderItem({ id: "bots", title: "Bots", Component: createStrip(hubs, openChat) }),
+    client.addSidebarHeaderItem({ id: "bots", title: "Bots", Component: createStrip(hubs) }),
     client.addWorkspacePanel({ id: "read", title: "🌙 Thread", icon: "Moon", Component: ReadPanel }),
     client.addTimelineRenderer({ kind: THREAD_KIND, version: 1, schema: Thread, Component: rows.ThreadRow }),
     client.addSettingsScreen({ id: "settings", title: "Bots", icon: "Bot", Component: BotsSettings }),

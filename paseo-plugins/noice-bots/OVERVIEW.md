@@ -157,7 +157,14 @@ Built for a handful of questions a day per bot; the hub keeps all of them (see G
   The selected tile uses the theme's `border` colour, since `surface2` is the light sidebar itself;
   the badge ring uses the sidebar colour (the darker of `surface0`/`surface2`). Keyboard focus draws
   an accent outline (web: only on `:focus-visible`, so clicks don't).
-- Phone: one **Bots** row (`N running`) opening a sheet: bots with their status, and **New bot**.
+- Phone: the same strip, sized for fingers: a 36 px row (the phone rows' height), 32 px tiles, a
+  22 px emoji, the robot on the rows' 18 px icon column, the tiles starting where their labels do.
+  It doesn't wrap: past the drawer's width it scrolls sideways (no scroll bar). Scrolling is on
+  only while the tiles overflow, so a left swipe over a strip that fits still closes the drawer;
+  on Android a strip that scrolls takes the swipe once it moves. A tile or **New bot** opens
+  through the item's own `openScreen`, which closes the drawer first. Checked 2026-11-03 in the
+  web app at phone width: a tap closes the drawer and opens the bot; at 180 px the strip scrolls
+  (166 of 211 px shown), at 390 px scrolling is off. The Android app itself is untested.
 - The counts come from a label on each hub agent (`noice-bots.counts = running,unread`, debounced)
   read through one agent-list subscription, so the client polls nothing.
 - Each bot workspace header: **System prompt** (the bot form; changes apply to new threads) and a
@@ -201,7 +208,8 @@ an hour with no thread, the next one pays like the first.
 `strip/` (before/after, light/dark, 1×/2×: rest, hover, selected, running, focus;
 `states-before/` and `states-after/`: the fixed-geometry change, page load through focus),
 `queued`, `read-only`, `search`, `new-bot`, `edit-bot`, `settings`, `history`,
-`phone-hub`, `phone-drawer`, `phone-bots-menu`, `phone-read`, `writer-hub`, `one-hub-lab` (two
+`phone-hub`, `phone-drawer`, `phone-bots-menu` (the old phone row's sheet), `phone-strip` and
+`phone-strip-scrolled` (the phone strip, at rest and scrolled to its end), `phone-read`, `writer-hub`, `one-hub-lab` (two
 questions, a follow-up on the first, a plugin reload), `one-hub-scribe` (after the move to one hub),
 `settled` and `phone-settled` (settled threads stacked above an unsettled one; phone: after an
 unsettle), `settled-hover` (a hovered settled line).

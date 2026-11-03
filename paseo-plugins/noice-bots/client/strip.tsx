@@ -1,8 +1,8 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useSettings, type PluginPopoverProps, type PluginSidebarItemProps } from "@getpaseo/plugin/client";
-import { Icon, SidebarRow } from "@getpaseo/plugin/client/ui";
+import { Icon } from "@getpaseo/plugin/client/ui";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { AccessibilityInfo, Platform, Pressable, Text, View } from "react-native";
+import { AccessibilityInfo, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { settings } from "../shared/contracts";
 import { BotForm } from "./form";
 import type { Hub, Hubs } from "./hubs";
@@ -13,8 +13,8 @@ const RUNNING = "#60A5FA";
 /**
  * Web: the workspace on screen comes from the URL (`…/workspace/<id>`), followed through the
  * Navigation API's `currententrychange` (fires on every in-app navigation; no polling), so leaving
- * a bot unselects its tile. Native has neither, so the bot opened last from the strip or menu
- * stands in there.
+ * a bot unselects its tile. Native has neither, so the bot opened last from the strip stands in
+ * there.
  */
 /** The slice of the browser's Navigation API used here; React Native's types don't declare it. */
 interface BrowserNavigation extends EventTarget { readonly currentEntry: { readonly url: string | null } | null }
@@ -41,15 +41,20 @@ const useSelected: () => (hub: Hub) => boolean = navigationApi
   ? () => { const shown = useSyncExternalStore(subscribeUrl, workspaceInUrl); return hub => hub.workspaceId === shown; }
   : () => { const opened = useSyncExternalStore(subscribeCurrent, () => current); return hub => hub.agentId === opened; };
 
-function Badge({ hub, theme, ring = theme.colors.surface0, size = 7 }: { hub: Hub; theme: PluginTheme; ring?: string; size?: number }) {
+function Badge({ hub, theme, ring, size }: { hub: Hub; theme: PluginTheme; ring: string; size: number }) {
   const color = hub.running ? RUNNING : hub.unread ? theme.colors.statusSuccess : null;
   if (!color) return null;
   return <View pointerEvents="none" style={{ position: "absolute", right: 0, bottom: 0, width: size, height: size, borderRadius: size / 2, backgroundColor: color, borderWidth: 1.5, borderColor: ring }} />;
 }
 
-/** Strip geometry: tiles sit on the sidebar's 28 px row; the emoji's line box is the tile, in every state. */
-const TILE = 24;
-const ROW = 28;
+/**
+ * Strip geometry: tiles sit on the sidebar's row (28 px wide, 36 px on phones); the emoji's line box
+ * is the tile, in every state. On phones the robot sits on the rows' 18 px icon column and the
+ * tiles start where their labels do.
+ */
+const WIDE = { row: 28, tile: 24, emoji: 17, badge: 8, plus: 14, pad: 12, robot: 14, robotGap: 3 };
+const PHONE = { row: 36, tile: 32, emoji: 22, badge: 9, plus: 18, pad: 14, robot: 18, robotGap: 6 };
+type Geometry = typeof WIDE;
 
 const luma = (hex: string) => /^#[0-9a-f]{6}$/i.test(hex) ? [1, 3, 5].reduce((sum, at, i) => sum + parseInt(hex.slice(at, at + 2), 16) * [0.3, 0.59, 0.11][i], 0) : null;
 /**
@@ -98,89 +103,88 @@ const focusRing = (theme: PluginTheme, focused: boolean) => focused ? { outlineW
 
 const status = (hub: Hub) => [hub.running ? `${hub.running} running` : "", hub.unread ? `${hub.unread} new answer${hub.unread === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ");
 
-export function createStrip(hubs: Hubs, open: (agentId: string) => void) {
-  const openHub = (agentId: string) => { setCurrent(agentId); open(agentId); };
+type OpenScreen = PluginSidebarItemProps["openScreen"];
 
-  function NewBot({ theme, close }: PluginPopoverProps) {
-    return <BotForm theme={theme} close={close} onCreated={openHub} />;
+export function createStrip(hubs: Hubs) {
+  /** Through the item's (or its popover's) openScreen, which closes the phone drawer first. */
+  const openHub = (openScreen: OpenScreen, agentId: string) => {
+    setCurrent(agentId);
+    openScreen({ screenId: "open", params: { agentId, nonce: String(Date.now()) } });
+  };
+
+  function NewBot({ theme, close, openScreen }: PluginPopoverProps) {
+    return <BotForm theme={theme} close={close} onCreated={agentId => openHub(openScreen, agentId)} />;
   }
 
-  /** Phone: the list of bots plus New bot, in the drawer's sheet. */
-  function BotsMenu({ theme, close }: PluginPopoverProps) {
-    const list = hubs.use();
-    const [creating, setCreating] = useState(false);
-    if (creating) return <BotForm theme={theme} close={close} onCreated={openHub} />;
-    const row = { flexDirection: "row" as const, alignItems: "center" as const, gap: 12, paddingVertical: 8, paddingHorizontal: 8, borderRadius: 10 };
-    return (
-      <View style={{ gap: 2 }}>
-        {list.map(hub => (
-          <Pressable key={hub.agentId} accessibilityRole="button" onPress={() => { close(); openHub(hub.agentId); }} style={row}>
-            <View><Text style={{ fontSize: 22, color: theme.colors.foreground }}>{hub.emoji}</Text><Badge hub={hub} theme={theme} /></View>
-            <View>
-              <Text style={{ color: theme.colors.foreground, fontSize: 15 }}>{hub.name}</Text>
-              {status(hub) ? <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{status(hub)}</Text> : null}
-            </View>
-          </Pressable>
-        ))}
-        <Pressable accessibilityRole="button" onPress={() => setCreating(true)} style={row}>
-          <View style={{ width: 26, alignItems: "center" }}><Icon name="Plus" size={18} color={theme.colors.foregroundMuted} /></View>
-          <Text style={{ color: theme.colors.foregroundMuted, fontSize: 15 }}>New bot</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  function Tile({ hub, theme, active, motion }: { hub: Hub; theme: PluginTheme; active: boolean; motion: boolean }) {
+  function Tile({ hub, theme, active, motion, size, onPress }: { hub: Hub; theme: PluginTheme; active: boolean; motion: boolean; size: Geometry; onPress(): void }) {
     const [hover, setHover] = useState(false);
     const { focused, handlers } = useKeyboardFocus();
     const label = [hub.name, status(hub)].filter(Boolean).join(" · ");
     return (
-      <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={() => openHub(hub.agentId)} {...handlers}
+      <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} {...handlers}
         onHoverIn={() => setHover(true)} onHoverOut={() => setHover(false)}
-        style={{ width: TILE, height: TILE, borderRadius: 6, alignItems: "center", justifyContent: "center",
+        style={{ width: size.tile, height: size.tile, borderRadius: 6, alignItems: "center", justifyContent: "center",
           backgroundColor: active ? selectedColor(theme) : "transparent", ...focusRing(theme, focused) }}>
         {/* Hover and selection change colour only: the emoji's box is the tile's, whatever the font's metrics. */}
-        <Text style={{ width: TILE, height: TILE, lineHeight: TILE, fontSize: 17, textAlign: "center", color: theme.colors.foreground,
+        <Text style={{ width: size.tile, height: size.tile, lineHeight: size.tile, fontSize: size.emoji, textAlign: "center", color: theme.colors.foreground,
           opacity: active || hover ? 1 : 0.55, ...(motion && Platform.OS === "web" ? ease(hover ? 120 : 240) : null) }}>{hub.emoji}</Text>
-        <Badge hub={hub} theme={theme} size={8} ring={active ? selectedColor(theme) : sidebarColor(theme)} />
+        <Badge hub={hub} theme={theme} size={size.badge} ring={active ? selectedColor(theme) : sidebarColor(theme)} />
       </Pressable>
     );
   }
 
-  function NewBotButton({ theme, onPress }: { theme: PluginTheme; onPress(): void }) {
+  function NewBotButton({ theme, size, onPress }: { theme: PluginTheme; size: Geometry; onPress(): void }) {
     const [hover, setHover] = useState(false);
     const { focused, handlers } = useKeyboardFocus();
     return (
       <Pressable accessibilityRole="button" accessibilityLabel="New bot" onPress={onPress} {...handlers}
         onHoverIn={() => setHover(true)} onHoverOut={() => setHover(false)}
-        style={{ width: TILE, height: TILE, borderRadius: 6, alignItems: "center", justifyContent: "center", ...focusRing(theme, focused) }}>
-        <Icon name="Plus" size={14} color={hover ? theme.colors.foreground : theme.colors.foregroundMuted} />
+        style={{ width: size.tile, height: size.tile, borderRadius: 6, alignItems: "center", justifyContent: "center", ...focusRing(theme, focused) }}>
+        <Icon name="Plus" size={size.plus} color={hover ? theme.colors.foreground : theme.colors.foregroundMuted} />
       </Pressable>
     );
   }
 
-  /** Under Schedules: a strip of bot tiles on wide layouts, one Bots row on phones. */
-  return function BotsStrip({ theme, layout, openPopover }: PluginSidebarItemProps) {
+  /**
+   * Under Schedules: a strip of bot tiles. Wide layouts wrap it; phones scroll it sideways, with
+   * scrolling on only while the tiles overflow, so a swipe over a strip that fits still closes the
+   * drawer (Android: the strip's own scroll wins once it starts).
+   */
+  return function BotsStrip({ theme, layout, openScreen, openPopover }: PluginSidebarItemProps) {
     const list = hubs.use();
     const selected = useSelected();
     const motion = !useReduceMotion();
     const prefs = useSettings(settings);
+    const [width, setWidth] = useState(0);
+    const [content, setContent] = useState(0);
     const showRobot = prefs.status !== "ready" || prefs.values.showRobot;
+    const size = layout.compact ? PHONE : WIDE;
     // Nothing but the row until the robot setting and the bots are known, so nothing shifts in.
     const settled = prefs.status !== "loading" && hubs.loaded();
-    if (layout.compact) {
-      const running = list.reduce((sum, hub) => sum + hub.running, 0);
-      return <SidebarRow icon="Bot" label="Bots" onPress={() => openPopover(BotsMenu)}
-        trailing={running ? <Text style={{ color: theme.colors.foregroundMuted, fontSize: 13 }}>{running} running</Text> : undefined} />;
+    if (!settled) return <View style={{ height: size.row }} />;
+    // The robot centres on the rows' icon column and the tiles start where their labels do.
+    const robot = showRobot
+      ? <View accessibilityLabel="Bots" style={{ width: 22, marginRight: size.robotGap, alignItems: "center" }}><Icon name="Bot" size={size.robot} color={theme.colors.foregroundMuted} /></View>
+      : null;
+    const tiles = <>
+      {list.map(hub => <Tile key={hub.agentId} hub={hub} theme={theme} active={selected(hub)} motion={motion} size={size} onPress={() => openHub(openScreen, hub.agentId)} />)}
+      <NewBotButton theme={theme} size={size} onPress={() => openPopover(NewBot)} />
+    </>;
+    if (!layout.compact) {
+      return (
+        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 1, paddingHorizontal: size.pad, paddingVertical: (size.row - size.tile) / 2 }}>
+          {robot}{tiles}
+        </View>
+      );
     }
-    if (!settled) return <View style={{ height: ROW }} />;
-    // 28 px tall like the rows above; the robot centres on their icon column and the tiles start
-    // where their labels do.
     return (
-      <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 1, paddingHorizontal: 12, paddingVertical: (ROW - TILE) / 2 }}>
-        {showRobot ? <View accessibilityLabel="Bots" style={{ width: 22, marginRight: 3, alignItems: "center" }}><Icon name="Bot" size={14} color={theme.colors.foregroundMuted} /></View> : null}
-        {list.map(hub => <Tile key={hub.agentId} hub={hub} theme={theme} active={selected(hub)} motion={motion} />)}
-        <NewBotButton theme={theme} onPress={() => openPopover(NewBot)} />
+      <View style={{ flexDirection: "row", alignItems: "center", height: size.row, paddingLeft: size.pad }}>
+        {robot}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEnabled={content > width + 0.5}
+          onLayout={event => setWidth(event.nativeEvent.layout.width)} onContentSizeChange={contentWidth => setContent(contentWidth)}
+          contentContainerStyle={{ alignItems: "center", gap: 1, paddingRight: size.pad }}>
+          {tiles}
+        </ScrollView>
       </View>
     );
   };
