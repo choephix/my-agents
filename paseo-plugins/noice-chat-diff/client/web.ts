@@ -145,7 +145,7 @@ const HIGHLIGHTS: Array<[name: string, priority: number]> = [
 ];
 
 /** Diffs quoted in a message or written in your own: soft word marks and no deeper shade. */
-const QUIET = 'blockquote, [data-testid="user-message"]';
+const QUIET = 'blockquote, [data-testid="user-message"], [data-noice-user-text]';
 
 interface Block {
   code: DomElement;

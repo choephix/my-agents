@@ -157,7 +157,10 @@ Limits:
   messages anyway); the copy button gives the original.
 - It finds messages by markers Paseo puts on the page (`data-testid="user-message"`,
   `data-message-text`), not a public plugin API; tested on Paseo 0.12.0 (2026-10-23). If an update
-  renames them, your messages show plain again; nothing breaks.
+  renames them, your messages show plain again; nothing breaks. A plugin that draws your text itself
+  marks it the same way inside a `[data-noice-user-text]` box instead of `user-message`
+  (noice-bots does for a hub's questions); there is no bubble to tint, so slash commands and the
+  skill tint stay off there.
 - The Markdown reader is the plugin's own small one (no library), so rare syntax (tables, setext
   headings, reference links, HTML) stays as text.
 - OMP's command answers are not in OMP's session file: after the agent is reloaded, the command and

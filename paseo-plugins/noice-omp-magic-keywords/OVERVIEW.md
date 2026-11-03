@@ -45,7 +45,8 @@ Limits:
   `chat-outline-preview`) and reads the agent id from React's component props. None of these is a
   public plugin API: if a Paseo update renames a marker, that part shows the words plain; if the agent
   lookup breaks, every chat counts as unidentified and the browser console shows one
-  `[noice-omp-magic-keywords]` warning.
+  `[noice-omp-magic-keywords]` warning. Text a plugin draws itself counts as sent when it is a
+  `data-message-text` inside `[data-noice-user-text]` (noice-bots' hub questions).
 - A provider is recognised by its id only (`omp`, `omp-…`, `claude`); one that runs OMP or Claude
   Code under another name counts as "other" and shows the words plain.
 - New keywords in a later OMP release stay plain until the plugin's keyword table is updated.

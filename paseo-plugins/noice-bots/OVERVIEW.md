@@ -66,7 +66,11 @@ Each thread is one plugin row, drawn as in the bots-hub mock's variant A ("Overl
   left and right edges. Its colour is `surface2` with 12% of `foreground` mixed in, near Paseo's own
   bubble (`surface3`, which a plugin theme doesn't have; `surface2` if a colour isn't `#rrggbb`).
   It is the card's earlier sibling with `zIndex: 1` and the card moves up under it
-  (`marginTop: -16`), so it is drawn on top on web and native.
+  (`marginTop: -16`), so it is drawn on top on web and native. On web the bubble carries
+  `data-noice-user-text` and its text Paseo's `data-message-text`, so noice-chat-message-polish
+  (tag folds, Markdown), noice-omp-magic-keywords and noice-chat-diff (quiet diffs) style it like
+  your own messages, and Chat Find searches it. It deliberately lacks Paseo's
+  `data-testid="user-message"`: noice-omp-tree and noice-chat-turn-status read that as a chat turn.
 - **Spacing**: 28 px between threads: Paseo puts 16 px between any two rows of the stream
   (`getGapBetweenStreamItems`), the row adds 12 under its card. None under the last row, so the
   last card has its 12 px plus Paseo's 16 px under the stream before the composer (a hub turn has

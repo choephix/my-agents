@@ -18,7 +18,7 @@ import type { SkillStore, SkillView } from "./skills";
 // Plain messages are left untouched. React never reads the hidden Text's children, and a sibling
 // it doesn't know about survives its updates; a removed or changed original is re-drawn.
 
-const SOURCE = '[data-testid="user-message"] [data-message-text="true"]:not([data-ump-view])';
+const SOURCE = '[data-testid="user-message"] [data-message-text="true"]:not([data-ump-view]), [data-noice-user-text] [data-message-text="true"]:not([data-ump-view])';
 const PREFIX = "noice-chat-message-polish";
 const CACHE_LIMIT = 400;
 

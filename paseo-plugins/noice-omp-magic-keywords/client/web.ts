@@ -24,7 +24,7 @@ export interface Engine {
 }
 
 /** Sent messages and the outline preview both follow the `sent` preference. */
-const SENT = '[data-testid="user-message"] [data-message-text], [data-testid="chat-outline-preview"] [dir="auto"]';
+const SENT = '[data-testid="user-message"] [data-message-text], [data-noice-user-text] [data-message-text], [data-testid="chat-outline-preview"] [dir="auto"]';
 const COMPOSER = "textarea[data-composer-input]";
 const PREFIX = "noice-omp-magic-keywords";
 /** How long rules outlive the last keyword in view, so a prompt at the viewport edge does not flip the sheet per frame. */

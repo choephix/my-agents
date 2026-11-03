@@ -77,6 +77,14 @@ const webQuestion = { lineHeight: BUBBLE_LINE, overflowWrap: "anywhere" } as obj
 
 /** Native has no mask: a gradient into the card's colour is painted over the cut preview. */
 function Fade({ background }: { background: string }) {
+/**
+ * Web: your question's markers. `data-noice-user-text` on the bubble means "text you wrote", without
+ * Paseo's `user-message`, which other plugins read as a chat turn; noice-chat-message-polish,
+ * noice-omp-magic-keywords and noice-chat-diff style what it holds. `data-message-text` is Paseo's
+ * own mark for message text (Chat Find searches it).
+ */
+const userTextMark = { dataSet: { noiceUserText: "true" } } as object;
+const messageTextMark = { dataSet: { messageText: "true" } } as object;
   // The background at zero alpha, so the gradient doesn't pass through grey on its way from "transparent".
   const clear = HEX.test(background) ? `${background}00` : "transparent";
   return (
@@ -131,9 +139,10 @@ function Question({ text, theme }: { text: string; theme: PluginTheme }) {
       style={{
         alignSelf: "flex-end", marginHorizontal: CARD_RADIUS, zIndex: 1, padding: BUBBLE_PAD, minWidth: 0,
         borderRadius: BUBBLE_RADIUS, borderTopRightRadius: BUBBLE_TAIL_RADIUS, backgroundColor: mix(colors.surface2, colors.foreground, BUBBLE_MIX),
+      {...userTextMark}
       }}
     >
-      <Text selectable style={[{ color: colors.foreground, fontSize: BUBBLE_FONT }, Platform.OS === "web" ? webQuestion : null]}>{text}</Text>
+      <Text {...messageTextMark} selectable style={[{ color: colors.foreground, fontSize: BUBBLE_FONT }, Platform.OS === "web" ? webQuestion : null]}>{text}</Text>
     </View>
   );
 }

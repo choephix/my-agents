@@ -82,7 +82,8 @@ Limits:
 - Paseo 0.11.4 or later, in the web app and the desktop app. The iOS and Android apps show diffs as
   before.
 - It relies on markers Paseo puts on chat code blocks for its own copy feature, and on its
-  `user-message` test id and `<blockquote>` to find quiet blocks. They are not a public plugin API;
+  `user-message` test id, `[data-noice-user-text]` (your questions in a noice-bots hub) and
+  `<blockquote>` to find quiet blocks. They are not a public plugin API;
   tested on Paseo 0.13.0 (2026-10-29). If a later update drops them, the coloring stops (or quiet
   blocks get the full style); the chat itself keeps working.
 - Green/red are fixed neon colors (one pair for light, one for dark themes, picked by the theme's
