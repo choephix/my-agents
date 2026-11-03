@@ -78,6 +78,10 @@ My agentic stuff.
 - [Tweet and its replies → one PNG](tampermonkey/x-tweet-shot.user.js)
 - [Gmail search attachments → files](tampermonkey/gmail-attachment-harvester.user.js)
 
+## Windows scripts and tools
+
+- [Windows scripts and tools](windows/), starting with [portwatch](windows/portwatch/).
+
 ## Local configuration
 
 Machine-specific paths and origins belong outside this public checkout:
