@@ -1,7 +1,7 @@
 import type { PaseoAgent } from "@getpaseo/client";
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { useSyncExternalStore } from "react";
-import { COUNTS_LABEL, EMOJI_LABEL, HUB_LABEL, ROLE_LABEL } from "../shared/contracts";
+import { COUNTS_LABEL, EMOJI_LABEL, HUB_LABEL, restoreHub, ROLE_LABEL } from "../shared/contracts";
 
 /** A bot, as its hub agent tells it: the sidebar and the header buttons need nothing else. */
 export interface Hub {
@@ -13,15 +13,17 @@ export interface Hub {
   running: number;
   unread: number;
   createdAt: string;
+  /** Its tab was closed (Paseo archives the agent then): the tile restores it before opening. */
+  archived: boolean;
 }
 
 function hubOf(agent: PaseoAgent): Hub | null {
   const botId = agent.labels[HUB_LABEL];
-  if (agent.labels[ROLE_LABEL] !== "hub" || !botId || !agent.workspaceId || agent.archivedAt) return null;
+  if (agent.labels[ROLE_LABEL] !== "hub" || !botId || !agent.workspaceId) return null;
   const [running, unread] = (agent.labels[COUNTS_LABEL] ?? "0,0").split(",").map(Number);
   return {
     agentId: agent.id, workspaceId: agent.workspaceId, botId, name: agent.title ?? "Bot", emoji: agent.labels[EMOJI_LABEL] ?? "🤖",
-    running: running || 0, unread: unread || 0, createdAt: agent.createdAt,
+    running: running || 0, unread: unread || 0, createdAt: agent.createdAt, archived: !!agent.archivedAt,
   };
 }
 
@@ -32,6 +34,8 @@ export interface Hubs {
   use(): Hub[];
   /** Whether the first list has come; before it, `current()` is empty for want of it. */
   loaded(): boolean;
+  /** Before opening a hub: brings back one whose tab was closed. */
+  restore(hub: Hub): Promise<void>;
   stop(): void;
 }
 
@@ -52,7 +56,7 @@ export function watchHubs(client: PluginClientContext): Hubs {
   };
   const lifetime = new AbortController();
   void client.paseo.agents
-    .list({ filter: { labels: { [ROLE_LABEL]: "hub" }, includeBackground: true }, subscribe: {}, signal: lifetime.signal })
+    .list({ filter: { labels: { [ROLE_LABEL]: "hub" }, includeBackground: true, includeArchived: true }, subscribe: {}, signal: lifetime.signal })
     .then(({ subscription }) => {
       subscription.subscribe({
         snapshot: ({ entries }) => {
@@ -85,6 +89,7 @@ export function watchHubs(client: PluginClientContext): Hubs {
     current: () => hubs,
     use: () => useSyncExternalStore(subscribe, () => hubs),
     loaded: () => loaded,
+    restore: async hub => { if (hub.archived) await client.rpc(restoreHub, { botId: hub.botId }); },
     stop: () => lifetime.abort(),
   };
 }

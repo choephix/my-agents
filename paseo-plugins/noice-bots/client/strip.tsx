@@ -167,7 +167,9 @@ export function createStrip(hubs: Hubs) {
       ? <View accessibilityLabel="Bots" style={{ width: 22, marginRight: size.robotGap, alignItems: "center" }}><Icon name="Bot" size={size.robot} color={theme.colors.foregroundMuted} /></View>
       : null;
     const tiles = <>
-      {list.map(hub => <Tile key={hub.agentId} hub={hub} theme={theme} active={selected(hub)} motion={motion} size={size} onPress={() => openHub(openScreen, hub.agentId)} />)}
+      {list.map(hub => <Tile key={hub.agentId} hub={hub} theme={theme} active={selected(hub)} motion={motion} size={size} onPress={() => void hubs.restore(hub)
+        .catch(error => console.error(`noice-bots: restoring ${hub.name}'s hub failed`, error))
+        .then(() => openHub(openScreen, hub.agentId))} />)}
       <NewBotButton theme={theme} size={size} onPress={() => openPopover(NewBot)} />
     </>;
     if (!layout.compact) {

@@ -111,5 +111,7 @@ export const listSettledQuestions = defineRpc({ name: "bots.settled-questions", 
 export const listUnread = defineRpc({ name: "bots.unread", input: z.object({ botId: z.string() }), output: z.array(Thread) });
 /** The user opened a thread's chat: it stays up after its turn until the tab is closed. */
 export const openedThread = defineRpc({ name: "bots.opened", input: z.object({ id: z.string() }), output: z.object({}) });
+/** Unarchives a bot's hub (closing its tab archived it), so its tile can open it. */
+export const restoreHub = defineRpc({ name: "bots.restore-hub", input: z.object({ botId: z.string() }), output: z.object({}) });
 /** OMP and the providers that extend it, enabled on this daemon: what a bot's threads can run on. */
 export const listProviders = defineRpc({ name: "bots.providers", input: z.object({}), output: z.array(z.object({ id: z.string(), label: z.string() })) });

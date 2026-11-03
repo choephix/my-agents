@@ -142,13 +142,16 @@ export class Bots {
     for (const day of await this.store.days(id)) threads.push(...(await this.store.day(id, day)).map(thread => thread.id));
     for (const thread of threads) this.#active.delete(thread);
     const client = await daemon();
+    // The sidebar lists archived hubs too (a closed hub tab archives it), and Paseo tells only this
+    // connection about a delete: a label change reaches every client, so the tile goes at once.
+    await client.updateAgent(bot.hubAgentId, { labels: { [ROLE_LABEL]: "deleted" } }).catch(() => undefined);
     for (const agentId of [...threads, bot.hubAgentId]) {
       try {
         const agent = (await client.fetchAgent(agentId).catch(() => null))?.agent;
         if (!agent) continue;
         if (agent.status === "running") await client.cancelAgent(agentId);
         // Paseo tells only this connection about a delete; an archive reaches every client, so open
-        // tabs close and the sidebar strip drops the hub at once.
+        // tabs close at once.
         if (!agent.archivedAt) await client.archiveAgent(agentId);
         await client.deleteAgent(agentId);
         const file = agent.persistence?.nativeHandle;
@@ -263,6 +266,13 @@ export class Bots {
       .then(client => client.refreshAgent(bot.hubAgentId))
       .catch(error => console.error(`noice-bots: reopening ${bot.name}'s hub failed`, error))
       .finally(() => this.#reopening.delete(botId));
+  }
+
+  /** Closing a hub's tab archives it; its sidebar tile brings it back before opening it. */
+  async restoreHub(botId: string): Promise<void> {
+    const bot = this.#bot(botId);
+    const client = await daemon();
+    if ((await client.fetchAgent(bot.hubAgentId))?.agent?.archivedAt) await client.refreshAgent(bot.hubAgentId);
   }
 
   /** A hub message: becomes a new thread with the hub's model, thinking and mode. The hub's own turn is over at once. */

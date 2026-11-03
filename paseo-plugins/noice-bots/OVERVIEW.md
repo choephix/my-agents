@@ -13,12 +13,17 @@ workspace's `.scratch/paseo-bots/map.md`.
 - **Runs on**: `omp` (default) or an enabled provider whose `config.json` entry has `extends: "omp"`
   (e.g. `omp-nilo`, OMP with another profile). The API doesn't report `extends`, so the server
   reads the daemon's `config.json`. The picker shows only when there is more than one.
-- **Delete bot** (Edit form, bottom left; one confirm step): stops running threads, then archives
-  and deletes every thread agent and the hub (archiving first, as Paseo tells only the deleting
-  connection about a delete; an archive reaches every client, so tabs close and the strip updates
-  at once), removes the thread session files, rows and saved copies, archives the workspace, and
-  removes its Paseo project if no other workspace is in it. The Works-in folder stays. The app
-  then opens the next bot's hub, else the most recently active workspace.
+- **Delete bot** (Edit form, bottom left; one confirm step): marks the hub `noice-bots.role=deleted`
+  (Paseo tells only the deleting connection about a delete; a label change reaches every client, so
+  the tile goes at once), stops running threads, then archives and deletes every thread agent and
+  the hub (archiving first, so open tabs close at once), removes the thread session files, rows and
+  saved copies, archives the workspace, and removes its Paseo project if no other workspace is in
+  it. The Works-in folder stays. The app then opens the next bot's hub, else the most recently
+  active workspace.
+- **Closing the hub's tab** archives the hub (Paseo does that to any closed agent tab). The bot
+  stays in the strip: the list includes archived hubs, and pressing the tile first unarchives the
+  hub (`bots.restore-hub`, Paseo's `refreshAgent`), then opens it. A thread change also brings a
+  closed hub back (below).
 - **Hub**: an agent of the plugin's provider `bots` in that workspace. It runs no model: a message
   becomes a thread, the hub's own turn ends at once, and the thread shows as a plugin row.
   The hub's model, thinking and mode pickers list the bot's provider's

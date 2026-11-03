@@ -50,7 +50,7 @@ export default function contribute(client: PluginClientContext) {
   /** After Delete bot (pressed in that bot's workspace): the next bot's hub, else the most recently active workspace. */
   const openNextHub = async (deleted: string) => {
     const next = hubs.current().find(hub => hub.botId !== deleted);
-    if (next) return openChat(next.agentId);
+    if (next) return hubs.restore(next).finally(() => openChat(next.agentId));
     const { entries } = await client.paseo.workspaces.list({ sort: [{ key: "activity_at", direction: "desc" }], page: { limit: 1 } });
     if (entries[0]) client.openScreen({ screenId: "open", params: { workspaceId: entries[0].id, nonce: String(Date.now()) } });
   };
