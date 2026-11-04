@@ -26,6 +26,15 @@ One axis governs tool calls, at three levels — `none`, `trace` (the default),
 /prose ^N  /prose ^?        same, keeping the last N turns / picking from a list
                             (plain N distills the last N turns instead — inverse cut;
                             ^0 keeps no turn, the same as bare /prose)
+/prose clean                only the messages: each run of tool calls becomes one
+                            [ran N tools] line, and no recovery pointer is written
+                            anywhere (no archive either). Thinking, job deliveries,
+                            peer messages and notices go; trace lines an earlier
+                            /prose left in assistant text fold into the count.
+                            Skill invocations stay as [invoked skill: name] + the
+                            prompt; compaction and branch summaries stay.
+                            Combines with fork, N, ^N and story; takes no ±tools,
+                            ±skills, -sub or +think
 /prose -tools               no tool traces at all
 /prose +tools               native toolCall + toolResult turns: full arguments,
                             full output, nothing capped

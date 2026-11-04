@@ -32,6 +32,13 @@
  *   /prose story             same filters, but the whole exchange lands as ONE
  *                            user message with [@user]/[@assistant]/[@system]
  *                            speaker markers (the prose-note stays above it)
+ *   /prose clean             only the messages: each run of tool calls becomes
+ *                            one [ran N tools] line, thinking, job deliveries,
+ *                            peer messages and notices go, and no recovery
+ *                            pointer is written anywhere. Skill invocations
+ *                            stay as [invoked skill: name] + the prompt;
+ *                            compaction and branch summaries stay. Takes no
+ *                            ±tools / ±skills / -sub / +think
  *   /prose +tools            every tool call and result kept as native turns
  *   /prose -tools            no tool traces at all
  *   /prose +tools=read,edit  those tools native, every other tool traced
@@ -85,7 +92,7 @@ import type { AsyncJobSnapshot } from "@oh-my-pi/pi-coding-agent/session/agent-s
 import type { AutocompleteItem } from "@oh-my-pi/pi-tui";
 
 /** Ghost text after `/prose `, mirroring how builtins advertise their arguments. */
-const PROSE_HINT = "[fork|N|^N|?|^?] [story] [±tools[=a,b]] [±skills] [-sub] [+think] [+compacted]";
+const PROSE_HINT = "[fork|N|^N|?|^?] [clean] [story] [±tools[=a,b]] [±skills] [-sub] [+think] [+compacted]";
 const PICKER_LIMIT = 30;
 
 /**
@@ -106,6 +113,8 @@ export type Keep = {
 	story: boolean;
 	/** `archive`: background subagent results become one-line stubs, full text in the archive. */
 	subagents: "full" | "archive";
+	/** Only the messages: tool runs counted, other injected entries dropped, no archive. */
+	clean: boolean;
 };
 
 export interface ArchiveSpan {
@@ -180,6 +189,8 @@ type AssistantTextKind = "prose" | "trimmed" | "thinking";
 type AssistantSegment = {
 	part: AssistantPart;
 	textKind?: AssistantTextKind;
+	/** `clean`: how many tool calls this count line stands for. */
+	toolCount?: number;
 };
 
 const asText = (text: string): TextContent => ({ type: "text", text });
@@ -195,6 +206,15 @@ const edgeNewlines = (left: string, right: string): number => {
 	return count;
 };
 
+/** `clean`'s stand-in for a run of tool calls: `> [ran 7 tools]`. */
+const countLine = (count: number): string => quoted(`[${TRACE_PREFIX}${count} tool${count === 1 ? "" : "s"}]`);
+
+/** Text parts that end in a count line, with its count, so the next run adds to it instead of stacking a second line. */
+const countTails = new WeakMap<TextContent, number>();
+
+/** A trace or count line an earlier /prose wrote into assistant text. */
+const PRIOR_TRACE = /^> \[ran .*\]$/m;
+
 /**
  * Materialize classified assistant text without changing prose bytes. Adjacent
  * bracketed traces stay one compact group. A thinking block, and every
@@ -209,6 +229,14 @@ function appendAssistantSegments(
 ): AssistantTextKind | undefined {
 	for (const segment of segments) {
 		const previous = target.at(-1);
+		const tailCount = previous?.type === "text" ? countTails.get(previous) : undefined;
+		if (previous?.type === "text" && tailCount !== undefined && segment.toolCount !== undefined) {
+			const total = tailCount + segment.toolCount;
+			previous.text = previous.text.slice(0, -countLine(tailCount).length) + countLine(total);
+			countTails.set(previous, total);
+			previousTextKind = "trimmed";
+			continue;
+		}
 		if (
 			previous?.type === "text" &&
 			segment.part.type === "text" &&
@@ -224,6 +252,11 @@ function appendAssistantSegments(
 			target.push(segment.part);
 		}
 		previousTextKind = segment.part.type === "text" ? segment.textKind : undefined;
+		const last = target.at(-1);
+		if (last?.type === "text") {
+			if (segment.toolCount !== undefined) countTails.set(last, segment.toolCount);
+			else countTails.delete(last);
+		}
 	}
 	return previousTextKind;
 }
@@ -456,6 +489,8 @@ export function buildProseArchive(
 	results: Map<string, ToolResultMessage>,
 	sourceArtifactsDir?: string | null,
 ): ProseArchive {
+	// `clean` writes no pointers, so nothing could ever reach an archive.
+	if (keep.clean) return { content: "", spansByCallId: new Map(), itemCount: 0, rebasedSpans: new Map() };
 	const lines: string[] = ["# Prose Archive", ""];
 	const spansByCallId = new Map<string, ArchiveSpan>();
 	const rebasedSpans = new Map<string, ArchiveSpan>();
@@ -617,6 +652,7 @@ function assistantParts(
 	const segments: AssistantSegment[] = [];
 	const pendingResults: ToolResultMessage[] = [];
 	let tracedItems: TracedItem[] = [];
+	let toolCount = 0;
 	const pushAssistantText = (text: string, textKind: AssistantTextKind) => {
 		if (text.trim().length > 0) segments.push({ part: asText(text), textKind });
 	};
@@ -625,9 +661,17 @@ function assistantParts(
 			pushAssistantText(formatTracedItems(tracedItems, artifactId).join("\n"), "trimmed");
 			tracedItems = [];
 		}
+		if (toolCount > 0) {
+			segments.push({ part: asText(countLine(toolCount)), textKind: "trimmed", toolCount });
+			toolCount = 0;
+		}
 	};
 	for (const part of message.content) {
 		if (part.type === "toolCall") {
+			if (keep.clean) {
+				toolCount++;
+				continue;
+			}
 			const level = levelFor(keep.tools, part.name);
 			if (level === "trace") {
 				tracedItems.push({
@@ -644,7 +688,26 @@ function assistantParts(
 			continue;
 		}
 		flushTools();
-		if (part.type === "text") {
+		if (part.type === "text" && keep.clean && PRIOR_TRACE.test(part.text)) {
+			// Trace and count lines an earlier /prose wrote into this text are its
+			// own output, not what was said: they join the count like live calls.
+			let prose: string[] = [];
+			const flushProse = () => {
+				pushAssistantText(prose.join("\n").replace(/^\n+|\n+$/g, ""), "prose");
+				prose = [];
+			};
+			for (const line of part.text.split("\n")) {
+				const trace = /^> \[ran (.*)\]$/.exec(line);
+				if (trace) {
+					flushProse();
+					toolCount += Number(/^(\d+) tools?$/.exec(trace[1])?.[1] ?? / ×(\d+)(?:;[^\]]*)?$/.exec(trace[1])?.[1] ?? 1);
+				} else {
+					flushTools();
+					prose.push(line);
+				}
+			}
+			flushProse();
+		} else if (part.type === "text") {
 			const text = artifactId && rebasedSpans ? rebaseTextArtifactLinks(part.text, artifactId, rebasedSpans) : part.text;
 			pushAssistantText(text, "prose");
 		} else if (part.type === "image") segments.push({ part });
@@ -830,6 +893,14 @@ function branchSummaryBlock(entry: Extract<SessionEntry, { type: "branch_summary
 	};
 }
 
+/** The custom entries `clean` keeps: skill invocations (with the prompt typed after them) and summaries of earlier conversation. */
+const CLEAN_CUSTOM_TYPES: Record<string, true> = {
+	"skill-prompt": true,
+	"skill-trimmed": true,
+	"compaction-summary": true,
+	"branch-summary": true,
+};
+
 /**
  * Reduce a branch to replayable conversation. Provider bookkeeping and tool
  * results disappear; custom messages and compaction summaries retain the
@@ -851,6 +922,9 @@ export function proseOf(
 	providedResults?: Map<string, ToolResultMessage>,
 ): ProseItem[] {
 	const results = providedResults ?? resultsOf(entries);
+	// Without an archive every artifact link would become "[unrecoverable …]";
+	// `clean` leaves what was written as it was written.
+	const relink = (text: string) => (keep.clean ? text : rebaseTextArtifactLinks(text, artifactId, rebasedSpans));
 	const out: ProseItem[] = [];
 	const assistantTailKinds = new WeakMap<object, AssistantTextKind>();
 	const push = (message: Message, parts: AssistantPart[]) => {
@@ -893,10 +967,10 @@ export function proseOf(
 				if (message.synthetic) continue; // auto-continue filler, never typed by anyone
 				const parts: Part[] = [];
 				if (typeof message.content === "string") {
-					pushText(parts, rebaseTextArtifactLinks(message.content, artifactId, rebasedSpans));
+					pushText(parts, relink(message.content));
 				} else {
 					for (const part of message.content) {
-						if (part.type === "text") pushText(parts, rebaseTextArtifactLinks(part.text, artifactId, rebasedSpans));
+						if (part.type === "text") pushText(parts, relink(part.text));
 						else if (part.type === "image") parts.push(part);
 					}
 				}
@@ -938,6 +1012,7 @@ export function proseOf(
 			// leave stale "the conversation is live from here" markers stranded
 			// mid-transcript. Drop them; the handler appends a fresh pair.
 			if (entry.customType === "prose-note") continue;
+			if (keep.clean && !CLEAN_CUSTOM_TYPES[entry.customType]) continue;
 			if (keep.subagents === "archive" && isSubagentResult(entry)) {
 				out.push({
 					kind: "custom",
@@ -952,7 +1027,7 @@ export function proseOf(
 				continue;
 			}
 			const skillDetails =
-				entry.customType === "skill-prompt" && keep.skills !== "full"
+				(entry.customType === "skill-prompt" || (keep.clean && entry.customType === "skill-trimmed")) && keep.skills !== "full"
 					? (entry.details as { name?: string; path?: string; args?: string } | undefined)
 					: undefined;
 			// A copy distilled by an earlier /prose carries no details to rebuild
@@ -969,7 +1044,7 @@ export function proseOf(
 					// sees `content` either way (agent-core types.ts:186) — so this costs
 					// nothing in context and stops the entry impersonating the original.
 					customType: "skill-trimmed",
-					content: skillLine(skillDetails, keep.skills === "bare" ? "bare" : "brief"),
+					content: skillLine(skillDetails, keep.skills === "bare" || keep.clean ? "bare" : "brief"),
 					display: entry.display,
 					// Display-only metadata (never sent to the LLM, session-entries.ts:247):
 					// free provenance for anything that later wants the name or path.
@@ -982,7 +1057,7 @@ export function proseOf(
 				out.push({
 					kind: "custom",
 					customType: entry.customType,
-					content: typeof entry.content === "string" ? rebaseTextArtifactLinks(entry.content, artifactId, rebasedSpans) : entry.content,
+					content: typeof entry.content === "string" ? relink(entry.content) : entry.content,
 					display: entry.display,
 					details: entry.details,
 					attribution: entry.attribution,
@@ -1089,7 +1164,7 @@ type ParsedFlags = {
 const TOOLS_FLAG = /^([+-])tools?(?:=(.+))?$/;
 
 export function parseFlags(args: string): ParsedFlags {
-	const keep: Keep = { thinking: false, tools: { default: "trace", byName: new Map() }, skills: "brief", story: false, subagents: "full" };
+	const keep: Keep = { thinking: false, tools: { default: "trace", byName: new Map() }, skills: "brief", story: false, subagents: "full", clean: false };
 	const parsed: ParsedFlags = { keep };
 	for (const token of args.trim().split(/\s+/).filter(Boolean)) {
 		const tools = TOOLS_FLAG.exec(token);
@@ -1103,6 +1178,7 @@ export function parseFlags(args: string): ParsedFlags {
 		else if (token === "+skills") keep.skills = "full";
 		else if (token === "-skills") keep.skills = "bare";
 		else if (token === "story") keep.story = true;
+		else if (token === "clean") keep.clean = true;
 		else if (token === "fork") parsed.fork = true;
 		else if (token === "?") parsed.picker = "turns";
 		else if (token === "^?") parsed.picker = "pin";
@@ -1373,6 +1449,15 @@ function proseNote(keep: Keep, original: string, artifactId?: string): ProseItem
 	const story = keep.story
 		? " The entire exchange is folded into the single message that follows; bracketed markers [@user], [@assistant], and [@system …] label who actually spoke."
 		: "";
+	if (keep.clean) {
+		// No pointer to the original: `clean` writes none anywhere.
+		return {
+			kind: "custom",
+			customType: "prose-note",
+			content: `[The conversation from this point on was distilled by /prose clean: only the messages remain, verbatim. A [${TRACE_PREFIX}N tools] line records tool calls that already ran. To act, ALWAYS invoke a real tool through the tool interface — writing a [${TRACE_PREFIX}…] line as text does nothing and fabricates history.${story}]`,
+			display: true,
+		};
+	}
 	const sub = keep.subagents === "archive"
 		? ` Background subagent reports appear as one-line [subagent result: …${artifactId ? "; recover: artifact://…" : ""}] stubs${artifactId ? "; read the recover link when a report's details matter" : ""}.`
 		: "";
@@ -1442,7 +1527,7 @@ export default function proseExtension(pi: ExtensionAPI) {
 	pi.on("session_switch", (_event, ctx) => adopt(ctx));
 
 	pi.registerCommand("prose", {
-		description: "[fork|N|^N|?] [story ±tools[=a,b] ±skills -sub +think +compacted] — distill everything in place; fork writes it to a new session; N distills recent turns; ^N keeps them and distills the rest",
+		description: "[fork|N|^N|?] [clean story ±tools[=a,b] ±skills -sub +think +compacted] — distill everything in place; fork writes it to a new session; N distills recent turns; ^N keeps them and distills the rest",
 		// Offered only once a flag is being typed. An empty argument deliberately
 		// yields nothing: an open dropdown suppresses the editor's inline hint
 		// (it prefers the selected item's own `hint`), and the hint is what
@@ -1474,7 +1559,7 @@ export default function proseExtension(pi: ExtensionAPI) {
 				return pinMatches.length > 0 ? pinMatches : null;
 			}
 			const isFlag = argumentPrefix.startsWith("+") || argumentPrefix.startsWith("-");
-			const isWord = argumentPrefix.length > 0 && ["story", "fork"].some(word => word.startsWith(argumentPrefix));
+			const isWord = argumentPrefix.length > 0 && ["clean", "story", "fork"].some(word => word.startsWith(argumentPrefix));
 			if (!isFlag && !isWord) return null;
 			const items: AutocompleteItem[] = [
 				{
@@ -1491,6 +1576,11 @@ export default function proseExtension(pi: ExtensionAPI) {
 					value: "+compacted",
 					label: "+compacted",
 					description: "fork: also distill history sealed by /clear or compaction",
+				},
+				{
+					value: "clean",
+					label: "clean",
+					description: "only the messages: [ran N tools] per run of calls, no pointers, no thinking",
 				},
 				{
 					value: "story",
@@ -1514,7 +1604,12 @@ export default function proseExtension(pi: ExtensionAPI) {
 
 			const parsed = parseFlags(args);
 			if (parsed.unknown !== undefined) {
-				ctx.ui.notify(`Unknown option \`${parsed.unknown}\`. /prose takes fork, N, ^N, ?, ^?, story, ±tools[=a,b], ±skills, -sub, +think, and +compacted.`, "warning");
+				ctx.ui.notify(`Unknown option \`${parsed.unknown}\`. /prose takes fork, N, ^N, ?, ^?, clean, story, ±tools[=a,b], ±skills, -sub, +think, and +compacted.`, "warning");
+				return;
+			}
+			const { keep } = parsed;
+			if (keep.clean && (keep.thinking || keep.tools.default !== "trace" || keep.tools.byName.size > 0 || keep.skills !== "brief" || keep.subagents !== "full")) {
+				ctx.ui.notify("clean keeps only the messages; it takes no ±tools, ±skills, -sub or +think.", "warning");
 				return;
 			}
 			const trims = parsed.turns !== undefined || parsed.pin !== undefined || parsed.picker !== undefined;
@@ -1811,6 +1906,7 @@ export default function proseExtension(pi: ExtensionAPI) {
 				parsed.keep.skills === "full" && "+skills",
 				parsed.keep.skills === "bare" && "-skills",
 				parsed.keep.subagents === "archive" && "-sub",
+				parsed.keep.clean && "clean",
 				parsed.compacted && "+compacted",
 			]
 				.filter(Boolean)
