@@ -1,7 +1,7 @@
 Bots: chat-looking hubs where every message starts its own thread, a fresh OMP agent with the
 bot's system prompt (built on Paseo 0.14.0, plugin only). UI per the mock, variant A:
-`~/www/webshare/pages/bots-mocks/index.html`. Effort map with the decisions: the index
-workspace's `.scratch/paseo-bots/map.md`.
+`~/www/webshare/pages/bots-mocks/index.html`. Effort map with the decisions:
+`paseo-plugins/.scratch/paseo-bots/map.md` (private, not in the repo).
 
 ## Pieces
 
