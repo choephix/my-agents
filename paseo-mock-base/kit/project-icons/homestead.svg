@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Acme: a house under the sun -->
+  <circle cx="25" cy="6.5" r="3.5" fill="#f5c542"/>
+  <path d="M16 4 3 15h4v13h18V15h4z" fill="#26ad9d"/>
+  <rect x="13" y="19" width="6" height="9" rx="1" fill="#0e5c54"/>
+</svg>

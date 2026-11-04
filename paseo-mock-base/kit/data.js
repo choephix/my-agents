@@ -36,21 +36,26 @@
     const own = document.documentElement.hasAttribute("data-mock-data");
     const acme = (own && (await getJson(new URL("data.acme.json", pageBase)))) || (await getJson(new URL("acme.json", kitBase)));
     const live = own && withLive ? await getJson(new URL("data.live.json", pageBase)) : null;
-    return { acme: acme && derive(acme), live: live && derive(live) };
+    return { acme: acme && derive(acme, kitBase), live: live && derive(live, kitBase) };
   }
 
   // Derived views the starter binds to; the JSON keeps only facts.
-  function derive(raw) {
+  // A project's optional `icon` is a path inside kit/ (project-icons/x.svg) or a
+  // data: URI (live); `projIcon` is its full URL and projStyle carries it as
+  // --proj-icon, drawn by `.proj-icon.has-icon` (kit/paseo.css).
+  function derive(raw, kitBase) {
     const d = structuredClone(raw);
     const projects = d.projects || {};
     const ws = (d.workspaces || []).map((w) => {
       const p = projects[w.project] || { name: w.project, color: "violet" };
       const st = STATUS[w.status] || STATUS.done;
+      const projIcon = p.icon ? new URL(p.icon, kitBase).href : "";
       return {
         ...w,
         projectName: p.name,
         initial: p.initial || (p.name || "?")[0].toUpperCase(),
-        projStyle: `--proj:var(--id-${p.color})`,
+        projIcon,
+        projStyle: `--proj:var(--id-${p.color})` + (projIcon ? `; --proj-icon:url("${projIcon}")` : ""),
         badge: st.badge,
         dotClass: "dot" + (st.dot ? " " + st.dot : ""),
         selected: w.id === d.active,
@@ -61,7 +66,7 @@
       statusGroups: ORDER.map((s) => ({ ...STATUS[s], items: list.filter((w) => (STATUS[w.status] ? w.status : "done") === s) })).filter((g) => g.items.length),
       projectGroups: [...new Set(list.map((w) => w.project))].map((key) => {
         const items = list.filter((w) => w.project === key);
-        return { name: items[0].projectName, initial: items[0].initial, projStyle: items[0].projStyle, items };
+        return { name: items[0].projectName, initial: items[0].initial, projIcon: items[0].projIcon, projStyle: items[0].projStyle, items };
       }),
     });
     d.workspaces = ws;

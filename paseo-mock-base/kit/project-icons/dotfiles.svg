@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Acme: a terminal prompt with dots -->
+  <rect width="32" height="32" rx="6" fill="#22344a"/>
+  <path d="M8 10.5l5.5 5.5L8 21.5" stroke="#5cc8ff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="18" cy="21" r="2" fill="#5cc8ff"/>
+  <circle cx="24" cy="21" r="2" fill="#5cc8ff"/>
+</svg>

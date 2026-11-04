@@ -2,15 +2,15 @@
   "host": "devbox",
   "active": "rust-rewrite",
   "projects": {
-    "left-pad": { "name": "left-pad", "color": "orange" },
-    "postgres": { "name": "postgres", "color": "blue" },
+    "left-pad": { "name": "left-pad", "color": "orange", "icon": "project-icons/left-pad.svg" },
+    "postgres": { "name": "postgres", "color": "blue", "icon": "project-icons/postgres.svg" },
     "neovim": { "name": "neovim", "color": "emerald" },
     "kubernetes": { "name": "kubernetes", "color": "indigo" },
-    "homestead": { "name": "homestead", "color": "teal" },
-    "figma-lite": { "name": "figma-lite", "color": "pink" },
+    "homestead": { "name": "homestead", "color": "teal", "icon": "project-icons/homestead.svg" },
+    "figma-lite": { "name": "figma-lite", "color": "pink", "icon": "project-icons/figma-lite.svg" },
     "adulting": { "name": "adulting", "color": "amber" },
-    "torvalds-fanclub": { "name": "torvalds-fanclub", "color": "violet" },
-    "dotfiles": { "name": "dotfiles", "color": "sky" }
+    "torvalds-fanclub": { "name": "torvalds-fanclub", "color": "violet", "icon": "project-icons/torvalds-fanclub.svg" },
+    "dotfiles": { "name": "dotfiles", "color": "sky", "icon": "project-icons/dotfiles.svg" }
   },
   "workspaces": [
     { "id": "rust-rewrite", "title": "Rewrite left-pad in Rust", "project": "left-pad", "status": "running", "ago": "" },

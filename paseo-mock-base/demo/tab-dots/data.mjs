@@ -10,8 +10,8 @@ const ws = (id, title, project, status, ago, tabs) => ({ id, title, project, sta
 export const acme = {
   active: "rust-rewrite",
   projects: {
-    "left-pad": { name: "left-pad", color: "orange" },
-    homestead: { name: "homestead", color: "teal" },
+    "left-pad": { name: "left-pad", color: "orange", icon: "project-icons/left-pad.svg" },
+    homestead: { name: "homestead", color: "teal", icon: "project-icons/homestead.svg" },
     neovim: { name: "neovim", color: "emerald" },
     adulting: { name: "adulting", color: "amber" },
   },
@@ -29,7 +29,7 @@ export const acme = {
 };
 
 // Live: each live workspace's chats as its tabs, oldest first, with the state
-// tab-dots gives them (the same buckets as tools/mock-data.mjs).
+// noice-tab-dots gives them (the same buckets as tools/mock-data.mjs).
 function tabState(a) {
   if (a.attentionReason === "permission") return "permission";
   if (a.lastStatus === "error" || a.attentionReason === "error") return "error";

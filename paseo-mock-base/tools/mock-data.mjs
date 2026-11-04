@@ -9,14 +9,16 @@
 // Read-only: no daemon request, so nothing is woken, loaded or changed.
 //
 // Swapped in (base): the most recent workspaces (title, project, status, age),
-// their projects (name, Paseo's colour for that project), the active workspace,
-// its chats as tabs, the host name. Kept Acme: everything else, chat text included.
+// their projects (name, Paseo's colour for that project, the icon Paseo stores
+// for it), the active workspace, its chats as tabs, the host name. Kept Acme:
+// everything else, chat text included.
 //
 // A mock's plugin content follows the same pattern in <mock>/data.mjs:
 //   export const acme = { efforts: [...] };              // merged over kit/acme.json
 //   export async function live(data, ctx) { return { efforts: ... }; }  // merged over the live set
 // ctx: { home, paseoHome, readJson(path) }.
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join, resolve, dirname } from "node:path";
 import { homedir, hostname } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -54,6 +56,18 @@ function ago(ms) {
   const m = Math.max(1, Math.round((Date.now() - ms) / 60000));
   return m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`;
 }
+// Icon: a custom icon Paseo stores at projects/icons/<sha256(projectId)>.bin
+// (server utils/project-custom-icon.ts), as a data: URI. None otherwise: icons
+// Paseo finds in the repo itself are not read, and ICO it draws as the letter.
+const ICON_TYPES = [["image/png", "89504e47"], ["image/jpeg", "ffd8ff"], ["image/gif", "47494638"], ["image/webp", "52494646"]];
+function storedIcon(project) {
+  if (!project.customIconRevision) return undefined;
+  const file = join(paseoHome, "projects/icons", createHash("sha256").update(project.projectId).digest("hex") + ".bin");
+  if (!existsSync(file)) return undefined;
+  const bytes = readFileSync(file);
+  const type = ICON_TYPES.find(([, magic]) => bytes.toString("hex", 0, magic.length / 2) === magic)?.[0];
+  return type && `data:${type};base64,${bytes.toString("base64")}`;
+}
 
 function liveBase() {
   const serverId = readFileSync(join(paseoHome, "server-id"), "utf8").trim();
@@ -83,7 +97,7 @@ function liveBase() {
   const outProjects = {};
   for (const { w } of ws) {
     const p = projects.get(w.projectId);
-    outProjects[w.projectId] = { name: p.customName || p.displayName, color: colorFor(JSON.stringify([serverId, w.projectId])) };
+    outProjects[w.projectId] = { name: p.customName || p.displayName, color: colorFor(JSON.stringify([serverId, w.projectId])), icon: storedIcon(p) };
   }
   const active = ws[0];
   const tabs = (active?.list || [])

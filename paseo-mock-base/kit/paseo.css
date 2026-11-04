@@ -713,6 +713,8 @@
  * Paseo's generated project icon: a coloured square with the initial, radius 25%,
  * 16px in the sidebar, 9px white letter (components/project-icon-view.tsx,
  * sidebar/project-leading-visual.tsx). Colours: styles/identity-colors.ts.
+ * A project with its own icon shows that image instead, filling the same box,
+ * never rounded, tinted or backed (project-icon-image.tsx).
  * Status sits in a 12px corner badge, knocked out of the row background. */
 :root {
   --id-violet: #7a6aa8; --id-sky: #3d7ea6; --id-emerald: #388068; --id-orange: #a4673a;
@@ -732,6 +734,12 @@
   color: #fff;
   font-size: 9px;
   line-height: 1;
+}
+/* Own icon: bind data-class="has-icon=projIcon"; projStyle carries --proj-icon. */
+.proj-icon.has-icon {
+  background: var(--proj-icon) center / cover no-repeat;
+  border-radius: 0;
+  color: transparent;
 }
 .proj-icon[data-status]::after {
   content: "";

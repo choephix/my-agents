@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Acme: a cheerful database, no elephant -->
+  <path d="M5 8v16c0 2.8 4.9 5 11 5s11-2.2 11-5V8z" fill="#3b7fd4"/>
+  <ellipse cx="16" cy="8" rx="11" ry="5" fill="#8dbcf2"/>
+  <circle cx="11.5" cy="17" r="2" fill="#fff"/>
+  <circle cx="20.5" cy="17" r="2" fill="#fff"/>
+  <path d="M11 21.5q5 4 10 0" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+</svg>
