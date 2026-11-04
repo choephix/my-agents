@@ -4,8 +4,8 @@ A static copy of Paseo's normal screen plus a small engine for flipping
 design variants. Every Paseo plugin mockup, and every screenshot of a plugin,
 starts here. Live at `<webshare-origin>/pages/paseo-base/` (origin in
 `~/.config/my-agents/local.md`; `demo/` shows the tags, `demo/tab-dots/` a
-fine-tuning workshop with knobs, presets and a reference frame; search both
-for `DEMO:`). Words like shell, frame, region and reference mean one thing
+fine-tuning workshop with knobs, presets and three frames; search both for
+`DEMO:`). Words like shell, frame, region and selected frame mean one thing
 each: `GLOSSARY.md`.
 
 ## Pace: link first
@@ -41,8 +41,9 @@ A screen that is even a little bit confusing didn't get simpler.
    the design never touches. Done when every state the design reacts to has a
    value in the situation controls.
 4. **Fine-tuning a look?** Declare knobs and presets (below), one of them the
-   shipped look, and show it in a reference frame. A small subject gets its
-   region at 1:1 (`data-regions`, `data-scales="1 2 3"`).
+   shipped look, and open with a frame per starting point
+   (`data-frames="today pinpoints"`). A small subject gets its region at 1:1
+   (`data-regions`, `data-scales="1 2 3"`).
 5. **Send the link.**
 
 ## The shell
@@ -58,22 +59,26 @@ default, and the hash keeps the choice (`?shell=bars`).
   knob visible. Right for a workshop with many knobs; switch to it whenever
   the controls get bulky.
 
-The two groups, in either layout:
+Three groups, in either layout:
 
-- **Design (amber).** What is being decided: sections, variants, what sits
-  beside the candidate, presets, knobs, Copy values. In the bars, sections
-  fill the first bar and look the same on every section; the current
-  section's variants sit in a second bar (its slot stays empty on a section
-  without variants, so nothing moves); the rest sits in a third.
+- **Design (amber).** What is being decided: sections, variants, presets,
+  knobs, Copy values. They act on the selected frame only. In the bars,
+  sections fill the first bar and look the same on every section; the
+  current section's variants sit in a second bar (its slot stays empty on a
+  section without variants, so nothing moves); the rest sits in a third.
 - **Situation (violet).** Where the design is seen: theme, viewport, region,
-  scale, data, app state. Its `Aa` button holds Paseo's appearance settings
-  (fonts, sizes, content width), remembered across every mock in this browser.
+  scale, data, app state, shared by every frame. Its `Aa` button holds
+  Paseo's appearance settings (fonts, sizes, content width), remembered
+  across every mock in this browser.
+- **View.** How you are looking, never what is decided: the view bar in the
+  top-right corner (Base, Notes, Sidebar) and the frame titles (select,
+  `+`, `×`, Tabs). Neutral, never amber.
 
 A situation never changes the design, and a design control never changes the
 situation. The controls build themselves from the tags and `MockDesign`
-below; a group with nothing to offer stays hidden. Design state (variant,
-knobs, references) lives in the hash, so a link shows exactly what its
-sender saw; never in localStorage.
+below; a group with nothing to offer stays hidden. Design state (every
+frame's variants and knobs, the selection, the layout) lives in the hash, so
+a link shows exactly what its sender saw; never in localStorage.
 
 Nothing in the shell may shift when a choice changes; Stefan treats layout
 shifts as bugs. Switching between bars and sidebar moves the frames as a
@@ -83,10 +88,28 @@ choice. The important choices (sections and variants) are rows of buttons;
 every other option list (situations, kit controls) is a cycle button
 (fixed width, ‹ ›).
 
-## Frames: region, scale, references
+## Frames: selection, region, scale
 
-Every frame shows the same situation; each has its own design.
+Every frame shows the same situation; each holds its own design (variant
+picks, knobs, Base). All frames are equal; the selected one is the one the
+design controls change.
 
+- **Select.** Click a frame's title. Click the selected title again (or press
+  `c`) to go back to the frame selected before: a history of one, so
+  clicking one title over and over flips between two frames, however many
+  there are. The selected frame has an amber ring and an amber title.
+- **Add, remove.** `+` after the last title adds a copy of the selected
+  frame (selected, so you edit the copy). `×` on a hovered title removes that
+  frame; the last one stays.
+- **Tabs.** With two or more frames, `Tabs` (after `+`) shows only the
+  selected frame and turns the titles into a tab strip; the same click rules
+  apply, so clicking one tab over and over flips the frame in place. Every
+  tabbed frame keeps the largest frame's box, so nothing inside moves or
+  resizes when you flip.
+- **Opening frames.** `data-frames="today small pinpoints"` on `<html>`:
+  one frame per preset, variant or `base`, the last one selected. Older
+  mocks' `data-reference="today"` still works: those frames, then the
+  mock's own design, selected.
 - **Region.** `data-region="sidebar"` (label: `data-region-label`) on any
   part of the screen lets a frame show just that part, cut out of the full
   layout at its real size. The starter tags `sidebar`, `main`, `composer`,
@@ -97,18 +120,20 @@ Every frame shows the same situation; each has its own design.
   instead of shrinking. `data-scales="1 2 3"` on `<html>` (default
   `fit 1 2 3`). Judge anything 1–2 px wide at `1` and `2`, never at `fit`.
   Key `z`.
-- **References.** A reference frame shows Base, a preset or a variant to
-  the left of the candidate, which stays next to the controls. The design
-  control "Beside: …" (key `c`) picks it; `data-reference` on `<html>` offers
-  it (`data-reference="today"` also opens with that preset beside). Presets
-  offer it on their own. Each frame is labelled with its design.
+
+The hash holds every frame: `frame=today&frame=pinpoints,readSize:2&sel=2&prev=1&tabs=1`
+(each frame a preset name plus what differs from it, or picks and knobs off
+their defaults; `sel`/`prev` count from 1). A single frame keeps the short
+form (`#chat/B?knobs=size:2`). Old `?ref=today` links open as that frame
+beside the link's own design.
 
 Scripts that draw into the mock must draw into every frame, from that
 frame's own design: `MockKit.onFrame((f) => …)` runs for each frame now and
-after every change, with `f.el` (the `.mock-frame`), `f.role`
-(`reference`/`candidate`), `f.label`, `f.base`, `f.variant`, `f.picks` and
-`f.knobs`. The situation is shared: `MockKit.state`. A script that only
-reads `document.querySelector(".mock-frame")` reaches the candidate.
+after every change, with `f.el` (the `.mock-frame`), `f.index`,
+`f.selected`, `f.label`, `f.base`, `f.variant`, `f.picks` and `f.knobs`.
+The situation is shared: `MockKit.state`. A script that only reads
+`document.querySelector(".mock-frame")` reaches frame 1, whichever frame is
+selected; such a mock should stay at one frame or move to `onFrame`.
 
 ## Knobs and presets
 
@@ -137,17 +162,20 @@ window.MockDesign = {
   `options` as an object or `[value, label]` pairs), `color`, `toggle`. The
   type is inferred when omitted. `{ heading }` starts a group.
 - **Values** go in the hash (`knobs=size:2,tint:custom`, only those off their
-  default) and onto every frame: `data-knob-<key>` for selectors, and the
-  custom property named by `css` (with its CSS unit), so one stylesheet draws
-  each frame's own design. `enabled(knobs)` greys a knob out when it doesn't
-  apply.
+  default; with several frames, inside each `frame=`) and onto each frame:
+  `data-knob-<key>` for selectors, and the custom property named by `css`
+  (with its CSS unit), so one stylesheet draws each frame's own design.
+  `enabled(knobs)` greys a knob out when it doesn't apply.
 - **Presets** are named bundles of knob values (and optionally a variant or
-  picks). A preset sets only the knobs it lists. Clicking one loads it; the
-  matching preset lights up, otherwise the candidate is "Own values". Make
-  one preset reproduce what ships today, so the reference frame can show it.
-- **Copy values** puts the design (variant, matching preset, every knob) as
-  JSON, plus the knobs' CSS custom properties, on the clipboard, and always
-  shows the same text, selectable, since plain http blocks the clipboard.
+  picks). A preset sets only the knobs it lists. Clicking one loads it into
+  the selected frame; the matching preset lights up. A frame edited away
+  from every preset is named after the nearest one ("Pinpoints · 2
+  changes"), or "Own values" without presets. Make one preset reproduce what
+  ships today, so a frame can show it.
+- **Copy values** puts the selected frame's design (variant, matching preset,
+  every knob) as JSON, plus the knobs' CSS custom properties, on the
+  clipboard, and always shows the same text, selectable, since plain http
+  blocks the clipboard.
 
 Still raw: `MockKit.addDesignControl(node)` adds a hand-built control to the
 design group, with values in `MockKit.state.knobs` via `MockKit.set({ knobs:
@@ -187,6 +215,12 @@ not a design choice. PNG export always renders Acme.
   `kit/acme.json` and has no live set. It reads `~/.paseo` files
   only, so no agent is touched. Acme stays wherever real data is thin or too
   revealing, chat text included.
+- **Project icons:** an optional `icon` on a project (`"icon":
+  "project-icons/left-pad.svg"`, a path inside `kit/`, or a `data:` URI)
+  shows that image instead of the letter, the way Paseo does
+  (`data-class="has-icon=projIcon"` on `.proj-icon`, as in the starter). Acme
+  gives 6 of its 9 projects a made-up icon; live uses the icon Paseo stores
+  for the project, if any.
 - **Plugin content follows the same pattern.** Content Paseo can't supply
   (efforts, presets, …) is written once in the mock's `data.mjs`: an `acme`
   object plus a `live()` rule for where the real version comes from. The
@@ -199,13 +233,14 @@ not a design choice. PNG export always renders Acme.
 
 ## Base and notes
 
-Two toggles in the top-right corner, each flipped in place:
+Two toggles in the top-right corner (the view bar), each flipped in place:
 
-- **Base** (`b`, off by default): plain Paseo, without the mock's changes, for
-  comparing by eye. It hides variant-only elements, `data-mod`, and anything
-  inside a slot, and drops the `data-v` attributes, so variant CSS stops
-  applying. No "current Paseo" variant needed. To see Base and the design
-  side by side, put Base in a reference frame instead ("Beside: Base", `c`).
+- **Base** (`b`, off by default): the selected frame as plain Paseo, without
+  the mock's changes, for comparing by eye. It hides variant-only elements,
+  `data-mod`, and anything inside a slot, and drops the `data-v` attributes,
+  so variant CSS stops applying. No "current Paseo" variant needed. To see
+  Base and the design side by side, add a frame (`+`) and turn Base on in it,
+  or open with `data-frames="base today"`.
 - **Notes** (`n`): numbered markers on what the design changes, and a column
   beside the screen, never over it: what, how, why. Leave them out until the
   design gets busy, convoluted or easy to miss.
@@ -231,8 +266,9 @@ that needs copying.
 Every plugin screenshot is a PNG export of a mock (Stefan, 2026-10-25): images
 posted in chat, embedded in docs, or used in a plugin's store listing.
 `node tools/export.mjs <mock-url> [out-dir] --vp=desktop,phone` renders Acme
-only; a region in the URL's hash (`#chat?region=sidebar`) exports just that
-region. Live data is for Stefan's own screen; it never goes into an image.
+only, and only the selected frame; a region in the URL's hash
+(`#chat?region=sidebar`) exports just that region. Live data is for Stefan's
+own screen; it never goes into an image.
 Nobody screenshots Stefan's real Paseo. An agent checking that a plugin really
 works does it on a test daemon with made-up projects; those captures are its
 own evidence and stay local.
@@ -264,13 +300,13 @@ own evidence and stay local.
 | `data-region="sidebar" data-region-label="Sidebar"` | any part of the screen | A region a frame can show alone, at its real size. The label defaults to the capitalised name. |
 | `data-regions="sidebar screen"`, `data-scales="1 2 3"` | `<html>` | Override the region and scale lists, first is the default (defaults: every tagged region after `screen`; `fit 1 2 3`). |
 | `data-shell="sidebar"` | `<html>` | Open with the shell sidebar instead of the shell bars. |
-| `data-reference` / `data-reference="today"` | `<html>` | Offer reference frames (presets offer them anyway); with a value, open with that preset, variant or `base` beside the candidate. |
+| `data-frames="today small pinpoints"` | `<html>` | Open with one frame per preset, variant or `base`, the last one selected. Older `data-reference="today"` still works: those frames, then the mock's own design. |
 | `data-mock-data` | `<html>` | Load the mock's own `data.acme.json` and `data.live.json` (written by `tools/mock-data.mjs`). Without it: `kit/acme.json`, no live set, no fetch. |
 
 The frame mirrors the situation and its own design as attributes, so
 variant styling is plain CSS: `[data-v="B"] .composer`, `[data-vp="phone"]`,
 `[data-theme="light"]`, `[data-state-session="empty"]`, `[data-knob-tint="custom"]`,
-`[data-frame="reference"]`.
+`[data-frame="2"]` (its position, from 1).
 
 Each section keeps its own pick: switching sections returns to that
 section's last variant, and the hash carries the others (`picks=bubble.F`).
@@ -280,7 +316,7 @@ screen is split into several decisions, style each part by its own section
 choices together.
 
 Keys: ← → variant, ↑ ↓ section, `t` theme, `v` viewport, `r` region, `z`
-scale, `d` data, `b` base, `n` notes, `c` what sits beside the candidate,
+scale, `d` data, `b` base, `n` notes, `c` back to the frame selected before,
 `s` shell bars ↔ sidebar; Shift steps back. The hash holds the whole view.
 Behaviour, only if a design needs it: `MockKit.set({...})`,
 `MockKit.onChange(fn)`, `MockKit.onFrame(fn)`, `MockKit.frames`,

@@ -3,11 +3,16 @@
 // window.MockDesign. See ../README.md for the authoring guide and
 // ../GLOSSARY.md for the words used here.
 //
-// Two separate control groups, on purpose:
+// Three separate groups, on purpose (GLOSSARY.md):
 //   DESIGN    (amber: top bars, or the top of the shell sidebar)
-//             what is decided: sections, variants, references, presets, knobs
+//             what is decided: sections, variants, presets, knobs, Copy values;
+//             acts on the selected frame only
 //   SITUATION (violet: bottom bar, or the bottom of the shell sidebar)
-//             where it is seen: theme, viewport, region, scale, data, app state
+//             where it is seen: theme, viewport, region, scale, data, app state;
+//             shared by every frame
+//   VIEW      (the view bar in the top-right corner, and the frame titles)
+//             how you are looking: Base, Notes, shell layout; which frames
+//             exist, which one is selected, side by side or tabbed
 (() => {
   const kitBase = new URL(".", document.currentScript.src);
   const devCss = document.createElement("link");
@@ -189,7 +194,7 @@
     });
     return { id: el.dataset.section, title: el.dataset.title || el.dataset.section, el, variants, axes, notes };
   });
-  // Untouched copies of the screen: every reference frame starts from one.
+  // Untouched copies of the screen: every frame after the first starts from one.
   const pristine = sectionEls.map((n) => n.cloneNode(true));
 
   // Base: plain Paseo without this mock's changes (variants, data-mod, slot contents, knobs).
@@ -212,9 +217,12 @@
   const regions = html.dataset.regions ? words(html.dataset.regions).filter((r) => regionLabels.has(r)) : [...regionLabels.keys()];
   if (!regions.length) regions.push("screen");
   const defaultShell = SHELLS.includes(html.dataset.shell) ? html.dataset.shell : "bars";
-  // References (frames beside the candidate) are offered once a mock asks for
-  // them with data-reference on <html> or declares presets.
-  const defaultRefs = words((html.dataset.reference || "").replace(/,/g, " "));
+  // The frames a mock opens with: data-frames="today small pinpoints" (presets,
+  // variants or base; the last one opens selected). Older mocks say
+  // data-reference="today": those frames, then one with the hash's own design.
+  const frameTags = html.hasAttribute("data-frames")
+    ? { toks: words(html.dataset.frames.replace(/,/g, " ")), own: false }
+    : { toks: words((html.dataset.reference || "").replace(/,/g, " ")), own: true };
 
   // ---------------------------------------------------------------- design (window.MockDesign)
   // Knobs: declared controls within the chosen design; presets: named bundles
@@ -222,7 +230,6 @@
   let knobDefs = [];
   let knobGroups = [];
   let presets = [];
-  let compareOn = html.hasAttribute("data-reference");
   const CSS_UNITS = /^(px|ms|s|%|em|rem|deg|vw|vh)$/;
 
   function normOptions(o) {
@@ -249,7 +256,6 @@
     knobGroups = knobGroups.filter((g) => g.knobs.length);
     presets = (cfg.presets || []).filter((p) => p && p.id);
     if (knobDefs.length) hasDelta = true;
-    if (presets.length) compareOn = true;
   }
   function coerce(k, v) {
     if (v === undefined || v === null || v === "") return k.value;
@@ -275,27 +281,108 @@
     if (k.type === "range" || k.type === "number") return v + (CSS_UNITS.test(k.unit || "") ? k.unit : "");
     return String(v);
   }
-  // A preset sets only the knobs it lists; the rest keep the candidate's values,
-  // so a reference frame differs from the candidate in exactly those knobs.
-  function presetKnobs(p) {
-    const out = { ...state.knobs };
+  // A design: { picks: { section: variant }, knobs: { key: value }, base }.
+  // Every frame holds one; the selected frame's lives in state.variant /
+  // picks / knobs / base, which the design controls edit.
+  // A preset sets only the knobs it lists; the rest keep the design's own values.
+  function presetKnobs(p, knobs = state.knobs) {
+    const out = { ...knobs };
     for (const k of knobDefs) if (p.knobs && k.key in p.knobs) out[k.key] = coerce(k, p.knobs[k.key]);
     return out;
   }
-  const presetMatches = (p) => {
-    if (p.variant && p.variant !== state.variant) return false;
-    const mine = presetKnobs(p);
-    return knobDefs.every((k) => mine[k.key] === state.knobs[k.key]);
-  };
+  function presetMatches(p, d = designOf()) {
+    if (p.variant && p.variant !== d.picks[state.section]) return false;
+    const mine = presetKnobs(p, d.knobs);
+    return knobDefs.every((k) => mine[k.key] === d.knobs[k.key]);
+  }
   function applyPreset(p) {
     const patch = { knobs: presetKnobs(p) };
     if (p.picks) patch.picks = { ...state.picks, ...p.picks };
     if (p.variant) patch.variant = p.variant;
     set(patch);
   }
+  const designOf = () => ({ picks: { ...state.picks }, knobs: { ...state.knobs }, base: state.base });
+  // The design a frame starts from: a preset, a variant or "base", on top of `from`.
+  function tokenDesign(tok, from) {
+    const sec = current();
+    const d = { picks: { ...from.picks }, knobs: { ...from.knobs }, base: false };
+    if (tok === "base") return { ...d, base: true };
+    const p = presets.find((x) => x.id === tok);
+    if (p) {
+      Object.assign(d.picks, p.picks);
+      if (p.variant && sec.variants.some((v) => v.id === p.variant)) d.picks[sec.id] = p.variant;
+      d.knobs = presetKnobs(p, from.knobs);
+      return d;
+    }
+    if (sec.variants.some((v) => v.id === tok)) {
+      d.picks[sec.id] = tok;
+      return d;
+    }
+    return null;
+  }
+  // The frames the mock's tags ask for, around `own` (the hash's classic design).
+  function tagFrames(own) {
+    const list = frameTags.toks.map((t) => tokenDesign(t, own)).filter(Boolean);
+    if (frameTags.own || !list.length) list.push(own);
+    return list;
+  }
+  // Every section's pick valid, every declared knob set and typed.
+  function normDesign(d) {
+    const picks = { ...d.picks };
+    for (const s of sections) if (s.variants.length && !s.variants.some((v) => v.id === picks[s.id])) picks[s.id] = s.variants[0].id;
+    const knobs = { ...d.knobs };
+    for (const k of knobDefs) knobs[k.key] = coerce(k, knobs[k.key]);
+    return { picks, knobs, base: !!d.base };
+  }
+  // Knobs off `from` (declared knobs off their default when no `from`), and a
+  // mock's own (undeclared) knobs, as key:value.
+  function knobTokens(knobs, from) {
+    const declared = new Map(knobDefs.map((k) => [k.key, k]));
+    return Object.entries(knobs).flatMap(([key, v]) => {
+      const k = declared.get(key);
+      if (k) return v === (from ? from[key] : k.value) ? [] : [key + ":" + knobText(k, v)];
+      return v != null && v !== "" && v !== from?.[key] ? [key + ":" + v] : [];
+    });
+  }
+  const blankDesign = () => normDesign({ picks: {}, knobs: {}, base: false });
+  // One frame in the hash, as short as it gets: frame=pinpoints,size:4 (a
+  // preset, then what differs from it) or frame=sidebar.B,size:2,base (picks
+  // off the first variant, knobs off their default, base).
+  function encodeDesign(d) {
+    const blank = blankDesign();
+    const starts = [{ id: null, d: blank }, ...presets.map((p) => ({ id: p.id, d: tokenDesign(p.id, blank) }))];
+    let best = null;
+    for (const s of starts) {
+      const out = s.id ? [s.id] : [];
+      out.push(...sections.filter((x) => x.variants.length && d.picks[x.id] !== s.d.picks[x.id]).map((x) => x.id + "." + d.picks[x.id]));
+      out.push(...knobTokens(d.knobs, s.d.knobs));
+      if (d.base) out.push("base");
+      const text = out.join(",");
+      if (s.id && out.length === 1) return text; // exactly a preset: its name reads best
+      if (best == null || text.length < best.length) best = text;
+    }
+    return best;
+  }
+  function decodeDesign(s) {
+    let d = blankDesign();
+    for (const t of (s || "").split(",")) {
+      const c = t.indexOf(":");
+      if (c > 0) d.knobs[t.slice(0, c)] = t.slice(c + 1);
+      else if (t === "base") d.base = true;
+      else if (t.includes(".")) {
+        const [sid, v] = t.split(".");
+        if (sid && v) d.picks[sid] = v;
+      } else if (t) d = tokenDesign(t, d) || d;
+    }
+    return d;
+  }
 
   // ---------------------------------------------------------------- state + hash
   // picks: each section's last variant, so switching sections keeps every choice.
+  // variant / picks / knobs / base: the selected frame's design (see designOf).
+  // frames: every frame's design, in order; sel: the selected frame; prev: the
+  // one selected before it (clicking the selected title goes back to it);
+  // tabs: show only the selected frame, the titles as tabs.
   const state = {
     section: sections[0].id,
     variant: null,
@@ -304,47 +391,73 @@
     region: regions[0],
     scale: scales[0],
     shell: defaultShell,
-    refs: [...defaultRefs],
     states: {},
     picks: {},
     base: false,
     notes: true,
     knobs: {},
+    frames: [],
+    sel: 0,
+    prev: null,
+    tabs: false,
   };
-  const KIT_KEYS = ["theme", "vp", "canvas", "picks", "data", "base", "notes", "knobs", "region", "scale", "shell", "ref"];
+  const KIT_KEYS = ["theme", "vp", "canvas", "picks", "data", "base", "notes", "knobs", "region", "scale", "shell", "ref", "frame", "sel", "prev", "tabs"];
+
+  // Copy the selected frame's design into the state the design controls edit.
+  function loadSel() {
+    const d = state.frames[state.sel];
+    state.picks = { ...d.picks };
+    state.knobs = { ...d.knobs };
+    state.base = !!d.base;
+    state.variant = d.picks[state.section] || null;
+  }
 
   function readHash() {
     const [path, query] = location.hash.slice(1).split("?");
     const [sec, variant] = (path || "").split("/");
     // The hash is the whole truth: anything it omits goes back to the default.
     state.section = sections.some((s) => s.id === sec) ? sec : sections[0].id;
-    state.variant = variant || null;
     const q = new URLSearchParams(query || "");
     state.theme = themes.includes(q.get("theme")) ? q.get("theme") : themes[0];
     state.vp = viewports.includes(q.get("vp")) ? q.get("vp") : viewports[0];
     state.region = regions.includes(q.get("region")) ? q.get("region") : regions[0];
     state.scale = scales.includes(q.get("scale")) ? q.get("scale") : scales[0];
     state.shell = SHELLS.includes(q.get("shell")) ? q.get("shell") : defaultShell;
-    state.refs = q.has("ref") ? q.get("ref").split(",").filter((r) => r && r !== "none") : [...defaultRefs];
     if (q.get("canvas")) html.dataset.canvas = q.get("canvas");
     else delete html.dataset.canvas;
-    state.picks = {};
+    // The classic keys (path variant, picks, knobs, base) hold one design: a
+    // single-frame link's, or the one older ?ref= links put references beside.
+    const own = { picks: {}, knobs: {}, base: q.get("base") === "1" };
     for (const pair of (q.get("picks") || "").split(",")) {
       const [s, v] = pair.split(".");
-      if (s && v) state.picks[s] = v;
+      if (s && v) own.picks[s] = v;
     }
-    if (state.variant) state.picks[state.section] = state.variant;
-    else state.variant = state.picks[state.section] || null;
+    if (variant) own.picks[state.section] = variant;
+    for (const pair of (q.get("knobs") || "").split(",")) {
+      const i = pair.indexOf(":");
+      if (i > 0) own.knobs[pair.slice(0, i)] = pair.slice(i + 1);
+    }
+    if (q.has("frame")) state.frames = q.getAll("frame").map(decodeDesign);
+    else if (q.has("ref")) {
+      const refs = words(q.get("ref").replace(/,/g, " ")).filter((r) => r !== "none");
+      state.frames = [...refs.map((r) => tokenDesign(r, own)).filter(Boolean), own];
+    } else state.frames = tagFrames(own);
+    const n = state.frames.length;
+    const index = (key) => {
+      const i = Number(q.get(key)) - 1;
+      return q.has(key) && Number.isInteger(i) && i >= 0 && i < n ? i : null;
+    };
+    state.sel = index("sel") ?? n - 1;
+    state.prev = index("prev");
+    if (state.prev === state.sel) state.prev = null;
+    state.tabs = q.get("tabs") === "1";
+    // The path names the selected frame's variant.
+    if (variant) state.frames[state.sel].picks[state.section] = variant;
+    loadSel();
     state.states = {};
     for (const [k, v] of q) if (!KIT_KEYS.includes(k)) state.states[k] = v;
     state.data = q.get("data") || defaultData;
-    state.base = q.get("base") === "1";
     state.notes = q.get("notes") !== "off";
-    state.knobs = {};
-    for (const pair of (q.get("knobs") || "").split(",")) {
-      const i = pair.indexOf(":");
-      if (i > 0) state.knobs[pair.slice(0, i)] = pair.slice(i + 1);
-    }
   }
   function writeHash() {
     const q = new URLSearchParams();
@@ -356,25 +469,28 @@
     for (const [axis, values] of sec.axes) if (state.states[axis] && state.states[axis] !== values[0]) q.set(axis, state.states[axis]);
     if (html.dataset.canvas) q.set("canvas", html.dataset.canvas);
     if (state.data !== defaultData) q.set("data", state.data);
-    if (state.base) q.set("base", "1");
     if (hasNotes && !state.notes) q.set("notes", "off");
-    if (compareOn && state.refs.join(",") !== defaultRefs.join(",")) q.set("ref", state.refs.join(",") || "none");
-    // Declared knobs are written only when they differ from their default;
-    // a mock's own (undeclared) knobs are written as they are.
-    const declared = new Map(knobDefs.map((k) => [k.key, k]));
-    const knobs = Object.entries(state.knobs).flatMap(([key, v]) => {
-      const k = declared.get(key);
-      if (k) return v === k.value ? [] : [[key, knobText(k, v)]];
-      return v != null && v !== "" ? [[key, v]] : [];
-    });
-    if (knobs.length) q.set("knobs", knobs.map(([k, v]) => k + ":" + v).join(","));
-    const picks = sections
-      .filter((s) => s.id !== state.section && state.picks[s.id] && state.picks[s.id] !== s.variants[0]?.id)
-      .map((s) => s.id + "." + state.picks[s.id]);
-    if (picks.length) q.set("picks", picks.join(","));
+    const frames = state.frames.map(encodeDesign);
+    if (frames.length === 1 && !frameTags.toks.length) {
+      // One frame, as the mock opens: the classic keys.
+      const d = state.frames[0];
+      if (d.base) q.set("base", "1");
+      const knobs = knobTokens(d.knobs);
+      if (knobs.length) q.set("knobs", knobs.join(","));
+      const picks = sections.filter((s) => s.id !== state.section && s.variants.length && d.picks[s.id] !== s.variants[0].id).map((s) => s.id + "." + d.picks[s.id]);
+      if (picks.length) q.set("picks", picks.join(","));
+    } else {
+      // Every frame's design, unless they are the ones the mock opens with.
+      const opening = tagFrames({ picks: {}, knobs: {}, base: false }).map((d) => encodeDesign(normDesign(d)));
+      if (frames.join("\n") !== opening.join("\n")) frames.forEach((f) => q.append("frame", f));
+      if (state.sel !== frames.length - 1) q.set("sel", String(state.sel + 1));
+      if (state.prev != null) q.set("prev", String(state.prev + 1));
+      if (state.tabs) q.set("tabs", "1");
+    }
     if (state.shell !== defaultShell) q.set("shell", state.shell);
     const path = state.section + (state.variant ? "/" + state.variant : "");
-    const qs = q.toString();
+    // ":" and "," are fine in a hash; leaving them readable keeps links legible.
+    const qs = q.toString().replace(/%3A/gi, ":").replace(/%2C/gi, ",");
     history.replaceState(null, "", "#" + path + (qs ? "?" + qs : ""));
   }
   const current = () => sections.find((s) => s.id === state.section);
@@ -392,74 +508,124 @@
   }
 
   // ---------------------------------------------------------------- frames
-  // One frame per compared design. The candidate follows the design controls;
-  // each reference frame shows Base, a preset or a variant beside it, in the
-  // same situation. The candidate comes first in the DOM (so scripts that
-  // query ".mock-frame" or an id get it) and last on screen, next to the
-  // controls.
-  function makeFrame(role, nodes) {
+  // One frame per design being compared, all in one situation. Frames are
+  // equal: each holds its own design; the selected one follows the design
+  // controls. Frame elements are pooled by position: frame 1 is the page's own
+  // markup (so scripts that query ".mock-frame" or an id reach it), the
+  // others are clones of the untouched markup, made when a frame is added and
+  // removed from the DOM when the frame count drops.
+  function makeFrame(nodes, i) {
     const el = h("div", "mock-frame");
-    el.dataset.frame = role;
+    el.dataset.frame = String(i + 1);
     el.append(...nodes);
     const clip = h("div", "kit-frame-clip");
     clip.append(el);
-    // The frame's design name; its line is kept whenever the mock offers
-    // references, so adding one never moves the frames.
-    const name = h("div", "kit-frame-name");
+    // The frame's title: number, design name, × (on hover). It sits in the
+    // frame's head line (side by side) or in the tab strip (tabbed).
+    const title = h("button", "kit-frame-title");
+    const name = h("span", "kit-frame-name");
+    const x = h("span", "kit-frame-x", "×");
+    x.title = "Remove this frame";
+    title.append(h("b", null, String(i + 1)), name, x);
+    title.onclick = (e) => (e.target === x ? removeFrame(i) : selectFrame(i));
+    const head = h("div", "kit-frame-head");
     const holder = h("div", "kit-frame-holder");
-    holder.dataset.role = role;
-    holder.append(name, clip);
+    holder.append(head, clip);
     const secs = Object.fromEntries(nodes.map((n) => [n.dataset.section, n]));
-    return { role, el, clip, holder, name, secs, data: null, design: null, rect: null };
+    const f = { index: i, el, clip, holder, head, title, name, secs, data: null, design: null, rect: null };
+    el.addEventListener("scroll", () => f === selFrame() && (notesFrame ||= requestAnimationFrame(renderNotes)), true);
+    return f;
   }
-  const cand = makeFrame("candidate", sectionEls);
-  cand.holder.style.order = "1000";
-  const refFrames = [];
-  let shownFrames = [cand];
+  const pool = [makeFrame(sectionEls, 0)];
+  let shownFrames = [pool[0]];
   const listeners = [];
   const frameListeners = [];
+  const selFrame = () => shownFrames.find((f) => f.index === state.sel) || pool[0];
 
   function prepareFrame(f) {
     renderIcons(f.el);
     f.el.querySelectorAll("[data-cycle]").forEach((b) => enhanceCycle(b));
     wire(f.el);
   }
-  function refFrame(i) {
-    while (refFrames.length <= i) {
-      const f = makeFrame("reference", pristine.map((n) => n.cloneNode(true)));
-      f.holder.style.order = String(refFrames.length);
-      row.append(f.holder);
+  function frameAt(i) {
+    while (pool.length <= i) {
+      const f = makeFrame(pristine.map((n) => n.cloneNode(true)), pool.length);
+      notesCol.before(f.holder);
       prepareFrame(f);
-      refFrames.push(f);
+      pool.push(f);
     }
-    return refFrames[i];
+    return pool[i];
+  }
+  // A removed frame leaves the DOM (holder and title), not just the screen.
+  function dropFrames(count) {
+    while (pool.length > count) {
+      const f = pool.pop();
+      f.holder.remove();
+      f.title.remove();
+    }
   }
   const variantName = (v) => (v.label ? `${v.id} · ${v.label}` : v.id);
-  // A frame's design. null = the candidate (follows the controls).
-  function designFor(ref, sec) {
-    const own = { ref: null, base: state.base, variant: state.variant, picks: { ...state.picks }, knobs: state.knobs, label: "" };
-    if (!ref) return own;
-    if (ref === "base") return { ...own, ref, base: true, label: "Base · plain Paseo" };
-    const p = presets.find((x) => x.id === ref);
-    if (p) {
-      const variant = p.variant && sec.variants.some((v) => v.id === p.variant) ? p.variant : own.variant;
-      return { ref, base: false, variant, picks: { ...own.picks, ...p.picks, [sec.id]: variant }, knobs: presetKnobs(p), label: p.label };
-    }
-    const v = sec.variants.find((x) => x.id === ref);
-    if (v) return { ...own, ref, base: false, variant: v.id, picks: { ...own.picks, [sec.id]: v.id }, label: variantName(v) };
-    return null;
-  }
-  function compareOptions(sec) {
-    return ["", ...(hasDelta ? ["base"] : []), ...presets.map((p) => p.id), ...sec.variants.map((v) => v.id)];
-  }
-  const compareLabel = (sec, r) => (r ? `Beside: ${designFor(r, sec)?.label || r}` : "Nothing beside");
-  function candidateName() {
-    if (state.base) return "Base · plain Paseo";
+  // A design's name: Base, or its variant and matching preset. Edited away
+  // from every preset: the nearest one and how many knobs differ
+  // ("Pinpoints · 2 changes"), or "Own values" without presets.
+  function designName(d, sec) {
+    if (d.base) return "Base · plain Paseo";
     const parts = [];
-    const v = current().variants.find((x) => x.id === state.variant);
+    const v = sec.variants.find((x) => x.id === d.picks[sec.id]);
     if (v) parts.push(variantName(v));
-    if (knobDefs.length) parts.push(presets.find(presetMatches)?.label || "Own values");
-    return parts.join(" · ") || "Candidate";
+    if (knobDefs.length) {
+      let near = null;
+      for (const p of presets) {
+        if (p.variant && p.variant !== d.picks[sec.id]) continue;
+        const mine = presetKnobs(p, d.knobs);
+        const n = knobDefs.filter((k) => mine[k.key] !== d.knobs[k.key]).length;
+        if (!near || n < near.n) near = { p, n };
+      }
+      parts.push(!near ? "Own values" : near.n ? `${near.p.label} · ${near.n} change${near.n > 1 ? "s" : ""}` : near.p.label);
+    }
+    return parts.join(" · ") || "Design";
+  }
+
+  // View controls on the frames: click a title to select its frame; click the
+  // selected title to go back to the frame selected before (history of one,
+  // so clicking one title over and over flips between two frames).
+  function selectFrame(i) {
+    const n = state.frames.length;
+    if (i === state.sel) {
+      if (n < 2) return;
+      i = state.prev ?? (state.sel > 0 ? state.sel - 1 : 1);
+    }
+    state.frames[state.sel] = designOf();
+    state.prev = state.sel;
+    state.sel = i;
+    loadSel();
+    apply();
+  }
+  // "+": a copy of the selected frame, added last and selected.
+  function addFrame() {
+    state.frames[state.sel] = designOf();
+    state.frames.push(designOf());
+    state.prev = state.sel;
+    state.sel = state.frames.length - 1;
+    loadSel();
+    apply();
+  }
+  // "×": never the last frame. Removing the selected one selects the previous
+  // selection (or its neighbour).
+  function removeFrame(i) {
+    if (state.frames.length < 2) return;
+    state.frames[state.sel] = designOf();
+    state.frames.splice(i, 1);
+    const shift = (j) => (j == null || j === i ? null : j > i ? j - 1 : j);
+    if (i === state.sel) {
+      state.sel = shift(state.prev) ?? Math.max(0, i - 1);
+      state.prev = null;
+    } else {
+      state.sel = shift(state.sel);
+      state.prev = shift(state.prev);
+    }
+    loadSel();
+    apply();
   }
 
   // Engine pass on one frame: hide what its design and the situation exclude.
@@ -479,7 +645,6 @@
       else fr.setAttribute("data-v-" + s.id, d.picks[s.id] || s.variants[0].id);
     }
     fr.classList.toggle("kit-base", d.base);
-    if (d.ref) fr.dataset.ref = d.ref;
     for (const k of Object.keys(fr.dataset)) if (k.startsWith("state")) delete fr.dataset[k];
     for (const [axis] of sec.axes) fr.setAttribute("data-state-" + axis, state.states[axis]);
     // Knobs on the frame: data-knob-<key> for CSS selectors, plus the custom
@@ -523,9 +688,9 @@
   // Public view of a frame, for scripts that render into every frame.
   const frameView = (f) => ({
     el: f.el,
-    role: f.role,
-    ref: f.design.ref,
-    label: f.role === "candidate" ? candidateName() : f.design.label,
+    index: f.index,
+    selected: f.index === state.sel,
+    label: f.design.label,
     base: f.design.base,
     variant: f.design.variant,
     picks: f.design.picks,
@@ -551,19 +716,29 @@
     state.scale = String(state.scale);
     if (!SHELLS.includes(state.shell)) state.shell = defaultShell;
     for (const k of knobDefs) state.knobs[k.key] = coerce(k, state.knobs[k.key]);
-    state.refs = compareOn && !exportMode ? state.refs.filter((r) => compareOptions(sec).includes(r) && r) : [];
+    // The design controls edited the selected frame's design; store it.
+    if (!state.frames.length) state.frames = [designOf()];
+    state.sel = Math.min(Math.max(0, state.sel | 0), state.frames.length - 1);
+    state.frames[state.sel] = designOf();
+    state.frames = state.frames.map(normDesign);
+    if (state.prev != null && !(state.prev >= 0 && state.prev < state.frames.length && state.prev !== state.sel)) state.prev = null;
+    if (state.frames.length < 2) state.tabs = false;
 
     html.dataset.theme = state.theme; // lets kit-styled controls outside the frame pick up tokens if wanted
     html.classList.toggle("kit-base-on", state.base);
-    shownFrames = [...state.refs.map((_, i) => refFrame(i)), cand];
-    refFrames.forEach((f, i) => (f.holder.hidden = i >= state.refs.length));
+    // PNG export renders the selected frame alone, in frame 1's element.
+    const shown = exportMode ? [state.sel] : state.frames.map((_, i) => i);
+    shownFrames = shown.map((index, i) => Object.assign(frameAt(i), { index }));
+    dropFrames(shownFrames.length);
     for (const f of shownFrames) {
       renderData(f);
-      const reach = applyFrame(f, designFor(f === cand ? null : state.refs[refFrames.indexOf(f)], sec), sec);
-      if (f === cand) shownAxes = reach;
+      const d = state.frames[f.index];
+      const reach = applyFrame(f, { ...d, variant: d.picks[sec.id] || null, label: designName(d, sec) }, sec);
+      if (f.index === state.sel) shownAxes = reach;
     }
     if (!exportMode) {
       mountShell();
+      mountFrames();
       writeHash();
       renderBars();
     }
@@ -578,27 +753,58 @@
   // ---------------------------------------------------------------- layout
   // The stage fills the window beside the shell sidebar (or under the shell
   // bars, which float over it) and scrolls when the frames are bigger. One
-  // situation line (region, size, scale) sits over the row of frames, since
-  // they all share the situation.
+  // situation line (region, size, scale) sits over the frames, since they all
+  // share the situation; under it, each frame's title over its frame (side by
+  // side), or every title in one tab strip over the selected frame (tabbed).
   const stage = h("div", "kit-stage");
   const content = h("div", "kit-stage-content");
   const situationLabel = h("div", "kit-frame-label");
+  const tabStrip = h("div", "kit-tabs");
   const row = h("div", "kit-frames");
-  content.append(situationLabel, row);
+  content.append(situationLabel, tabStrip, row);
   stage.append(content);
   row.style.gap = FRAME_GAP + "px";
-  row.append(cand.holder);
-  // Review notes: numbered markers over the candidate, the notes column beside it.
+  row.append(pool[0].holder);
+  // After the last title: "+" (a copy of the selected frame) and, with two or
+  // more frames, the side by side ↔ tabbed switch.
+  const frameTools = h("span", "kit-frame-tools");
+  const addBtn = h("button", "kit-frame-add", "+");
+  addBtn.title = "Add a frame: a copy of the selected one";
+  addBtn.onclick = addFrame;
+  const tabsBtn = h("button", "kit-frame-tabs", "Tabs");
+  tabsBtn.title = "Show one frame at a time; the titles become tabs";
+  tabsBtn.onclick = () => set({ tabs: !state.tabs });
+  frameTools.append(addBtn, tabsBtn);
+  // Review notes: numbered markers over the selected frame, the notes column beside the frames.
   const noteLayer = h("div", "kit-note-layer");
-  cand.el.append(noteLayer);
   const notesCol = h("div", "kit-notes");
-  cand.holder.append(notesCol);
+  row.append(notesCol);
   let notesFrame = 0;
-  cand.el.addEventListener("scroll", () => (notesFrame ||= requestAnimationFrame(renderNotes)), true);
+
+  // Titles into the frames' head lines or the tab strip; the selected frame marked.
+  function mountFrames() {
+    const n = state.frames.length;
+    const tabbed = state.tabs && n > 1;
+    row.classList.toggle("kit-tabbed", tabbed);
+    row.classList.toggle("kit-untitled", !hasDelta);
+    tabStrip.hidden = !tabbed || !hasDelta;
+    for (const f of shownFrames) {
+      const on = f.index === state.sel;
+      f.holder.classList.toggle("kit-selected", on && n > 1);
+      f.title.classList.toggle("kit-on", on);
+      f.title.classList.toggle("kit-solo", n < 2);
+      f.name.textContent = f.design.label;
+      f.title.title = n < 2 ? f.design.label : on ? `${f.design.label}: selected; the design controls change this frame. Click again: back to the frame before` : `${f.design.label}: click to select`;
+      (tabbed ? tabStrip : f.head).append(f.title);
+    }
+    (tabbed ? tabStrip : shownFrames[shownFrames.length - 1].head).append(frameTools);
+    tabsBtn.hidden = n < 2;
+    tabsBtn.classList.toggle("kit-on", tabbed);
+  }
 
   // Hidden by a scrolled-away ancestor (chat, sidebar list)?
-  function clipped(n, r) {
-    for (let p = n.parentElement; p && p !== cand.el; p = p.parentElement) {
+  function clipped(n, r, el) {
+    for (let p = n.parentElement; p && p !== el; p = p.parentElement) {
       if (getComputedStyle(p).overflow === "visible") continue;
       const q = p.getBoundingClientRect();
       if (r.bottom <= q.top || r.top >= q.bottom || r.right <= q.left || r.left >= q.right) return true;
@@ -609,18 +815,20 @@
     notesFrame = 0;
     const sec = current();
     const on = hasNotes && state.notes && !exportMode;
-    cand.el.classList.toggle("kit-notes-on", on);
+    const f = selFrame();
+    for (const p of pool) p.el.classList.toggle("kit-notes-on", on && p === f);
+    if (noteLayer.parentNode !== f.el) f.el.append(noteLayer);
     noteLayer.replaceChildren();
     notesCol.style.visibility = on && sec.notes ? "" : "hidden";
     if (!on) return;
-    const fr = cand.el.getBoundingClientRect();
-    const s = fr.width / cand.el.offsetWidth || 1;
-    const reg = cand.rect || { x: 0, y: 0, w: Infinity, h: Infinity };
+    const fr = f.el.getBoundingClientRect();
+    const s = fr.width / f.el.offsetWidth || 1;
+    const reg = f.rect || { x: 0, y: 0, w: Infinity, h: Infinity };
     const shown = new Set();
-    for (const n of sec.el.querySelectorAll("[data-note]")) {
+    for (const n of f.secs[sec.id].querySelectorAll("[data-note]")) {
       if (n.closest(".kit-off") || !n.getClientRects().length) continue;
       const r = n.getBoundingClientRect();
-      if (clipped(n, r)) continue;
+      if (clipped(n, r, f.el)) continue;
       const x = (r.left - fr.left) / s;
       const y = (r.top - fr.top) / s;
       // Outside the region the frame shows: not on screen.
@@ -653,23 +861,24 @@
     const r = n.getBoundingClientRect();
     return { x: Math.round((r.left - fr.left) / s), y: Math.round((r.top - fr.top) / s), w: Math.round(r.width / s), h: Math.round(r.height / s), missing: false };
   }
-  function place(f, r, s) {
+  // box: the clip's size (tabbed frames share the largest, so flipping never resizes).
+  function place(f, r, s, box = r) {
     f.rect = r;
     f.el.style.transform = `translate(${-r.x * s}px, ${-r.y * s}px) scale(${s})`;
-    f.clip.style.width = r.w * s + "px";
-    f.clip.style.height = r.h * s + "px";
+    f.clip.style.width = box.w * s + "px";
+    f.clip.style.height = box.h * s + "px";
     f.clip.classList.toggle("kit-phone", state.vp === "phone" && (state.region === "screen" || r.missing));
   }
 
   function layout() {
-    if (!cand.design) return; // before the first apply()
+    if (!pool[0].design) return; // before the first apply()
     const vp = VIEWPORTS[state.vp];
     for (const f of shownFrames) {
       f.el.style.width = vp.w + "px";
       f.el.style.height = vp.h + "px";
     }
     if (exportMode) {
-      place(cand, regionRect(cand, vp), 1);
+      place(pool[0], regionRect(pool[0], vp), 1);
       return;
     }
     const side = state.shell === "sidebar";
@@ -686,28 +895,34 @@
       // bar 1 = sections (identical everywhere), bar 2 = this section's variants
       // (its slot is kept, empty, on sections without variants), then the
       // caption line when any section has notes, then the knob bar.
-      // Base / Notes / Sidebar sit in the top-right corner. When the window is
-      // too narrow for both, the top stack centres in the space left of them.
-      // Only the first top bar shares their row, and it is the same on every section.
-      const firstBar = !designBar.hidden ? designBar : !variantBar.hidden ? variantBar : null;
-      if (!reviewBar.hidden && firstBar) {
-        const rv = reviewBar.getBoundingClientRect();
-        if (firstBar.getBoundingClientRect().right > rv.left - 12) {
+      // The view bar (Base / Notes / Sidebar) sits in the top-right corner, on
+      // the first bar's row. When the window is too narrow for both, the top
+      // stack centres in the space left of it; only when even that overlaps
+      // does the stack start under the view bar.
+      const firstBar = [designBar, variantBar, knobBar].find((b) => !b.hidden);
+      let y = 14;
+      if (firstBar && !viewBar.hidden) {
+        const rv = viewBar.getBoundingClientRect();
+        firstBar.style.top = y + "px";
+        const clash = () => firstBar.getBoundingClientRect().right > rv.left - 12 || firstBar.scrollWidth > firstBar.clientWidth + 1;
+        if (clash()) {
           const right = window.innerWidth - rv.left + 12;
           for (const b of topStack) {
             b.style.right = right + "px";
             b.style.maxWidth = `calc(100vw - ${right + 16}px)`;
           }
+          if (clash()) {
+            for (const b of topStack) b.style.right = b.style.maxWidth = "";
+            y = rv.bottom + 8;
+          }
         }
       }
-      let y = 14;
       let slotH = 0;
       if (!designBar.hidden) {
+        designBar.style.top = y + "px";
         const r = designBar.getBoundingClientRect();
         slotH = r.height;
         y = r.bottom + 8;
-      } else if (!reviewBar.hidden) {
-        y = reviewBar.getBoundingClientRect().bottom + 8;
       }
       if (!variantBar.hidden) {
         variantBar.style.top = y + "px";
@@ -730,26 +945,25 @@
     const notesW = Math.round(Math.min(300, Math.max(200, window.innerWidth * 0.2)));
     const reserve = hasNotes && state.notes ? notesW + 24 : 0;
     content.style.padding = `${padTop}px ${24 + reserve}px ${padBottom}px 24px`;
-    const availW = stage.clientWidth - 48 - reserve - FRAME_GAP * (shownFrames.length - 1);
-    // Room above the frames: the situation line, plus the frame-name line when shown.
-    const labelsH = 22 + (compareOn ? 22 : 0);
+    // Tabbed: every frame in one spot, each clip as big as the largest, so
+    // flipping between them never moves or resizes anything.
+    const tabbed = row.classList.contains("kit-tabbed");
+    const across = tabbed ? 1 : shownFrames.length;
+    const availW = stage.clientWidth - 48 - reserve - FRAME_GAP * (across - 1);
+    // Room above the frames: the situation line, plus the title line when shown.
+    const labelsH = 22 + (hasDelta ? 24 : 0);
     const availH = stage.clientHeight - padTop - padBottom - labelsH;
     const rects = shownFrames.map((f) => regionRect(f, vp));
-    const sumW = rects.reduce((a, r) => a + r.w, 0);
-    const maxH = Math.max(...rects.map((r) => r.h));
-    const s = state.scale === "fit" ? Math.max(0.05, Math.min(1, availW / sumW, availH / maxH)) : Number(state.scale);
-    shownFrames.forEach((f, i) => place(f, rects[i], s));
+    const box = { w: Math.max(...rects.map((r) => r.w)), h: Math.max(...rects.map((r) => r.h)) };
+    const needW = tabbed ? box.w : rects.reduce((a, r) => a + r.w, 0);
+    const s = state.scale === "fit" ? Math.max(0.05, Math.min(1, availW / needW, availH / box.h)) : Number(state.scale);
+    shownFrames.forEach((f, i) => place(f, rects[i], s, tabbed ? box : rects[i]));
     notesCol.style.width = notesW + "px";
     notesCol.style.maxHeight = Math.max(160, availH) + "px";
-    const r = cand.rect;
+    const r = selFrame().rect;
     const scaleText = state.scale === "fit" ? (s < 1 ? ` · ${Math.round(s * 100)}%` : "") : ` · ${SCALE_LABELS[state.scale] || state.scale + "×"}`;
     const where = state.region === "screen" ? `${vp.label} · ${vp.w}×${vp.h}` : r.missing ? `${regionLabels.get(state.region)} not shown · ${vp.label} · ${vp.w}×${vp.h}` : `${regionLabels.get(state.region)} · ${r.w}×${r.h}`;
     situationLabel.textContent = where + scaleText;
-    for (const f of shownFrames) {
-      f.name.hidden = !compareOn;
-      f.name.textContent = f === cand ? candidateName() : f.design.label;
-      f.name.title = f === cand ? "Candidate: follows the design controls" : "Reference: " + f.design.label;
-    }
     renderNotes();
     if (!pop.hidden) placePop();
   }
@@ -761,16 +975,17 @@
   const designBar = h("div", "kit-bar kit-design");
   // Second top bar: controls that exist only for the current section (its variants).
   const variantBar = h("div", "kit-bar kit-design kit-design-2");
-  // Third top bar: references, presets, knobs, Copy values, and any
+  // Third top bar: presets, knobs, Copy values, and any
   // MockKit.addDesignControl nodes: fine-tuning within the chosen design.
-  // Knob values live in the hash as knobs=key:value,...
+  // Knob values live in the hash (knobs=key:value,… or in each frame=…).
   const knobBar = h("div", "kit-bar kit-design kit-design-3");
   // Variant note: a quiet line under the design bar, outside it, so the bar
   // keeps one width whatever variant is shown.
   const caption = h("div", "kit-caption");
   const situationBar = h("div", "kit-bar kit-situation");
-  // Top-right corner: Base (plain Paseo), Notes, and the shell layout switch.
-  const reviewBar = h("div", "kit-bar kit-review");
+  // The view bar, top-right corner: Base (the selected frame as plain Paseo),
+  // Notes, and the shell layout switch. How you look, never what is decided.
+  const viewBar = h("div", "kit-bar kit-review");
   const sidebar = h("aside", "kit-sidebar");
   const sbHead = h("div", "kit-sb-head");
   const sbDesign = h("div", "kit-sb-group kit-sb-design");
@@ -785,13 +1000,12 @@
   let popAnchor = null;
 
   // knobBar's parts, built once so a dragged slider is never replaced mid-drag.
-  const compareSlot = h("div", "kit-compare");
   const presetsEl = h("div", "kit-presets");
   const knobsEl = h("div", "kit-knobs");
   const extrasEl = h("div", "kit-extras");
   const copyBtn = h("button", "kit-cycle-btn kit-copy-btn", "Copy values");
   copyBtn.title = "Copy the design's values (JSON + CSS)";
-  knobBar.append(compareSlot, presetsEl, knobsEl, extrasEl, copyBtn);
+  knobBar.append(presetsEl, knobsEl, extrasEl, copyBtn);
 
   function openPop(anchor, content) {
     popAnchor?.classList.remove("kit-on");
@@ -955,7 +1169,7 @@
     const out = {};
     if (sections.length > 1) out.section = state.section;
     if (state.variant) out.variant = state.variant;
-    const p = presets.find(presetMatches);
+    const p = presets.find((x) => presetMatches(x));
     if (p) out.preset = p.id;
     out.knobs = Object.fromEntries(knobDefs.map((k) => [k.key, state.knobs[k.key]]));
     let text = JSON.stringify(out, null, 2);
@@ -991,11 +1205,11 @@
     html.classList.toggle("kit-shell-sidebar", side);
     stage.style.right = side ? "var(--kit-sidebar-w)" : "0";
     if (side) {
-      sbHead.append(reviewBar);
+      sbHead.append(viewBar);
       sbDesign.append(designBar, variantBar, caption, knobBar);
       sbSituation.append(situationBar);
     } else {
-      stage.after(designBar, variantBar, knobBar, caption, situationBar, reviewBar);
+      stage.after(designBar, variantBar, knobBar, caption, situationBar, viewBar);
     }
     sidebar.hidden = !side;
     knobsEl.replaceChildren(...knobGroups.flatMap((g) => (side ? [g.head, g.body] : [g.button])));
@@ -1009,8 +1223,8 @@
     }
     designBar.hidden = !designBar.childElementCount;
 
-    // Base / Notes / Sidebar: in-place toggles, the same spot flips back.
-    reviewBar.replaceChildren();
+    // View bar: Base / Notes / Sidebar, in-place toggles, the same spot flips back.
+    viewBar.replaceChildren();
     const toggle = (label, key, on, title, onClick) => {
       const b = h("button", "kit-seg-btn kit-toggle" + (on ? " kit-on" : ""));
       b.append(h("span", null, label), h("kbd", null, key));
@@ -1018,16 +1232,16 @@
       b.onclick = onClick;
       return b;
     };
-    if (hasDelta) reviewBar.append(toggle("Base", "b", state.base, "Plain Paseo, without this mock's changes (b)", () => set({ base: !state.base })));
+    if (hasDelta) viewBar.append(toggle("Base", "b", state.base, "The selected frame as plain Paseo, without this mock's changes (b)", () => set({ base: !state.base })));
     if (hasNotes) {
       const b = toggle("Notes", "n", state.notes, "What the design changes, how and why (n)", () => set({ notes: !state.notes }));
       b.disabled = !sec.notes && !sec.el.querySelector("[data-note]");
-      reviewBar.append(b);
+      viewBar.append(b);
     }
     const side = state.shell === "sidebar";
     const shellBtn = toggle("Sidebar", "s", side, side ? "Controls in bars above and below the frames (s)" : "Controls in a sidebar beside the frames (s)", () => set({ shell: side ? "bars" : "sidebar" }));
     shellBtn.classList.add("kit-shell-toggle");
-    reviewBar.append(shellBtn);
+    viewBar.append(shellBtn);
 
     // Variants: a row of buttons (an important choice, like sections);
     // data-variants-as="cycle" on the section asks for a cycle button instead.
@@ -1046,23 +1260,13 @@
     caption.hidden = !sections.some((s) => s.variants.some((v) => v.note));
     caption.textContent = sec.variants.find((v) => v.id === state.variant)?.note || "";
 
-    // Knob bar: what sits beside the candidate, presets, knob groups, the
-    // mock's own design controls, Copy values.
-    compareSlot.replaceChildren();
-    if (compareOn) {
-      const opts = compareOptions(sec);
-      const labels = Object.fromEntries(opts.map((r) => [r, compareLabel(sec, r)]));
-      const sizers = sections.flatMap((s) => s.variants.map((v) => `Beside: ${variantName(v)}`));
-      compareSlot.append(cycleControl(opts, state.refs[0] || "", labels, (r) => set({ refs: r ? [r] : [] }), sizers));
-      compareSlot.firstChild.title = "A reference frame beside the candidate, in the same situation (c)";
-    }
-    compareSlot.hidden = !compareOn;
+    // Knob bar: presets, knob groups, the mock's own design controls, Copy values.
     presetsEl.hidden = !presets.length;
     knobsEl.hidden = !knobGroups.length;
     extrasEl.hidden = !knobControls.length;
     copyBtn.hidden = !knobDefs.length;
     syncKnobs();
-    knobBar.hidden = !(compareOn || presets.length || knobGroups.length || knobControls.length);
+    knobBar.hidden = !(presets.length || knobGroups.length || knobControls.length);
 
     // Every value names itself: "Pure black", "Phone", "normal session",
     // "closed panel". No separate labels in the bar.
@@ -1117,10 +1321,8 @@
     else if (e.key === "d" && dataSets.live) set({ data: state.data === "live" ? "acme" : "live" });
     else if (e.key === "b" && hasDelta) set({ base: !state.base });
     else if (e.key === "n" && hasNotes) set({ notes: !state.notes });
-    else if (e.key === "c" && compareOn) {
-      const r = step(compareOptions(sec), state.refs[0] || "", back);
-      set({ refs: r ? [r] : [] });
-    } else if (e.key === "s") set({ shell: state.shell === "sidebar" ? "bars" : "sidebar" });
+    else if (e.key === "c" && state.frames.length > 1) selectFrame(state.sel);
+    else if (e.key === "s") set({ shell: state.shell === "sidebar" ? "bars" : "sidebar" });
     else if (e.key === "Escape" && !pop.hidden) closePop();
     else return;
     e.preventDefault();
@@ -1215,14 +1417,14 @@
 
   // ---------------------------------------------------------------- boot
   html.classList.add(exportMode ? "kit-export" : "kit");
-  readHash();
   if (exportMode) {
-    document.body.replaceChildren(cand.clip);
+    document.body.replaceChildren(pool[0].clip);
   } else {
-    document.body.replaceChildren(stage, designBar, variantBar, knobBar, caption, situationBar, reviewBar, sidebar, pop);
+    document.body.replaceChildren(stage, designBar, variantBar, knobBar, caption, situationBar, viewBar, sidebar, pop);
     window.addEventListener("resize", layout);
     window.addEventListener("keydown", onKey);
     window.addEventListener("hashchange", () => {
+      if (!window.MockKit) return; // before boot: the boot reads the hash itself
       readHash();
       apply();
     });
@@ -1233,7 +1435,8 @@
       dataSets = sets;
       readDesign();
       buildKnobs();
-      prepareFrame(cand);
+      readHash(); // after readDesign: frames in the hash name presets and knobs
+      prepareFrame(pool[0]);
       apply();
       window.MockKit = {
         state,
@@ -1242,8 +1445,8 @@
         regions: Object.fromEntries(regions.map((r) => [r, regionLabels.get(r)])),
         knobs: knobDefs,
         presets,
-        // The frames on screen, references first and the candidate last:
-        // { el, role, ref, label, base, variant, picks, knobs }
+        // Every frame on screen, in order (PNG export: the selected one alone):
+        // { el, index, selected, label, base, variant, picks, knobs }
         get frames() {
           return shownFrames.map(frameView);
         },

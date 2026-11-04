@@ -46,6 +46,7 @@ html.kit body {
   min-height: 100%;
 }
 .kit-frames {
+  position: relative; /* the notes column sits just right of the last frame */
   display: flex;
   align-items: flex-start;
 }
@@ -56,7 +57,8 @@ html.kit body {
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
-/* ---- frames: one per compared design; references left, the candidate right */
+/* ---- frames: one per compared design, all equal; the selected one follows
+ * the design controls. */
 .kit-frame-holder {
   position: relative;
   flex: none;
@@ -65,28 +67,85 @@ html.kit body {
   align-items: center;
   gap: 6px;
 }
-/* The frame's design name. Never sizes its frame (a long name ellipses), so a
- * changing name never moves anything. */
-.kit-frame-name {
+/* The frame's head line: its title (side by side). Never sizes its frame (a
+ * long title ellipses), so a changing name never moves anything. */
+.kit-frame-head,
+.kit-tabs {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
   width: 0;
   min-width: 100%;
+  height: 18px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: center;
+}
+.kit-tabs[hidden],
+.kit-frames.kit-untitled .kit-frame-head { display: none; }
+/* Tabbed: every frame in one grid cell, only the selected one visible. They
+ * all keep their layout, so flipping never moves or resizes anything; the
+ * tab strip takes the head line's place above them. */
+.kit-frames.kit-tabbed { display: grid; }
+.kit-frames.kit-tabbed > .kit-frame-holder { grid-area: 1 / 1; }
+.kit-frames.kit-tabbed > .kit-frame-holder:not(.kit-selected) { visibility: hidden; }
+.kit-frames.kit-tabbed .kit-frame-head { display: none; }
+/* A title: number, design name, × on hover. Click selects the frame; clicking
+ * the selected one goes back to the one selected before. */
+.kit-frame-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  height: 18px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--kit-dim);
   font: 11px/16px var(--kit-font);
   letter-spacing: 0.02em;
-  color: var(--kit-design);
+  white-space: nowrap;
+  cursor: pointer;
 }
-.kit-frame-name::before {
-  content: "Candidate · ";
+.kit-frame-title:hover { color: var(--kit-text); background: var(--kit-line); }
+.kit-frame-title > b { font-weight: 700; opacity: 0.7; }
+.kit-frame-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kit-frame-title.kit-on { color: var(--kit-design); }
+.kit-frame-title.kit-on:not(.kit-solo) { background: color-mix(in srgb, var(--kit-design) 16%, transparent); }
+/* One frame: its title is just its name, nothing to select or remove. */
+.kit-frame-title.kit-solo { cursor: default; }
+.kit-frame-title.kit-solo:hover { background: transparent; }
+.kit-frame-title.kit-solo > b,
+.kit-frame-title.kit-solo .kit-frame-x { display: none; }
+/* × keeps its room, shown on hover, so hovering never moves a title. */
+.kit-frame-x { width: 8px; visibility: hidden; color: var(--kit-dim); }
+.kit-frame-title:hover .kit-frame-x { visibility: visible; }
+.kit-frame-x:hover { color: var(--kit-text); }
+/* After the last title: + (copy the selected frame) and the Tabs switch. */
+.kit-frame-tools { display: inline-flex; gap: 2px; flex: none; }
+.kit-frame-tools > button {
+  height: 18px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
   color: var(--kit-dim);
+  font: 11px/16px var(--kit-font);
+  cursor: pointer;
 }
-.kit-frame-holder[data-role="reference"] .kit-frame-name {
-  color: color-mix(in srgb, var(--kit-design) 65%, var(--kit-text));
-}
-.kit-frame-holder[data-role="reference"] .kit-frame-name::before {
-  content: "Reference · ";
+.kit-frame-tools > button:hover { color: var(--kit-text); background: var(--kit-line); }
+.kit-frame-tools > button.kit-on { color: var(--kit-text); }
+.kit-frame-tools > button[hidden] { display: none; }
+/* The selected frame, with two or more: an amber ring (a shadow, no layout). */
+.kit-frame-holder.kit-selected > .kit-frame-clip {
+  box-shadow:
+    0 0 0 1.5px var(--kit-design),
+    0 24px 60px rgba(0, 0, 0, 0.45);
 }
 /* The clip shows the frame's region: the whole screen, or one part of it at
  * the same size it has inside the screen. */
@@ -298,10 +357,9 @@ html.kit-export .kit-frame-clip {
  * without variants it keeps its slot but shows nothing, so nothing below moves. */
 .kit-design-2 { top: 54px; }
 .kit-design-2.kit-vacant { visibility: hidden; }
-/* Third top bar: references, presets, knobs, Copy values, MockKit.addDesignControl
+/* Third top bar: presets, knobs, Copy values, MockKit.addDesignControl
  * nodes. Fine-tuning within the chosen design. */
 .kit-design-3 { top: 94px; }
-.kit-compare,
 .kit-presets,
 .kit-knobs,
 .kit-extras {
@@ -310,7 +368,7 @@ html.kit-export .kit-frame-clip {
   flex-wrap: wrap;
   gap: 6px 8px;
 }
-:is(.kit-compare, .kit-presets, .kit-knobs, .kit-extras, .kit-cycle-btn)[hidden] { display: none; }
+:is(.kit-presets, .kit-knobs, .kit-extras, .kit-cycle-btn)[hidden] { display: none; }
 .kit-sb-label {
   color: var(--kit-dim);
   font-size: 11px;
@@ -516,7 +574,6 @@ html.kit-export .kit-frame-clip {
 }
 .kit-sidebar .kit-design-3 > * { align-self: stretch; }
 .kit-sidebar .kit-design-3 > .kit-copy-btn { align-self: flex-start; }
-.kit-sidebar .kit-compare { align-self: flex-start; }
 .kit-sidebar .kit-knobs { display: block; }
 .kit-sidebar .kit-knobs[hidden] { display: none; }
 .kit-sidebar .kit-knob-group + .kit-knob-head { margin-top: 12px; }

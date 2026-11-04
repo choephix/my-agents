@@ -12,10 +12,22 @@ Mocks link `kit/` live, so every change here reaches every mock on reload.
   was missing and add that, usable by a mock about any other part of Paseo.
 - **The shell (`kit/dev.js`, `kit/dev.css`) has two layouts for one set of
   controls**, shell bars and shell sidebar. A new control is built once and
-  must work in both; design controls stay amber and above the violet
-  situation controls. Design state goes in the hash, never in localStorage.
-  Switching layouts, sections or references must not move anything inside a
-  frame. Words: `GLOSSARY.md`.
+  must work in both. Words: `GLOSSARY.md`.
+- **Three groups, never mixed.** Design (amber) is what is decided and acts
+  on the selected frame only: sections, variants, presets, knobs, Copy
+  values. Situation (violet) is where it is seen, shared by every frame:
+  theme, viewport, region, scale, data, app state. View (neutral: the view
+  bar in the top-right corner, and the frame titles) is how you are looking:
+  Notes, shell layout, which frames exist, which is selected, side by side
+  or tabbed; plus the Base toggle (the selected frame as plain Paseo). A new
+  control goes in exactly one group; design stays above situation.
+- **Every frame is equal.** Each holds its own design; nothing special-cases
+  "the first" or "the last" frame except that frame 1 is the page's own
+  markup. A removed frame leaves the DOM. Every frame's design, the
+  selection and the layout go in the hash, never in localStorage.
+- **Nothing inside a frame moves** when switching shell layouts, sections,
+  or the selected frame, nor when flipping tabs (tabbed frames share one
+  box).
 - **Nothing runs continuously in the shell.** No timers, observers or
   animation loops; the shell reacts to input, `resize` and `hashchange`.
 - **The backdrop lives in `kit/backdrop.css`**, so a page that skips the

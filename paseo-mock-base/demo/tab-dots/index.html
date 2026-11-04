@@ -9,10 +9,12 @@
   SCALE       data-scales="1 2 3" → 1:1, 2× and 3×, scrolling instead of shrinking
   KNOBS       window.MockDesign.knobs → controls in the shell, values in the hash
   PRESETS     window.MockDesign.presets → named bundles; "Today" is the baseline
-  REFERENCE   data-reference="today" → the Today frame left of the candidate
+  FRAMES      data-frames="today small pinpoints" → three frames, each its own
+              design; the last one (Pinpoints) opens selected. Click a title
+              to select, click it again to flip back; Tabs stacks them.
   SHELL       data-shell="sidebar" → the controls in the shell sidebar
 
-  Today's values come from tab-dots client/web.ts (CSS, PULSE_KEYFRAMES, MAX_DOTS).
+  Today's values come from noice-tab-dots client/web.ts (CSS, PULSE_KEYFRAMES, MAX_DOTS).
 -->
 <html lang="en" data-mock-data data-mock-title="Tab dots · look"
       data-themes="dark zinc midnight pureBlack light"
@@ -20,7 +22,7 @@
       data-regions="sidebar"
       data-scales="1 2 3"
       data-shell="sidebar"
-      data-reference="today"
+      data-frames="today small pinpoints"
       data-states="show: all=Every tab | unread=Unread tabs | running=Unread + running tabs; position: edge=Dots at the right edge | steady=Dots stay put | left=Dots after the title; time: replaced=Dots replace the time | kept=Time kept">
 <head>
 <meta charset="utf-8">
@@ -37,7 +39,7 @@
   .sb-ws:hover .time { display: none; }
 
   /* DEMO: the plugin's own settings are situation axes (data-state-<axis> on the
-     frame), so the reference and the candidate always share them. */
+     frame), so every frame always shares them. */
   [data-state-time="replaced"] .sb-ws.has-dots .time { display: none; }
   [data-state-time="replaced"][data-state-position="edge"] .sb-ws.has-dots:not(:hover) .td-end { display: none; }
   [data-state-position="left"] .sb-ws.has-dots .sb-ws-title { flex: 0 1 auto; }
@@ -86,7 +88,7 @@
   // control in the shell (bars or sidebar), a value in the hash, a custom
   // property on every frame (css) and a line in Copy values.
   const TODAY = {
-    readSize: 5, readOpacity: 0.35, readTint: "shade", readShade: 0, readHover: "x1.6", readLift: 0,
+    readSize: 5, readOpacity: 0.35, readShade: 0, readHover: "x1.6", readLift: 0,
     size: 5, opacity: 1, gap: 3, order: "tab",
     max: 5, more: "plus", moreSize: 11, moreOpacity: 0.7,
     animate: true, pulseRest: 0.3, pulseScale: 0.6, period: 1800, step: 200, runHover: "pulse",
@@ -99,10 +101,7 @@
       { heading: "Read dots (gray)" },
       { key: "readSize", label: "Size", type: "range", min: 0.5, max: 6, step: 0.25, unit: "px", value: start("readSize"), css: "--td-read-size" },
       { key: "readOpacity", label: "Opacity", type: "range", min: 0.02, max: 1, step: 0.01, value: start("readOpacity"), css: "--td-read-opacity" },
-      { key: "readTint", label: "Colour", options: { shade: "Title colour, shaded", custom: "Custom" }, value: start("readTint") },
-      { key: "readShade", label: "Shade", hint: "− toward extra muted · 0 the title colour · + toward the foreground", type: "range", min: -100, max: 100, step: 25, unit: "%", value: start("readShade"),
-        enabled: (k) => k.readTint === "shade" },
-      { key: "readColor", label: "Custom colour", type: "color", value: "#8a8a96", enabled: (k) => k.readTint === "custom" },
+      { key: "readShade", label: "Shade", hint: "− toward extra muted · 0 the title colour · + toward the foreground", type: "range", min: -100, max: 100, step: 25, unit: "%", value: start("readShade") },
       { key: "readHover", label: "On hover", options: { "x1.6": "×1.6 (today)", match: "Coloured hover size" }, value: start("readHover") },
       { key: "readLift", label: "Hover lift", hint: "Extra opacity on hover", type: "range", min: 0, max: 0.5, step: 0.01, value: start("readLift"), css: "--td-read-lift" },
       { heading: "Coloured dots" },
@@ -123,7 +122,7 @@
       { key: "period", label: "Beat", type: "range", min: 600, max: 4000, step: 100, unit: "ms", value: start("period"), css: "--td-period" },
       { key: "step", label: "Wave step", type: "range", min: 0, max: 600, step: 25, unit: "ms", value: start("step") },
     ],
-    // DEMO: "today" is the baseline: the shipped look, shown in the reference frame.
+    // DEMO: each preset can start a frame (data-frames); "today" is the shipped look.
     presets: [
       { id: "today", label: "Today · Regular", note: "The shipped look (5 px, up to 5 dots)", knobs: TODAY },
       { id: "small", label: "Today · Small", note: "The shipped Small size (4 px, up to 8 dots)", knobs: { ...TODAY, readSize: 4, size: 4, gap: 2, max: 8 } },
@@ -147,7 +146,7 @@
     <div class="sb-scroll">
       <div class="sb-section-header">Workspaces <button class="icon-btn"><i data-icon="settings-2" data-size="14"></i></button></div>
       <template data-each="projectGroups">
-        <div class="sb-project"><span class="proj-icon" data-attrs="style=projStyle" data-text="initial"></span><span data-text="name"></span></div>
+        <div class="sb-project"><span class="proj-icon" data-class="has-icon=projIcon" data-attrs="style=projStyle" data-text="initial"></span><span data-text="name"></span></div>
         <template data-each="items">
           <!-- DEMO: data-mod = this mock's change; Base (b) hides it. The script fills .td per frame. -->
           <div class="sb-ws" data-pick="ws" data-class="is-selected=selected" data-attrs="data-tabs=tabs"><span data-attrs="class=dotClass"></span><span class="sb-ws-title" data-text="title"></span><span class="td" data-mod></span><span class="td-end"><span class="sb-ws-meta time" data-text="meta"></span><button class="row-menu"><i data-icon="ellipsis" data-size="14"></i></button></span></div>
@@ -168,7 +167,7 @@
 </div>
 
 <script>
-  // ---------------------------------------------------------------- dots (tab-dots model.ts rowDots)
+  // ---------------------------------------------------------------- dots (noice-tab-dots model.ts rowDots)
   const WANTED = ["permission", "finished", "error"];
   const LABEL = { permission: "Waiting for permission", error: "Error", running: "Running", finished: "Finished · unread", read: "Read" };
   function parseTabs(s) {
@@ -193,14 +192,14 @@
     return n == 0 ? "currentColor" : `color-mix(in oklab, currentColor, var(${n < 0 ? "--c-foreground-extra-muted" : "--c-foreground"}) ${Math.abs(n)}%)`;
   }
 
-  // DEMO: MockKit.onFrame runs for every frame (reference and candidate) with
-  // that frame's own design; the situation (MockKit.state.states) is shared.
+  // DEMO: MockKit.onFrame runs for every frame with that frame's own design;
+  // the situation (MockKit.state.states) is shared.
   document.addEventListener("mockready", () => {
     MockKit.onFrame((f) => {
       const k = f.knobs;
       const show = MockKit.state.states.show;
       // Values CSS can't derive from the knobs' custom properties.
-      f.el.style.setProperty("--td-read-color", k.readTint === "custom" ? k.readColor : shade(k.readShade));
+      f.el.style.setProperty("--td-read-color", shade(k.readShade));
       f.el.style.setProperty("--td-read-hover", k.readHover === "match" ? String((1.6 * k.size) / k.readSize) : "1.6");
       for (const row of f.el.querySelectorAll(".sb-ws")) {
         const td = row.querySelector(".td");

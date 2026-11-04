@@ -3,14 +3,15 @@
   DEMO mock: shows the kit's mechanisms on a made-up "turn cost" plugin.
   It is a copy of ../starter/ with only the design delta added. Search for
   "DEMO:" comments to see each mechanism. Knobs, presets, a region at 1:1 and
-  a reference preset are in ./tab-dots/.
+  several frames are in ./tab-dots/.
 
   DESIGN      ← data-variants on the section + data-variant="B" on elements
-  REFERENCE   ← data-reference on <html>: Base or a variant beside the candidate (key c)
+  FRAMES      ← "+" after the frame title adds a frame (a copy); Base (b) in one of
+                them shows plain Paseo beside the design; Tabs flips them in place
   SITUATION   ← theme/viewport (built in) + data-states / data-when (app state)
   REGION      ← data-region on the starter's parts (key r), scale (key z)
 -->
-<html lang="en" data-mock-data data-mock-title="Turn cost (demo)" data-reference data-states="session: normal | empty | crashed; sidebar: shown=Sidebar shown | hidden=Sidebar hidden; grouping: status=By status | project=By project; panel: closed | open; drawer: closed | open">
+<html lang="en" data-mock-data data-mock-title="Turn cost (demo)" data-states="session: normal | empty | crashed; sidebar: shown=Sidebar shown | hidden=Sidebar hidden; grouping: status=By status | project=By project; panel: closed | open; drawer: closed | open">
 <head>
 <meta charset="utf-8">
 <title>Paseo mock kit demo</title>
@@ -51,7 +52,7 @@
           <div class="sb-status-group">
             <div class="sb-status-header" data-attrs="data-status-group=group"><i data-attrs="data-icon=icon"></i><span data-text="label"></span></div>
             <template data-each="items">
-              <div class="sb-ws" data-pick="ws" data-class="is-selected=selected"><span class="proj-icon" data-attrs="style=projStyle; data-status=badge" data-text="initial"></span><span class="sb-ws-title" data-text="title"></span><span class="sb-ws-meta" data-text="meta"></span></div>
+              <div class="sb-ws" data-pick="ws" data-class="is-selected=selected"><span class="proj-icon" data-class="has-icon=projIcon" data-attrs="style=projStyle; data-status=badge" data-text="initial"></span><span class="sb-ws-title" data-text="title"></span><span class="sb-ws-meta" data-text="meta"></span></div>
             </template>
           </div>
         </template>
@@ -59,7 +60,7 @@
       <!-- grouping: project = project rows with icons; workspaces with status dots -->
       <div data-when="grouping: project">
         <template data-each="projectGroups">
-          <div class="sb-project"><span class="proj-icon" data-attrs="style=projStyle" data-text="initial"></span><span data-text="name"></span></div>
+          <div class="sb-project"><span class="proj-icon" data-class="has-icon=projIcon" data-attrs="style=projStyle" data-text="initial"></span><span data-text="name"></span></div>
           <template data-each="items">
             <div class="sb-ws" data-pick="ws-p" data-class="is-selected=selected"><span data-attrs="class=dotClass"></span><span class="sb-ws-title" data-text="title"></span><span class="sb-ws-meta" data-text="meta"></span></div>
           </template>
@@ -212,7 +213,7 @@
           <div class="sb-status-group">
             <div class="sb-status-header" data-attrs="data-status-group=group"><i data-attrs="data-icon=icon"></i><span data-text="label"></span></div>
             <template data-each="items">
-              <div class="sb-ws" data-pick="ws-phone" data-class="is-selected=selected"><span class="proj-icon" data-attrs="style=projStyle; data-status=badge" data-text="initial"></span><span class="sb-ws-title" data-text="title"></span><span class="sb-ws-meta" data-text="meta"></span></div>
+              <div class="sb-ws" data-pick="ws-phone" data-class="is-selected=selected"><span class="proj-icon" data-class="has-icon=projIcon" data-attrs="style=projStyle; data-status=badge" data-text="initial"></span><span class="sb-ws-title" data-text="title"></span><span class="sb-ws-meta" data-text="meta"></span></div>
             </template>
           </div>
         </template>
@@ -220,7 +221,7 @@
       <!-- grouping: project = project rows with icons; workspaces with status dots -->
       <div data-when="grouping: project">
         <template data-each="drawer.projectGroups">
-          <div class="sb-project"><span class="proj-icon" data-attrs="style=projStyle" data-text="initial"></span><span data-text="name"></span></div>
+          <div class="sb-project"><span class="proj-icon" data-class="has-icon=projIcon" data-attrs="style=projStyle" data-text="initial"></span><span data-text="name"></span></div>
           <template data-each="items">
             <div class="sb-ws" data-pick="ws-phone-p" data-class="is-selected=selected"><span data-attrs="class=dotClass"></span><span class="sb-ws-title" data-text="title"></span><span class="sb-ws-meta" data-text="meta"></span></div>
           </template>
