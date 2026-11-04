@@ -5,6 +5,14 @@ set -euo pipefail
 
 pattern='/home/cx|axalon|agentspace|tmp-archive|srv_[A-Za-z0-9_]{8,}|nilo-wayfinder|nilo-observatory|world-agent|drimgar|MSAT'
 
+# Effort notes are private: nothing under any .scratch/ folder may be committed.
+scratch=$(git diff --cached --name-only --diff-filter=AM | grep -E '(^|/)\.scratch/' || true)
+if [ -n "$scratch" ]; then
+  echo "pre-commit: .scratch/ is private and never committed:" >&2
+  echo "$scratch" | sed 's/^/  /' >&2
+  exit 1
+fi
+
 # Images are never allowed: screenshots show private sessions.
 images=$(git diff --cached --name-only --diff-filter=AM | grep -iE '\.(png|webp|jpe?g|gif)$' || true)
 if [ -n "$images" ]; then
