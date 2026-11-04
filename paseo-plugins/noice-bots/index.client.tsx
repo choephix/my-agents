@@ -69,7 +69,7 @@ export default function contribute(client: PluginClientContext) {
     if (entries[0]) client.openScreen({ screenId: "open", params: { workspaceId: entries[0].id, nonce: String(Date.now()) } });
   };
 
-  // Each bot's workspace header: System prompt (its form), and a menu with Unread, Search and Mark all read.
+  // Each bot's workspace header: Bot (its form), and a menu with Unread, Search and Mark all read.
   const buttons = new Map<string, PluginButtonRegistration[]>();
   const syncButtons = () => {
     const current = new Map(hubs.current().map(hub => [hub.workspaceId, hub]));
@@ -83,7 +83,7 @@ export default function contribute(client: PluginClientContext) {
       buttons.set(workspaceId, [
         client.addHeaderButton({
           id: "system-prompt", workspaceId,
-          button: { title: "System prompt", icon: "ScrollText", label: "System prompt", behavior: { kind: "popover", Content: ({ theme, close }) => <BotForm botId={hub.botId} theme={theme} close={close} onDeleted={openNextHub} /> } },
+          button: { title: "Bot", icon: "Bot", label: "Bot", behavior: { kind: "popover", Content: ({ theme, close }) => <BotForm botId={hub.botId} theme={theme} close={close} onDeleted={openNextHub} /> } },
         }),
         client.addHeaderButton({
           id: "bot-menu", workspaceId,

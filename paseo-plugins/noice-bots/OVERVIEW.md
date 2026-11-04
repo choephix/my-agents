@@ -208,7 +208,7 @@ Built for a handful of questions a day per bot; the hub keeps all of them (see G
   (166 of 211 px shown), at 390 px scrolling is off. The Android app itself is untested.
 - The counts come from a label on each hub agent (`noice-bots.counts = running,unread`, debounced)
   read through one agent-list subscription, so the client polls nothing.
-- Each bot workspace header: **System prompt** (the bot form; changes apply to new threads) and a
+- Each bot workspace header: **Bot** (the bot form; changes apply to new threads) and a
   menu with **Unread threads**, **Search threads**, **Mark all read** and **Settle all read**.
 
 ## The one session-open hook
