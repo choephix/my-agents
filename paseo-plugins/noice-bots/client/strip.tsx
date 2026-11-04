@@ -66,8 +66,12 @@ const sidebarColor = ({ colors }: PluginTheme) => (luma(colors.surface2) ?? 0) <
 /** The selected tile: surface2 is the sidebar itself in the light theme, so the border colour. */
 const selectedColor = (theme: PluginTheme) => theme.colors.border;
 
-/** Web only: a CSS transition on the emoji's opacity, fast in and a little slower out, both easing out. */
-const ease = (ms: number) => ({ transitionProperty: "opacity", transitionDuration: `${ms}ms`, transitionTimingFunction: "cubic-bezier(0.2, 0, 0, 1)" });
+/** The emoji's zoom by transform (tile and hit area unchanged): hovered, and the selected bot. */
+const HOVER_SCALE = 1.5;
+const SELECTED_SCALE = 1.2;
+
+/** Web only: CSS transitions on the emoji, fast in and a little slower out, both easing out. */
+const ease = (ms: number) => ({ transitionProperty: "transform, opacity", transitionDuration: `${ms}ms`, transitionTimingFunction: "cubic-bezier(0.2, 0, 0, 1)" });
 
 /** `prefers-reduced-motion` (React Native Web reads the media query): end states without transitions. */
 function useReduceMotion() {
@@ -124,11 +128,13 @@ export function createStrip(hubs: Hubs, wake: (id: string) => Promise<void>) {
     return (
       <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} {...handlers}
         onHoverIn={() => setHover(true)} onHoverOut={() => setHover(false)}
-        style={{ width: size.tile, height: size.tile, borderRadius: 6, alignItems: "center", justifyContent: "center",
+        style={{ width: size.tile, height: size.tile, borderRadius: 6, alignItems: "center", justifyContent: "center", zIndex: hover ? 2 : active ? 1 : 0,
           backgroundColor: active ? selectedColor(theme) : "transparent", ...focusRing(theme, focused) }}>
-        {/* Hover and selection change colour only: the emoji's box is the tile's, whatever the font's metrics. */}
-        <Text style={{ width: size.tile, height: size.tile, lineHeight: size.tile, fontSize: size.emoji, textAlign: "center", color: theme.colors.foreground,
-          opacity: active || hover ? 1 : 0.55, ...(motion && Platform.OS === "web" ? ease(hover ? 120 : 240) : null) }}>{hub.emoji}</Text>
+        {/* Zoomed by transform, so the tile keeps its size; it doesn't catch the pointer, so its edge never flickers. */}
+        <View pointerEvents="none" style={{ transform: [{ scale: hover ? HOVER_SCALE : active ? SELECTED_SCALE : 1 }], opacity: active || hover ? 1 : 0.55,
+          ...(motion && Platform.OS === "web" ? ease(hover ? 120 : 240) : null) }}>
+          <Text style={{ width: size.tile, height: size.tile, lineHeight: size.tile, fontSize: size.emoji, textAlign: "center", color: theme.colors.foreground }}>{hub.emoji}</Text>
+        </View>
         <Badge hub={hub} theme={theme} size={size.badge} ring={active ? selectedColor(theme) : sidebarColor(theme)} />
       </Pressable>
     );

@@ -191,9 +191,10 @@ Built for a handful of questions a day per bot; the hub keeps all of them (see G
   A grey robot before the strip, setting **Show robot icon before bots** (on).
   The row is 28 px like the rows above: the robot sits on their icon column, the tiles start where
   their labels do. Tiles are 24 px with 1 px between, and the 17 px emoji's text box is the tile
-  (line height 24), so no state moves or resizes anything: hover and the selected bot only raise
-  the emoji from 55% to full opacity, and the selected tile gets a background. Web: the opacity
-  eases 120 ms in, 240 ms out; none under `prefers-reduced-motion`. Until the robot setting and
+  (line height 24). Hover zooms the emoji to 1.5× and the selected bot to 1.2×, by transform over
+  its neighbours (tile and hit area unchanged; the emoji ignores the pointer), and both raise it
+  from 55% to full opacity; the selected tile gets a background. Web: CSS transitions, 120 ms in,
+  240 ms out, easing out; none under `prefers-reduced-motion`. Until the robot setting and
   the first bot list have come, the strip is an empty 28 px row, so the tiles arrive in one step.
   The selected tile uses the theme's `border` colour, since `surface2` is the light sidebar itself;
   the badge ring uses the sidebar colour (the darker of `surface0`/`surface2`). Keyboard focus draws
