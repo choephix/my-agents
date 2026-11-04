@@ -66,7 +66,7 @@ export function hubProvider(bots: Bots): ProviderRegistration {
             sessions.add(input.sessionId);
             const persistence = { version: 1, data: { botId } };
             emit({ type: "session.opened", requestId: input.requestId, sessionId: input.sessionId, capabilities, restoration: "core", persistence, cwd: input.config.cwd });
-            await bots.openHub(input.sessionId, botId, input.config, emit);
+            await bots.openHub(input.sessionId, botId, input.config, input.history, emit);
             emit({ type: "session.config", sessionId: input.sessionId, config: await configState(input.sessionId) });
             emit({ type: "session.ready", requestId: input.requestId, sessionId: input.sessionId });
             return;

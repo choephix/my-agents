@@ -204,16 +204,28 @@ export class Bots {
   // ---------------------------------------------------------------- hub sessions
 
   /**
-   * Paseo keeps the rows a hub already has and skips what a reopened plugin session replays, so the
-   * hub draws once Paseo listens, and only the threads that changed while it was closed (`redraw`).
-   * Your messages are Paseo's own rows.
+   * Paseo's copy of a hub's rows lives in the daemon's memory only. A daemon restart or a
+   * `refreshAgent` (restoring a closed hub) drops it, and the reopened session is asked to replay
+   * its history (`history: "replay"`): the hub emits every thread's block before it is ready. A
+   * reopen that keeps Paseo's rows (plugin reload) ignores that replay, so 1 s after the open the
+   * hub draws the threads that changed while it was closed (`redraw`).
    */
-  async openHub(sessionId: string, botId: string, config: ProviderSessionConfig, emit: (event: ProviderEvent) => void): Promise<void> {
+  async openHub(sessionId: string, botId: string, config: ProviderSessionConfig, history: "replay" | "skip", emit: (event: ProviderEvent) => void): Promise<void> {
     await this.#storeLoaded;
     this.#bot(botId);
     const hub: HubSession = { botId, agentId: config.env.PASEO_AGENT_ID ?? "", emit, config, ready: false };
     this.#hubs.set(sessionId, hub);
+    if (history === "replay") {
+      for (const thread of (await this.#threads(botId)).sort((a, b) => a.createdAt - b.createdAt)) emit(this.#threadItem(sessionId, thread));
+    }
     setTimeout(() => void this.#drawHub(sessionId, hub).catch(error => console.error("noice-bots: drawing a hub failed", error)), 1000);
+  }
+
+  /** Every thread of a bot, as stored (a live thread is the same object as in `#active`). */
+  async #threads(botId: string): Promise<Thread[]> {
+    const threads: Thread[] = [];
+    for (const day of await this.store.days(botId)) threads.push(...await this.store.day(botId, day));
+    return threads;
   }
 
   async #drawHub(sessionId: string, hub: HubSession): Promise<void> {
@@ -451,10 +463,7 @@ export class Bots {
   }
 
   async settleAllRead(botId: string): Promise<void> {
-    const threads: Thread[] = [];
-    for (const day of await this.store.days(botId)) {
-      threads.push(...(await this.store.day(botId, day)).filter(thread => !thread.unread && !thread.settled && !this.#active.has(thread.id)));
-    }
+    const threads = (await this.#threads(botId)).filter(thread => !thread.unread && !thread.settled && !this.#active.has(thread.id));
     for (const thread of threads) this.#setSettled(thread, true);
   }
 

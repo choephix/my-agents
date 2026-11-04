@@ -102,16 +102,20 @@ bubble until its block arrives. Paseo transforms a row once and caches the resul
 (`projectPluginTimelineItems`), so a new id registers the transformer again: that makes Paseo
 re-transform the rows of every open chat once per new question (batched at start).
 
-Each bot has **one hub agent for its whole life**. Paseo keeps its own durable copy of a hub's
-timeline and ignores what a reopened plugin session replays (`historyPrimed` in
-`agent-manager.ts`). So:
+Each bot has **one hub agent for its whole life**. Paseo 0.14.0 keeps a hub's rows in the daemon's
+memory only (`InMemoryAgentTimelineStore`; no durable timeline store is wired). So:
+- **History replay**: a daemon restart or a `refreshAgent` (a tile restoring a closed hub, a thread
+  change reopening one) drops those rows and reopens the session with `history: "replay"`; the hub
+  then emits every thread's block, oldest first, before the session is ready, and Paseo rebuilds
+  the hub from them. A reopen that keeps the rows (plugin reload) ignores the replay
+  (`historyPrimed` in `agent-manager.ts`). Before 2026-11-04 the hub replayed nothing, so a daemon
+  restart left every hub empty, and an unread thread nobody could see kept the sidebar's green dot;
 - a thread's block has the id `thread-<id>`; a change re-emits it, and Paseo merges rows with the
   same plugin id in place (`collapseByIdentity` in `timeline-projection.ts`, `appendPluginTimelineItem`
   in the app), so a follow-up, a read or a sweep updates the block where it is;
 - a change while no hub session is ready (plugin reload, idle cleanup, the first second after an
   open) goes on the bot's `redraw` list in `bots.json`, and a closed hub is reopened
-  (`refreshAgent`). 1 s after a hub session opens (`#drawHub`) it draws only that list; an open
-  never redraws the whole history;
+  (`refreshAgent`). 1 s after a hub session opens (`#drawHub`) it draws that list;
 - a live question is Paseo's own row (hidden once its block arrives); the hub's echo (same
   `clientMessageId`) only gives it an id.
   A provider may also emit `user_message` rows on its own: one without `clientMessageId` is
