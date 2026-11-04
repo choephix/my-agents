@@ -77,6 +77,7 @@ My agentic stuff.
 - [Discord thread → markdown](tampermonkey/discord-thread-markdown.user.js)
 - [Tweet and its replies → one PNG](tampermonkey/x-tweet-shot.user.js)
 - [Gmail search attachments → files](tampermonkey/gmail-attachment-harvester.user.js)
+- [Any element or the whole page → one PNG](tampermonkey/full-page-shot.user.js)
 
 ## Windows scripts and tools
 
