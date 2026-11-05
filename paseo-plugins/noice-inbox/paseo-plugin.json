@@ -1,0 +1,6 @@
+{
+  "id": "noice-inbox",
+  "name": "Notifications",
+  "description": "A sidebar notification list: each agent's latest finished turn, error and permission request, with a preview, kept until replaced or cleared.",
+  "requirements": { "paseo": ">=0.14.0" }
+}
