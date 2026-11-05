@@ -4,8 +4,13 @@ import type { PaseoApi } from "@getpaseo/client";
 const PREVIEW_CHARS = 400;
 
 export function clip(text: string): string {
-  // Code fences read as noise in a two-line preview.
-  const flat = text.replace(/```[\w-]*/g, "").replace(/\s+/g, " ").trim();
+  // Markdown syntax reads as noise in a two-line preview: fences, links (kept as their text), `code` and **bold** marks.
+  const flat = text
+    .replace(/```[\w-]*/g, "")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[`*]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
   return flat.length > PREVIEW_CHARS ? `${flat.slice(0, PREVIEW_CHARS - 1)}…` : flat;
 }
 

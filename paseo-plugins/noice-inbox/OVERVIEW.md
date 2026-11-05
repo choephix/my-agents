@@ -6,7 +6,8 @@ entries are unread. Press it to open the list: a popover on wide screens, a bott
 
 ## What it lists
 
-- **Finished**: an agent's turn ended. The preview is the start of the agent's final reply.
+- **Finished**: an agent's turn ended. The preview is the start of the agent's final reply, with
+  Markdown syntax removed (links keep their text).
 - **Error**: a turn failed. The preview is the error message.
 - **Needs permission**: an agent asked for permission. The preview names the tool and what it wants.
 
@@ -22,7 +23,8 @@ parent agent, and Paseo doesn't send notifications for them.
   get there from the list or not. A permission entry turns read once the request is answered.
 - Pressing an entry opens that agent and marks the entry read.
 - Read entries stay in the list, greyed out, until a newer one of the same kind replaces them or you
-  remove them with their × or **Clear all**.
+  remove them with their × or **Clear all**. On desktop the × takes the place of the time while you
+  hover the entry; on phones both are always shown.
 - Archiving an agent removes its entries. Entries of agents archived or deleted while the plugin was
   off are dropped the next time the list loads.
 

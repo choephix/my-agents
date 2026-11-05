@@ -1,14 +1,25 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginPopoverProps, PluginScreenProps, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { Icon, SidebarRow, useToast } from "@getpaseo/plugin/client/ui";
-import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Pressable, Text, View } from "react-native";
 import type { Entry, Kind } from "../shared/inbox";
 import type { Inbox } from "./inbox";
 
 export const OPEN_SCREEN = "open";
 
 const KIND_LABEL: Record<Kind, string | null> = { finished: null, error: "Error", permission: "Needs permission" };
+
+/**
+ * Paseo pads its popover by ~13 px; a row's hover background reaches this far into that padding.
+ * Text sits `INDENT` in from the padding, leaving the unread dot room to hang left of the title.
+ */
+const GUTTER = 10;
+const INDENT = 4;
+/** The right slot holding a row's time, or its × while hovered. */
+const SLOT_WIDTH = 24;
+/** Extra room for the × beside the time on phones. */
+const REMOVE_WIDTH = 20;
 
 function kindColor(kind: Kind, colors: PluginTheme["colors"]): string {
   if (kind === "error") return colors.statusDanger;
@@ -50,52 +61,72 @@ export function createOpenScreen() {
 export function createInboxUi(inbox: Inbox) {
   const useInbox = () => useSyncExternalStore(inbox.subscribe, inbox.getSnapshot);
 
-  function Row({ entry, title, now, theme, onOpen, onClear }: {
+  function Row({ entry, title, now, theme, compact, onOpen, onClear }: {
     entry: Entry;
     title: string;
     now: number;
     theme: PluginTheme;
+    compact: boolean;
     onOpen(): void;
     onClear(): void;
   }) {
+    // RN-web Pressables contain their hover, so a parent can't see it: the row and its × each report theirs.
+    const [rowHovered, setRowHovered] = useState(false);
+    const [removeHovered, setRemoveHovered] = useState(false);
+    const hovered = rowHovered || removeHovered;
     const { colors } = theme;
     const label = KIND_LABEL[entry.kind];
+    const accent = kindColor(entry.kind, colors);
+    // Phones have no hover, so there the time and the × sit side by side.
+    const slotWidth = compact ? SLOT_WIDTH + REMOVE_WIDTH : SLOT_WIDTH;
+    const time = <Text style={{ fontSize: 11, color: colors.foregroundMuted }}>{ago(entry.at, now)}</Text>;
+    const remove = (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Remove ${title}`}
+        hitSlop={8}
+        onHoverIn={() => setRemoveHovered(true)}
+        onHoverOut={() => setRemoveHovered(false)}
+        onPress={onClear}
+      >
+        <Icon name="X" size={13} color={colors.foregroundMuted} />
+      </Pressable>
+    );
     return (
-      <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+      <View style={{ marginHorizontal: -GUTTER }}>
         <Pressable
+          onHoverIn={() => setRowHovered(true)}
+          onHoverOut={() => setRowHovered(false)}
           accessibilityRole="button"
           accessibilityLabel={`Open ${title}`}
           onPress={onOpen}
-          style={({ hovered }: { pressed: boolean; hovered?: boolean }) => ({
-            flex: 1,
-            flexDirection: "row",
-            gap: 8,
-            paddingVertical: 8,
-            paddingLeft: 12,
-            paddingRight: 4,
+          style={{
+            paddingVertical: 7,
+            paddingLeft: GUTTER + INDENT,
+            paddingRight: GUTTER + slotWidth,
             borderRadius: 6,
+            gap: 2,
             backgroundColor: hovered ? colors.surface2 : "transparent",
-          })}
+          }}
         >
-          <View style={{ width: 6, height: 6, borderRadius: 3, marginTop: 6, backgroundColor: entry.read ? "transparent" : kindColor(entry.kind, colors) }} />
-          <View style={{ flex: 1, gap: 2 }}>
-            <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6 }}>
-              <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 13, fontWeight: entry.read ? "400" : "600", color: entry.read ? colors.foregroundMuted : colors.foreground }}>
-                {title}
-              </Text>
-              {label ? <Text style={{ fontSize: 11, color: kindColor(entry.kind, colors) }}>{label}</Text> : null}
-              <Text style={{ marginLeft: "auto", fontSize: 11, color: colors.foregroundMuted }}>{ago(entry.at, now)}</Text>
-            </View>
-            {entry.preview ? (
-              <Text numberOfLines={2} style={{ fontSize: 12, lineHeight: 17, color: colors.foregroundMuted }}>
-                {entry.preview}
-              </Text>
-            ) : null}
+          {/* Hangs in the gutter, so read and unread titles line up. */}
+          {entry.read ? null : <View style={{ position: "absolute", left: 4, top: 13, width: 5, height: 5, borderRadius: 2.5, backgroundColor: accent }} />}
+          <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6 }}>
+            <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 13, lineHeight: 18, fontWeight: entry.read ? "400" : "600", color: entry.read ? colors.foregroundMuted : colors.foreground }}>
+              {title}
+            </Text>
+            {label ? <Text style={{ fontSize: 11, color: entry.read ? colors.foregroundMuted : accent }}>{label}</Text> : null}
           </View>
+          {entry.preview ? (
+            <Text numberOfLines={2} style={{ fontSize: 12, lineHeight: 17, color: colors.foregroundMuted, opacity: entry.read ? 0.75 : 1 }}>
+              {entry.preview}
+            </Text>
+          ) : null}
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Remove" hitSlop={6} onPress={onClear} style={{ padding: 8, paddingTop: 10 }}>
-          <Icon name="X" size={13} color={colors.foregroundMuted} />
-        </Pressable>
+        {/* On desktop the time and the × share one slot: the × replaces the time while the row is hovered. */}
+        <View style={{ position: "absolute", top: 7, right: GUTTER, width: slotWidth, height: 18, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 10 }}>
+          {compact ? <>{time}{remove}</> : hovered ? remove : time}
+        </View>
       </View>
     );
   }
@@ -111,22 +142,13 @@ export function createInboxUi(inbox: Inbox) {
     const now = useMemo(() => Date.now(), [entries]);
     const fail = (error: unknown) => toast.error(`Couldn't update the list: ${error instanceof Error ? error.message : String(error)}`);
     return (
-      <View style={{ width: layout.compact ? undefined : 380, paddingVertical: 6 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-end", paddingHorizontal: 12, paddingVertical: 6 }}>
-          {/* The bottom sheet already carries the item's title. */}
-          {layout.compact ? null : <Text style={{ flex: 1, fontSize: 13, fontWeight: "600", color: colors.foreground }}>Notifications</Text>}
-          {entries.length > 0 ? (
-            <Pressable accessibilityRole="button" hitSlop={6} onPress={() => inbox.clear().catch(fail)}>
-              <Text style={{ fontSize: 12, color: colors.foregroundMuted }}>Clear all</Text>
-            </Pressable>
-          ) : null}
-        </View>
+      <View style={{ width: layout.compact ? undefined : 340 }}>
         {entries.length === 0 ? (
-          <Text style={{ paddingHorizontal: 12, paddingVertical: 16, fontSize: 12, color: colors.foregroundMuted }}>
-            Nothing yet. Finished turns, errors and permission requests land here.
+          <Text style={{ paddingVertical: 8, paddingLeft: INDENT, fontSize: 12, lineHeight: 17, color: colors.foregroundMuted }}>
+            No notifications. Finished turns, errors and permission requests show up here.
           </Text>
         ) : (
-          <ScrollView style={{ maxHeight: layout.compact ? undefined : 520 }} contentContainerStyle={{ paddingHorizontal: 4 }}>
+          <>
             {entries.map((entry) => (
               <Row
                 key={`${entry.agentId}:${entry.kind}`}
@@ -134,6 +156,7 @@ export function createInboxUi(inbox: Inbox) {
                 title={titles.get(entry.agentId) || entry.title || "Untitled agent"}
                 now={now}
                 theme={theme}
+                compact={layout.compact}
                 onOpen={() => {
                   if (!entry.read) inbox.markRead([entry]).catch(fail);
                   close();
@@ -142,7 +165,12 @@ export function createInboxUi(inbox: Inbox) {
                 onClear={() => inbox.clear([entry]).catch(fail)}
               />
             ))}
-          </ScrollView>
+            <View style={{ borderTopWidth: 1, borderColor: colors.border, marginTop: 4, paddingTop: 8, paddingLeft: INDENT, flexDirection: "row" }}>
+              <Pressable accessibilityRole="button" hitSlop={6} onPress={() => inbox.clear().catch(fail)}>
+                <Text style={{ fontSize: 12, color: colors.foregroundMuted }}>Clear all</Text>
+              </Pressable>
+            </View>
+          </>
         )}
       </View>
     );
