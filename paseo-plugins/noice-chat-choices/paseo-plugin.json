@@ -1,0 +1,8 @@
+{
+  "id": "noice-chat-choices",
+  "name": "Choices",
+  "description": "Agents can offer clickable answers in their replies; a click puts the answer in the message box, ready to edit and send.",
+  "requirements": {
+    "paseo": ">=0.14.0"
+  }
+}
