@@ -17,6 +17,8 @@ export const TANGENT_STARTED_LABEL = "side-agent.tangent-started";
  * daemon's memory: a daemon restart (or a parent reload) starts a new epoch without them.
  */
 export const TANGENT_ROW_LABEL = "side-agent.tangent-row";
+/** Your words, for the row's bubble after a plugin reload. */
+export const TANGENT_TASK_LABEL = "side-agent.tangent-task";
 
 export interface AgentFacts {
   id: string;
@@ -44,16 +46,21 @@ export interface TangentPort {
   follow(childId: string, onStep: (step: string) => void): () => void;
 }
 
-/** `note`: its latest `tangent_progress`; it replaces the tool-call peek. */
-interface Watched { parentId: string; title: string; startedAt: number; note?: string }
+/** `note`: its latest `tangent_progress`; it replaces the tool-call peek. `task`: unset for tangents from before the task label. */
+interface Watched { parentId: string; title: string; task?: string; startedAt: number; note?: string }
 
 /** Remembers turn ends of unwatched agents (a fast child can end before `watch` runs) and recent settles. */
 const RECENT_LIMIT = 32;
-/** Row data is capped at 64 KiB; a longer answer is cut in the row (the report message keeps all of it). */
-const ROW_BODY_LIMIT = 20_000;
+/** Row data is capped at 64 KiB, and the label travels with every agent snapshot. */
+const TASK_LIMIT = 20_000;
 
-/** `write`: a new tangent's running row; `follow`: keep updating the row its parent still shows; `none`: no running row. */
-type RowStart = "write" | "follow" | "none";
+/** The task as the row and the task label keep it. */
+export function rowTask(task: string): string {
+  return task.length > TASK_LIMIT ? `${task.slice(0, TASK_LIMIT)}…` : task;
+}
+
+/** `write`: a new tangent's running row; `follow`: keep updating the row its parent still shows (at that epoch); `none`: no running row. */
+type RowStart = "write" | { follow: string } | "none";
 
 export class TangentWatcher {
   readonly #watched = new Map<string, Watched>();
@@ -62,6 +69,8 @@ export class TangentWatcher {
   readonly #settled = new Set<string>();
   /** Running rows being kept current: `update` redraws, `stop` ends the timeline subscription. */
   readonly #rows = new Map<string, { update(): void; stop(): void }>();
+  /** The parent timeline epoch holding each watched tangent's row; a pending write resolves to it. */
+  readonly #rowEpochs = new Map<string, Promise<string | undefined>>();
   /** `report_to_parent` calls, the last one per tangent; memory only, so a plugin reload falls back to the final reply. */
   readonly #reports = new Map<string, ExplicitReport>();
   /** Reports held for busy non-OMP parents, keyed by parent ID. */
@@ -77,18 +86,25 @@ export class TangentWatcher {
       this.#earlyEnds.delete(childId);
       return this.#settle(childId, early);
     }
-    if (row !== "none") await this.#startRow(childId, tangent, row === "write");
+    if (row !== "none") await this.#startRow(childId, tangent, row);
   }
 
-  async #startRow(childId: string, tangent: Watched, write: boolean): Promise<void> {
+  async #startRow(childId: string, tangent: Watched, row: "write" | { follow: string }): Promise<void> {
     const ids = linkIds(await this.port.link(childId));
-    if (!ids) return;
+    // Settled meanwhile: a running row now would never be ended.
+    if (!ids || !this.#watched.has(childId)) return;
     let step = "";
-    const show = () => this.port.writeRow(tangent.parentId, childId, { status: "running", title: tangent.title, startedAt: tangent.startedAt, step: tangent.note || step, ...ids });
-    if (write) {
-      const epoch = await show();
+    const show = () => this.port.writeRow(tangent.parentId, childId, {
+      status: "running", title: tangent.title, ...(tangent.task ? { task: tangent.task } : {}), startedAt: tangent.startedAt, step: tangent.note || step, ...ids,
+    });
+    if (row === "write") {
+      const written = show();
+      this.#rowEpochs.set(childId, written.catch(() => undefined));
+      const epoch = await written;
       if (!epoch || !this.#watched.has(childId)) return;
       await this.port.markRow(childId, epoch);
+    } else {
+      this.#rowEpochs.set(childId, Promise.resolve(row.follow));
     }
     if (!this.#watched.has(childId)) return;
     const update = () => {
@@ -147,12 +163,13 @@ export class TangentWatcher {
     for (const child of await this.port.pending()) {
       const parentId = child.labels[TANGENT_PARENT_LABEL];
       if (!parentId) { await this.port.markReported(child.id); continue; }
-      const tangent = { parentId, title: child.title ?? "Untitled tangent", startedAt: Number(child.labels[TANGENT_STARTED_LABEL]) || this.now() };
+      const task = child.labels[TANGENT_TASK_LABEL];
+      const tangent = { parentId, title: child.title ?? "Untitled tangent", ...(task ? { task } : {}), startedAt: Number(child.labels[TANGENT_STARTED_LABEL]) || this.now() };
       if (!child.archived && (child.status === "running" || child.status === "initializing")) {
         // The running row survives a plugin reload, not a daemon restart (new epoch).
         const epoch = child.labels[TANGENT_ROW_LABEL];
         const shown = !!epoch && epoch === await this.port.timelineEpoch(parentId).catch(() => undefined);
-        await this.watch(child.id, tangent, shown ? "follow" : "none");
+        await this.watch(child.id, tangent, shown ? { follow: epoch } : "none");
         continue;
       }
       // It ended while nobody watched; the exact outcome is gone, so infer it.
@@ -171,6 +188,8 @@ export class TangentWatcher {
     this.#watched.delete(childId);
     this.#rows.get(childId)?.stop();
     this.#rows.delete(childId);
+    const rowEpoch = await this.#rowEpochs.get(childId);
+    this.#rowEpochs.delete(childId);
     const explicit = this.#reports.get(childId);
     this.#reports.delete(childId);
     const parts = outcome.kind === "completed" && explicit ? explicitReply(explicit) : undefined;
@@ -183,15 +202,13 @@ export class TangentWatcher {
       console.warn(`noice-side-agent: parent ${tangent.parentId} is gone; dropping the report of tangent ${childId}.`);
       return this.port.markReported(childId);
     }
-    // The row becomes the report (or appears now, if the parent's timeline lost it); the report message then draws nothing.
+    // The row where /tangent was sent shows how it ended, while the parent's timeline still holds
+    // it (a timeline without it would get it at the end). The answer draws from the report message.
     const row = parseTangentReports(report)?.[0];
-    if (row) {
-      // An explicit report's row keeps its summary apart, so the opened row shows it once.
-      const full = parts?.body ?? row.body;
-      const body = full.length > ROW_BODY_LIMIT ? `${full.slice(0, ROW_BODY_LIMIT)}\n\n*(Cut at ${ROW_BODY_LIMIT} characters; the tangent has the whole answer.)*` : full;
-      const epoch = await this.port.writeRow(parent.id, childId, { ...row, body, ...(parts ? { summary: parts.summary } : {}) })
-        .catch(error => void console.error(`noice-side-agent: tangent ${childId} row failed; its report shows instead.`, error));
-      await this.port.markRow(childId, epoch ?? "none");
+    if (row && rowEpoch && rowEpoch === await this.port.timelineEpoch(parent.id).catch(() => undefined)) {
+      const { status, title, took, agentId, serverId } = row;
+      await this.port.writeRow(parent.id, childId, { status, title, ...(tangent.task ? { task: tangent.task } : {}), took, agentId, serverId })
+        .catch(error => console.error(`noice-side-agent: tangent ${childId} row update failed.`, error));
     }
     const delivery = chooseDelivery(parent.provider, parent.status);
     if (delivery !== "wait-for-idle") return this.#send(parent.id, [childId], deliveryText(delivery, [report]));

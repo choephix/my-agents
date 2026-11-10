@@ -1,24 +1,26 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginTimelineItemProps } from "@getpaseo/plugin/client";
-import { copyText, Icon, Markdown, useToast } from "@getpaseo/plugin/client/ui";
-import { useEffect, useMemo, useState } from "react";
+import { copyText, Icon, Markdown, StreamedText, useToast } from "@getpaseo/plugin/client/ui";
+import { useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { z } from "zod";
-import type { ParsedReport, RunningRow } from "../shared/report";
+import type { EndedRow, ParsedReport, RunningRow } from "../shared/report";
 
 /*
- * A tangent in its parent chat, drawn after the /tan row of noice-omp-slash-aliases: a muted
- * dashed line (`tangent`, title, status, a peek). While it runs: the elapsed time and its newest
- * tool call; one click opens the tangent. Once it ends the same row shows the first line of the
- * answer and opens to all of it. The report message itself is unchanged for the parent model.
+ * A tangent in its parent chat, in two parts:
+ * - where /tangent was sent: your words in a transparent dashed bubble on your side (only the
+ *   tangent sees them), and under it its status; one click opens the tangent;
+ * - where the report message arrives: the answer, drawn like an agent reply, since the parent
+ *   model reads it. The report text itself is unchanged for the parent model.
  */
+
+const STATUS = z.enum(["done", "failed", "stopped", "archived"]);
 
 export const ReportRowData = z.object({
   title: z.string(),
-  status: z.enum(["done", "failed", "stopped", "archived"]),
+  status: STATUS,
   took: z.string(),
   body: z.string(),
-  summary: z.string().optional(),
   link: z.string(),
   agentId: z.string(),
   serverId: z.string(),
@@ -28,13 +30,23 @@ export type ReportRowData = z.infer<typeof ReportRowData>;
 const RunningRowData = z.object({
   status: z.literal("running"),
   title: z.string(),
+  task: z.string().optional(),
   startedAt: z.number(),
   step: z.string(),
   agentId: z.string(),
   serverId: z.string(),
 }) satisfies z.ZodType<RunningRow>;
-/** The row the server keeps in the parent's timeline. */
-export const TangentRowData = z.union([RunningRowData, ReportRowData]);
+/** Rows from before this shape (the whole report in the row) still parse: extra fields are dropped. */
+const EndedRowData = z.object({
+  status: STATUS,
+  title: z.string(),
+  task: z.string().optional(),
+  took: z.string(),
+  agentId: z.string(),
+  serverId: z.string(),
+}) satisfies z.ZodType<EndedRow>;
+/** The row the server keeps where /tangent was sent. */
+export const TangentRowData = z.union([RunningRowData, EndedRowData]);
 export type TangentRowData = z.infer<typeof TangentRowData>;
 
 const UI_FONT = Platform.select({ web: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" });
@@ -43,6 +55,8 @@ const LINE = { fontSize: 13, lineHeight: 20, fontFamily: UI_FONT };
 const TITLE_PREFIX = "Tangent: ";
 const ICONS = { done: "CornerDownRight", failed: "CircleAlert", stopped: "CircleStop", archived: "Archive" } as const;
 const VERBS = { done: "done in", failed: "failed after", stopped: "stopped after", archived: "archived after" } as const;
+/** Where the status line points: the answer is drawn further down, where the report arrives. */
+const BELOW = { done: "answered below", failed: "error below", stopped: "", archived: "" } as const;
 
 const shortTitle = (title: string) => (title.startsWith(TITLE_PREFIX) ? title.slice(TITLE_PREFIX.length) : title);
 
@@ -62,43 +76,23 @@ function withAlpha(color: string, alpha: number): string {
   return `#${full}${Math.round(alpha * 255).toString(16).padStart(2, "0")}`;
 }
 
-/** The summary, else the answer's (or error's) first line with a letter or digit (not a lone emoji), without the common Markdown marks. */
-function peek({ status, body, summary }: ReportRowData): string {
-  if (summary) return summary;
-  if (status === "stopped" || status === "archived") return "";
-  // The first matching line only: no copy of a long answer.
-  const line = /^.*[\p{L}\p{N}].*$/mu.exec(body)?.[0].trim() ?? "";
-  return line
-    .replace(/^(?:#{1,6}\s+|>\s*|[•*+-]\s+|\d+[.)]\s+)/, "")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\*\*|__|`/g, "");
-}
-
-function ActionButton({ icon, label, onPress, theme }: { icon: string; label: string; onPress(): void; theme: PluginTheme }) {
+function IconButton({ icon, label, onPress, theme }: { icon: string; label: string; onPress(): void; theme: PluginTheme }) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
       hitSlop={4}
-      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [styles.action, (pressed || hovered) && { backgroundColor: theme.colors.surface2 }]}
+      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [styles.iconButton, (pressed || hovered) && { backgroundColor: theme.colors.surface2 }]}
     >
-      {({ hovered }: { pressed: boolean; hovered?: boolean }) => {
-        const color = hovered ? theme.colors.foreground : theme.colors.foregroundMuted;
-        return (
-          <>
-            <Icon name={icon} size={13} color={color} />
-            <Text style={[SMALL, { color }]}>{label}</Text>
-          </>
-        );
-      }}
+      {({ hovered }: { pressed: boolean; hovered?: boolean }) => <Icon name={icon} size={14} color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted} />}
     </Pressable>
   );
 }
 
 type OpenAgent = (serverId: string, agentId: string) => void;
 
-/** Ticks once a second; the running row's only timer. */
+/** Ticks once a second; mounted only while the tangent runs. */
 function useNow(): number {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -108,41 +102,69 @@ function useNow(): number {
   return now;
 }
 
-function RunningLine({ row, theme, openAgent }: { row: RunningRow; theme: PluginTheme; openAgent: OpenAgent }) {
+const Dot = ({ color }: { color: string }) => <Text style={[SMALL, { color, opacity: 0.5 }]}>·</Text>;
+
+function RunningStatus({ row, muted }: { row: RunningRow; muted: string }) {
   const now = useNow();
+  return (
+    <>
+      <Icon name="LoaderCircle" size={12} color={muted} />
+      <Text style={[LINE, styles.tag, { color: muted }]}>tangent</Text>
+      <Dot color={muted} />
+      <Text style={[SMALL, styles.fixed, { color: muted, fontVariant: ["tabular-nums"] }]}>{`running ${elapsed(now - row.startedAt)}`}</Text>
+      {row.step ? (
+        <>
+          <Dot color={muted} />
+          <Text numberOfLines={1} style={[SMALL, styles.shrink, { color: muted, opacity: 0.8 }]}>{row.step}</Text>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function EndedStatus({ row, theme }: { row: EndedRow; theme: PluginTheme }) {
+  const muted = theme.colors.foregroundMuted;
+  const color = row.status === "failed" ? theme.colors.statusDanger : muted;
+  return (
+    <>
+      <Icon name={ICONS[row.status]} size={12} color={color} />
+      <Text style={[LINE, styles.tag, { color: muted }]}>tangent</Text>
+      <Dot color={muted} />
+      <Text style={[SMALL, styles.fixed, { color }]}>{`${VERBS[row.status]} ${row.took}`}</Text>
+      {BELOW[row.status] ? (
+        <>
+          <Dot color={muted} />
+          <Text numberOfLines={1} style={[SMALL, styles.shrink, { color: muted, opacity: 0.8 }]}>{BELOW[row.status]}</Text>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+/** Where /tangent was sent: your words, then the tangent's status. */
+function SentRow({ row, theme, openAgent }: { row: TangentRowData; theme: PluginTheme; openAgent: OpenAgent }) {
   const muted = theme.colors.foregroundMuted;
   return (
-    <View style={[styles.root, { borderColor: withAlpha(muted, 0.45) }]}>
+    <View style={styles.sent}>
+      <View style={[styles.bubble, { borderColor: withAlpha(muted, 0.5) }]}>
+        <StreamedText selectable text={row.task || shortTitle(row.title)} phase="complete" />
+      </View>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Open the tangent"
         onPress={() => openAgent(row.serverId, row.agentId)}
         style={({ hovered }: { pressed: boolean; hovered?: boolean }) => [styles.line, hovered && { backgroundColor: theme.colors.surface2 }]}
       >
-        <View style={styles.icon}>
-          <Icon name="LoaderCircle" size={12} color={muted} />
-        </View>
-        <Text style={[LINE, styles.tag, { color: muted }]}>tangent</Text>
-        <Text numberOfLines={1} style={[SMALL, styles.title, { color: muted, opacity: 0.75 }]}>{shortTitle(row.title)}</Text>
-        <Text style={[SMALL, { color: muted, opacity: 0.5 }]}>·</Text>
-        <Text style={[SMALL, styles.status, { color: muted, fontVariant: ["tabular-nums"] }]}>{`running ${elapsed(now - row.startedAt)}`}</Text>
-        {row.step ? (
-          <>
-            <Text style={[SMALL, { color: muted, opacity: 0.5 }]}>·</Text>
-            <Text numberOfLines={1} style={[SMALL, styles.flex, { color: muted, opacity: 0.8 }]}>{row.step}</Text>
-          </>
-        ) : (
-          <View style={styles.flex} />
-        )}
+        {row.status === "running" ? <RunningStatus row={row} muted={muted} /> : <EndedStatus row={row} theme={theme} />}
         <Icon name="ArrowUpRight" size={12} color={muted} />
       </Pressable>
     </View>
   );
 }
 
-function ReportLine({ report, theme, openAgent }: { report: ReportRowData; theme: PluginTheme; openAgent: OpenAgent }) {
+/** Where the report message arrives: the answer, as the parent model reads it. */
+function Answer({ report, theme, openAgent }: { report: ReportRowData; theme: PluginTheme; openAgent: OpenAgent }) {
   const toast = useToast();
-  const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -151,10 +173,8 @@ function ReportLine({ report, theme, openAgent }: { report: ReportRowData; theme
   }, [copied]);
 
   const muted = theme.colors.foregroundMuted;
+  const danger = theme.colors.statusDanger;
   const failed = report.status === "failed";
-  const lineColor = failed ? theme.colors.statusDanger : muted;
-  const title = shortTitle(report.title);
-  const peekText = useMemo(() => peek(report), [report.status, report.body, report.summary]);
   const copy = () =>
     copyText(report.body).then(
       () => setCopied(true),
@@ -162,81 +182,57 @@ function ReportLine({ report, theme, openAgent }: { report: ReportRowData; theme
     );
 
   return (
-    <View style={[styles.root, { borderColor: withAlpha(muted, 0.45) }]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={open ? "Hide the tangent's answer" : "Show the tangent's answer"}
-        onPress={() => setOpen(value => !value)}
-        style={({ hovered }: { pressed: boolean; hovered?: boolean }) => [styles.line, hovered && { backgroundColor: theme.colors.surface2 }]}
-      >
-        <View style={styles.icon}>
-          <Icon name={ICONS[report.status]} size={12} color={lineColor} />
-        </View>
+    <View style={styles.answer}>
+      <View style={styles.head}>
+        <Icon name={ICONS[report.status]} size={12} color={failed ? danger : muted} />
         <Text style={[LINE, styles.tag, { color: muted }]}>tangent</Text>
-        <Text numberOfLines={1} style={[SMALL, styles.title, { color: muted, opacity: 0.75 }]}>{title}</Text>
-        <Text style={[SMALL, { color: muted, opacity: 0.5 }]}>·</Text>
-        <Text style={[SMALL, styles.status, { color: lineColor }]}>{`${VERBS[report.status]} ${report.took}`}</Text>
-        {peekText && (!open || report.summary) ? (
+        <Dot color={muted} />
+        <Text numberOfLines={1} style={[SMALL, styles.shrink, { color: muted, opacity: 0.75 }]}>{shortTitle(report.title)}</Text>
+        {report.status !== "done" ? (
           <>
-            <Text style={[SMALL, { color: muted, opacity: 0.5 }]}>·</Text>
-            <Text numberOfLines={1} style={[SMALL, styles.flex, { color: lineColor, opacity: 0.8 }]}>{peekText}</Text>
+            <Dot color={muted} />
+            <Text style={[SMALL, styles.fixed, { color: failed ? danger : muted }]}>
+              {failed ? `failed after ${report.took}` : `${VERBS[report.status]} ${report.took}, before it answered`}
+            </Text>
           </>
-        ) : (
-          <View style={styles.flex} />
-        )}
-        <Icon name={open ? "ChevronDown" : "ChevronRight"} size={12} color={muted} />
-      </Pressable>
-      {open ? (
-        <View style={[styles.rail, { borderColor: withAlpha(muted, 0.25) }]}>
-          {report.status === "done" ? (
-            <Markdown>{report.body}</Markdown>
-          ) : failed ? (
-            <Text selectable style={[LINE, { color: theme.colors.statusDanger }]}>{report.body}</Text>
-          ) : (
-            <Text style={[SMALL, { color: muted }]}>{`No answer: the tangent was ${report.status} before it finished.`}</Text>
-          )}
-          <View style={styles.foot}>
-            <ActionButton icon="ArrowUpRight" label="Open the tangent" onPress={() => openAgent(report.serverId, report.agentId)} theme={theme} />
-            {report.body ? (
-              <ActionButton icon={copied ? "Check" : "Copy"} label={copied ? "Copied" : failed ? "Copy error" : "Copy result"} onPress={() => void copy()} theme={theme} />
-            ) : null}
-          </View>
-        </View>
+        ) : null}
+      </View>
+      {report.status === "done" ? (
+        <View style={styles.body}><Markdown>{report.body}</Markdown></View>
+      ) : failed ? (
+        <View style={styles.body}><StreamedText selectable text={report.body} phase="complete" style={{ color: danger }} /></View>
       ) : null}
+      <View style={styles.foot}>
+        {report.body ? (
+          <IconButton icon={copied ? "Check" : "Copy"} label={copied ? "Copied" : failed ? "Copy the error" : "Copy the answer"} onPress={() => void copy()} theme={theme} />
+        ) : null}
+        <IconButton icon="ArrowUpRight" label="Open the tangent" onPress={() => openAgent(report.serverId, report.agentId)} theme={theme} />
+        <Text style={[LINE, { color: muted }]}>{report.status === "done" ? `Tangent worked for ${report.took}` : "Open the tangent"}</Text>
+      </View>
     </View>
   );
 }
 
-export function createTangentRows(openAgent: OpenAgent, rowShown: (parentId: string, childId: string) => Promise<boolean>) {
-  /** The row the server keeps in the parent's timeline. */
+export function createTangentRows(openAgent: OpenAgent) {
   function TangentRow({ item, theme }: PluginTimelineItemProps<TangentRowData>) {
-    const row = item.data;
-    return row.status === "running"
-      ? <RunningLine row={row} theme={theme} openAgent={openAgent} />
-      : <ReportLine report={row} theme={theme} openAgent={openAgent} />;
+    return <SentRow row={item.data} theme={theme} openAgent={openAgent} />;
   }
-  /** A report message: nothing while the parent's timeline still holds that tangent's own row. */
-  function ReportMessageRow({ item, agentId, theme }: PluginTimelineItemProps<ReportRowData>) {
-    const [draw, setDraw] = useState(false);
-    useEffect(() => {
-      let live = true;
-      rowShown(agentId, item.data.agentId).then(shown => live && setDraw(!shown), () => live && setDraw(true));
-      return () => { live = false; };
-    }, [agentId, item.data.agentId]);
-    return draw ? <ReportLine report={item.data} theme={theme} openAgent={openAgent} /> : null;
+  function ReportMessageRow({ item, theme }: PluginTimelineItemProps<ReportRowData>) {
+    return <Answer report={item.data} theme={theme} openAgent={openAgent} />;
   }
   return { TangentRow, ReportMessageRow };
 }
 
 const styles = StyleSheet.create({
-  root: { marginVertical: 2, borderWidth: 1, borderStyle: "dashed", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  line: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 6, marginHorizontal: -6, minHeight: 26, borderRadius: 6 },
-  icon: { width: 14, alignItems: "center" },
+  sent: { alignSelf: "flex-end", alignItems: "flex-end", maxWidth: "100%", marginTop: 4, marginBottom: 12 },
+  bubble: { maxWidth: "100%", borderWidth: 1, borderStyle: "dashed", borderRadius: 16, borderTopRightRadius: 2, padding: 16 },
+  line: { flexDirection: "row", alignItems: "center", gap: 6, maxWidth: "100%", minHeight: 26, marginTop: 4, paddingHorizontal: 6, borderRadius: 6 },
   tag: { fontWeight: "600" },
-  title: { flexShrink: 1, maxWidth: "45%" },
-  status: { flexShrink: 0 },
-  flex: { flex: 1, minWidth: 0 },
-  rail: { marginLeft: 6, marginTop: 2, marginBottom: 6, paddingLeft: 14, paddingVertical: 2, borderLeftWidth: 2 },
-  foot: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6, marginLeft: -6 },
-  action: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6 },
+  fixed: { flexShrink: 0 },
+  shrink: { flexShrink: 1, minWidth: 0 },
+  answer: { marginBottom: 8 },
+  head: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 20 },
+  body: { marginTop: 4 },
+  foot: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4, marginBottom: 8 },
+  iconButton: { width: 22, height: 22, alignItems: "center", justifyContent: "center", borderRadius: 6 },
 });

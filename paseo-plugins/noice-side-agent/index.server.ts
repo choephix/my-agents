@@ -2,9 +2,9 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { PaseoApi } from "@getpaseo/client";
 import { defineAgentTool, type PluginServerContext } from "@getpaseo/plugin/server";
 import { z } from "zod";
-import { createSide, createTangent, preferences, tangentRowShown } from "./shared/preferences";
+import { createSide, createTangent, preferences } from "./shared/preferences";
 import { childTitle, launchChild } from "./server/launch";
-import { daemonPort, TangentWatcher, TANGENT_LABEL, TANGENT_PARENT_LABEL, TANGENT_ROW_LABEL, TANGENT_STARTED_LABEL } from "./server/tangents";
+import { daemonPort, rowTask, TangentWatcher, TANGENT_LABEL, TANGENT_PARENT_LABEL, TANGENT_STARTED_LABEL, TANGENT_TASK_LABEL } from "./server/tangents";
 
 export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(preferences);
@@ -34,6 +34,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(createTangent, async ({ parentId, task }, { paseo }) => {
     use(paseo);
     const startedAt = Date.now();
+    const shownTask = rowTask(task);
     const child = await launchChild(paseo, parentId, parent => {
       // Full memory where it exists (OMP); Paseo's fork context everywhere else.
       const mode = parent.provider === "omp" ? "full" : "fork";
@@ -45,10 +46,10 @@ export default function contribute(server: PluginServerContext) {
         forkPrompt: `${who} The attached chat history belongs to the parent; earlier tasks are not yours. Your only job is the task below. ${handBack}\n\nTask:\n${task}`,
         fullNote: `${who} The conversation above belongs to the parent; earlier tasks are not yours. Your only job is the task in the next message. ${handBack}`,
         task,
-        labels: { "side-agent.mode": mode, [TANGENT_LABEL]: "pending", [TANGENT_PARENT_LABEL]: parent.id, [TANGENT_STARTED_LABEL]: String(startedAt) },
+        labels: { "side-agent.mode": mode, [TANGENT_LABEL]: "pending", [TANGENT_PARENT_LABEL]: parent.id, [TANGENT_STARTED_LABEL]: String(startedAt), [TANGENT_TASK_LABEL]: shownTask },
       };
     });
-    void tangents.watch(child.agentId, { parentId: child.parent.id, title: child.title, startedAt }).catch(report(`tangent report for ${child.agentId}`));
+    void tangents.watch(child.agentId, { parentId: child.parent.id, title: child.title, task: shownTask, startedAt }).catch(report(`tangent report for ${child.agentId}`));
     return { agentId: child.agentId, mode: child.mode, title: child.title };
   });
 
@@ -80,12 +81,6 @@ export default function contribute(server: PluginServerContext) {
   server.before("agent.session_open", ({ request }) => {
     if (request.labels[TANGENT_LABEL] !== "pending") return;
     return { ...request, tools: [...request.tools, reportToParent, tangentProgress] };
-  });
-
-  server.handle(tangentRowShown, async ({ parentId, childId }, { paseo }) => {
-    use(paseo);
-    const [child, epoch] = await Promise.all([port.agent(childId), port.timelineEpoch(parentId)]);
-    return { shown: !!epoch && child?.labels[TANGENT_ROW_LABEL] === epoch };
   });
 
   const offTurn = server.on("agent.turn_ended", async ({ agent, outcome }, { paseo }) => {

@@ -172,33 +172,41 @@ Delivery never interrupts the parent:
   with `---`), because a second send would interrupt the turn the first started.
 - A parent that is archived or gone gets nothing; the server logs the drop.
 
-In the parent chat each tangent is **one row** in the style of the `/tan` row
-(`noice-omp-slash-aliases`): a muted dashed box with `tangent` and the title
-(without its `Tangent: ` prefix).
+In the parent chat each tangent shows in **two places**. The dashes mark what
+only the tangent saw:
 
-- **While it runs**, the row sits where `/tangent` was sent: `running 0:42`
-  (counted in the app, once a second) and a muted peek: the tangent's latest
-  `tangent_progress` note, or, before its first note, its newest tool call,
-  name and what it works on (`bash · sleep 120`, `read · src/app.ts`).
-  One click opens the tangent's tab.
-- **When it ends**, the same row, in the same place, shows the status
-  (`done in 1m 50s`, `failed after 12s` in red, `stopped after 17s`, `archived
-  after 3s`) and, for finished and failed ones, the first line of the answer or
-  error. Click it to open the full answer as Markdown (Paseo's own renderer),
-  with **Open the tangent** (opens the child's tab through the plugin's `open`
-  screen, on the host named in the link) and **Copy result**. An answer over
-  20,000 characters is cut in the row with a note; the report message and the
-  tangent keep all of it.
+- **Where `/tangent` was sent**: your words in a transparent bubble with a
+  dashed outline, on your side (Paseo's bubble shape; the text is the host's
+  `StreamedText`, so it follows your content font and size). Only the tangent
+  sees these words, never the main agent. A task over 20,000 characters is cut
+  there with `…`. Under the bubble, one muted status line:
+  - while it runs: `tangent · running 0:42` (counted in the app, once a second)
+    and a peek: its latest `tangent_progress` note, or, before its first note,
+    its newest tool call, name and what it works on (`bash · sleep 120`,
+    `read · src/app.ts`);
+  - once it ends: `done in 1m 50s · answered below`, `failed after 12s · error
+    below` in red, `stopped after 17s`, `archived after 3s`.
 
-The server writes this row into the parent's timeline as a plugin item
-(`tangent-<child id>`, kind `tangent-row`), first when the child is launched,
-again on each tool call it starts (from a subscription to the child's
-timeline), and once more with the finished report just before sending it.
-The report message itself then draws nothing; the parent model still receives
-the plain report text. Each write records the parent timeline's epoch on the
-child (`side-agent.tangent-row` label); a report message draws nothing only when
-that epoch is still the parent's current one, which the app asks the server
-(`tangent-row-shown` RPC) once per report row it mounts.
+  One click on the line opens the tangent's tab (through the plugin's `open`
+  screen, on the host named in the link).
+- **Where the report message arrives** (after the reply it waited for, right
+  before the parent reacts to it): the answer, drawn like an agent reply, with
+  no dashes, since the main agent reads it. A small `↳ tangent · <title>` line
+  sits above it, then the answer as Markdown (Paseo's own renderer). A failed
+  tangent shows its error in red; a stopped or archived one only the header
+  line (`stopped after 17s, before it answered`). The footer holds Copy (the
+  answer or error), Open the tangent, and `Tangent worked for 1m 50s`.
+
+The server writes the first part into the parent's timeline as a plugin item
+(`tangent-<child id>`, kind `tangent-row`): when the child is launched, again
+on each tool call it starts (from a subscription to the child's timeline), and
+once more with how it ended just before the report is sent. That last write
+happens only while the parent's timeline still holds the row (its epoch, also
+kept in the child's `side-agent.tangent-row` label, is the parent's current
+one); otherwise the write would add the row at the end of the chat. Your words
+are also kept in the child's `side-agent.tangent-task` label, so a plugin
+reload keeps the bubble. The answer is the report message itself, drawn by a
+client transformer; the parent model still receives the plain report text.
 
 ### Tangent tools: `report_to_parent` and `tangent_progress`
 
@@ -212,11 +220,7 @@ OMP sees them as `report_to_parent` / `tangent_progress`, Codex as
   answer in Markdown, absolute paths of created or changed files. It does not
   send anything yet: the report goes out when the turn ends, as above, with
   `<summary>\n\n<result>\n\nFiles:\n- \`<path>\`` as the answer, which is the
-  text the parent model reads. The row keeps the summary in its own `summary`
-  field: the row's line shows it, closed and opened, and the opened body holds
-  result and files only (also what **Copy result** copies). Rows without the
-  field (final-reply reports, rows from before it, report messages drawn after
-  a daemon restart) show the answer's first line as before. Text the tangent writes after the
+  text the parent model reads and the drawn answer shows. Text the tangent writes after the
   call is ignored. **A later call in the same turn replaces the earlier one**;
   a call after the tangent has reported (label no longer `pending`) is rejected
   with an error and changes nothing.
@@ -229,25 +233,29 @@ plugin reload or daemon restart in between loses it, and that tangent is
 reported with its final reply instead. A tangent that has reported keeps the
 tools until its session next reopens; they only return the error then.
 Tangents from before this change, and models that skip the call, get the
-final-reply report; old report rows draw as before (row data unchanged).
+final-reply report.
 
 Plugin rows live in the daemon's memory, not in the provider's history, so:
 
-- **Daemon restart while a tangent runs:** its running row is gone and is not
-  put back. When the tangent ends, the finished row is written at the end of
-  the parent chat (where the report arrives), and the report draws nothing.
-- **Daemon restart after a tangent ended**, and reports from before this row
-  existed: the row is gone, the label's epoch is stale, so the report message
-  is drawn as the finished row in the report's place, from its text (exact
-  match: only a message that entirely parses as reports in the format above,
-  with links to `/h/<server>/agent/<id>`; several joined reports become one row
-  each; anything else keeps its normal bubble).
+- **Daemon restart (while a tangent runs or after it ended):** the row with your
+  words is gone and is not put back; the answer still draws from the report
+  message, which carries the shortened title, not your full words. Only a
+  message that entirely parses as reports in the format above, with links to
+  `/h/<server>/agent/<id>`, is drawn as answers (several joined reports become
+  one answer each); anything else keeps its normal bubble.
 - **Plugin reload while a tangent runs:** the row stays and keeps counting, but
   its tool-call peek stops at the last step; when the tangent ends, the row
-  becomes the report as usual. A tangent that ends during the reload itself is
+  shows how it ended as usual. A tangent that ends during the reload itself is
   reported before the plugin has its Paseo API (it gets one from its first RPC
-  or lifecycle event): its row keeps saying running, and the report is drawn
-  as its own row.
+  or lifecycle event): its row keeps saying running; its answer draws as usual.
+- **Rows from before this look** (the whole report in the row) draw as the
+  new row: the bubble shows the title, since they carry no task.
+- **Chat display "Collapse turns"** (Paseo's default; Settings → Chat): the
+  answer replaces the report message, and plugin rows never start a turn, so
+  Paseo folds the bubble and the answer into the summary line of the turn
+  around them once the agent has replied after them. Expanding that line shows
+  them. "Full" and "Collapse tool calls" show them in place. A plugin can't keep
+  the report as a turn start: transformers return plugin items only.
 
 The parent runs a new turn on the report, like any message. Each tangent is
 reported once. Its state lives in child labels (`side-agent.tangent`:
@@ -278,8 +286,8 @@ command for this one to shadow.
 - Failed full launches archive the imported child and remove their copy when
   cleanup succeeds. The live tests archived their agents before explicitly
   deleting all test-created full-memory copies and sidecar directories.
-- The server part registers settings, the `/side`, `/tangent` and
-  `tangent-row-shown` RPC handlers, two lifecycle listeners
+- The server part registers settings, the `/side` and `/tangent` RPC
+  handlers, two lifecycle listeners
   (`agent.turn_ended`, `agent.archived`) that watch tangents, and the
   `agent.session_open` hook that gives tangents their tools. It uses
   short-lived installed SDK connections for native

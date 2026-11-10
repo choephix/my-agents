@@ -54,27 +54,38 @@ export type ParsedReport = {
   status: "done" | "failed" | "stopped" | "archived";
   /** `formatDuration` text. */
   took: string;
-  /** done: the reply (without `summary`, when set); failed: the error; otherwise empty. */
+  /** done: the reply; failed: the error; otherwise empty. */
   body: string;
-  /** A `report_to_parent` summary line; only rows the server wrote, never parsed reports. */
-  summary?: string;
   link: string;
   agentId: string;
   serverId: string;
 };
 
-/** A running tangent's row in its parent's timeline. `step`: its newest tool call, or empty. */
+/**
+ * A running tangent's row where /tangent was sent. `task`: your words (rows written before it
+ * have only the title); `step`: its newest tool call, or empty.
+ */
 export type RunningRow = {
   status: "running";
   title: string;
+  task?: string;
   startedAt: number;
   step: string;
   agentId: string;
   serverId: string;
 };
 
-/** The row the server keeps in the parent's timeline: running, then the report it became. */
-export type TangentRow = RunningRow | ParsedReport;
+/** The same row once the tangent ended. Its answer is drawn from the report message. */
+export type EndedRow = {
+  status: ParsedReport["status"];
+  title: string;
+  task?: string;
+  took: string;
+  agentId: string;
+  serverId: string;
+};
+
+export type TangentRow = RunningRow | EndedRow;
 export const TANGENT_ROW_KIND = "tangent-row";
 
 /** One `formatTangentReport` text, whole. The title is one line (`childTitle` collapses whitespace). */
