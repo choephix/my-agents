@@ -1,10 +1,10 @@
 import {
-  negotiateProviderCapabilities, type ProviderCatalog, type ProviderConfigState, type ProviderEvent, type ProviderInput, type ProviderRegistration,
+  negotiateProviderCapabilities, type ProviderCatalog, type ProviderCommand, type ProviderConfigState, type ProviderEvent, type ProviderInput, type ProviderRegistration,
 } from "@getpaseo/plugin/server/provider";
 import { DEFAULT_MODEL, DEFAULT_THINKING, type Bots } from "./bots";
 import { daemon } from "./daemon";
 
-const CAPABILITIES = ["prompt.message", "prompt.image", "session.configure", "session.persistence", "timeline.plugin"] as const;
+const CAPABILITIES = ["prompt.message", "prompt.command", "prompt.image", "session.configure", "session.persistence", "timeline.plugin"] as const;
 
 /** The models, thinking levels and modes of the OMP provider a bot's threads run on. */
 async function ompCatalog(provider: string): Promise<ProviderCatalog> {
@@ -18,6 +18,14 @@ async function ompCatalog(provider: string): Promise<ProviderCatalog> {
     modes: modes.map(({ id, label, description, icon, colorTier }) => ({ id, label, description, icon, colorTier })),
     defaultModel: models.find(model => model.isDefault)?.id,
   };
+}
+
+/** The skills OMP offers in a folder, for the hub's `/` menu. A thread gets the question as its first prompt, so `/skill:<name> …` runs there. */
+async function ompSkills(provider: string, cwd: string, model: string): Promise<ProviderCommand[]> {
+  // An agent id Paseo doesn't know makes it list a draft's commands (a short OMP process, no model call).
+  const { commands, error } = await (await daemon()).listCommands({ agentId: "noice-bots-skills", draftConfig: { provider, cwd, model } });
+  if (error) throw new Error(error);
+  return commands.flatMap(({ name, description, argumentHint, kind }) => (kind === "skill" ? [{ name, description, argumentHint }] : []));
 }
 
 /**
@@ -41,6 +49,18 @@ export function hubProvider(bots: Bots): ProviderRegistration {
         catalogs.set(provider, catalog);
         catalog.catch(() => catalogs.delete(provider));
         return catalog;
+      };
+      /** One listing per provider and folder at a time: bots that share both, opening together, share it. */
+      const skillLists = new Map<string, Promise<ProviderCommand[]>>();
+      const loadSkills = (provider: string, cwd: string, model: string) => {
+        const key = `${provider}\n${cwd}`;
+        let list = skillLists.get(key);
+        if (!list) {
+          list = ompSkills(provider, cwd, model);
+          skillLists.set(key, list);
+          list.finally(() => skillLists.delete(key)).catch(() => {});
+        }
+        return list;
       };
       /** Commits what new threads will use: the picked model, else Opus 5.5 at high (else OMP's default and its default thinking level). */
       const configState = async (sessionId: string): Promise<ProviderConfigState> => {
@@ -69,6 +89,14 @@ export function hubProvider(bots: Bots): ProviderRegistration {
             await bots.openHub(input.sessionId, botId, input.config, input.history, emit);
             emit({ type: "session.config", sessionId: input.sessionId, config: await configState(input.sessionId) });
             emit({ type: "session.ready", requestId: input.requestId, sessionId: input.sessionId });
+            const bot = bots.store.bot(botId);
+            const model = bots.hub(input.sessionId)?.config.model;
+            if (bot && model) {
+              loadSkills(bot.provider, bot.cwd, model).then(
+                commands => { if (sessions.has(input.sessionId)) emit({ type: "session.commands", sessionId: input.sessionId, commands }); },
+                error => console.error(`noice-bots: listing skills for hub ${input.sessionId} failed`, error),
+              );
+            }
             return;
           }
           case "session.configure": {
@@ -86,8 +114,9 @@ export function hubProvider(bots: Bots): ProviderRegistration {
           }
           case "session.prompt": {
             const { prompt } = input;
-            if (prompt.input.type !== "message") {
-              emit({ type: "session.prompt_result", sessionId: input.sessionId, clientMessageId: prompt.clientMessageId, result: { type: "failed", error: { message: "The hub takes plain messages." } } });
+            // A typed `/skill:…` that matches a listed skill comes as a command; the thread gets it back as typed.
+            if (prompt.input.type === "command") {
+              await bots.ask(input.sessionId, prompt.clientMessageId, `/${prompt.input.name} ${prompt.input.arguments}`.trim(), { images: [], files: [] });
               return;
             }
             const { content } = prompt.input;

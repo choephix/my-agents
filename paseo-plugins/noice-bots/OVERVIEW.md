@@ -30,6 +30,19 @@ bot's system prompt (built on Paseo 0.14.0, plugin only). UI per the mock, varia
   (`listProviderModels(<provider>)`); the pick is committed per hub and copied onto each new
   thread. Default: Claude Opus 5.5 (`anthropic/claude-opus-5-5`) at high thinking; the provider's
   default if the catalog lacks it.
+- **Skills**: the hub's `/` menu lists the skills OMP offers in the bot's folder (`skill:<name>`),
+  only those: OMP's other commands act on a running session, and every hub message starts a new
+  thread. When a hub session opens, Bots asks Paseo for the commands of a draft agent of the bot's
+  provider, folder and the hub's model (`listCommands` with `draftConfig` and an agent id Paseo
+  doesn't know: a short OMP process, no model call, ~1 s), keeps the `skill` ones and sends them as
+  `session.commands`; hubs that share provider and folder share one listing while it runs. The list
+  arrives ~1 s after the hub opens; a `/` typed before that lists nothing until the app asks again
+  (Paseo keeps an agent's command list for 60 s). A new skill, or a changed provider or folder,
+  shows after the hub reopens (plugin reload, daemon restart). Paseo turns a message that starts
+  with a listed name into a command prompt (`prompt.command`); the hub writes it back as typed, so
+  the thread's first prompt is `/skill:<name> …`, which OMP expands. Paseo marks a plugin's
+  commands `kind: "command"`, so a skill can't be picked in the middle of a message, only at its
+  start.
 - **Attachments**: the hub takes images (`prompt.image`) and uploaded files. Images are written to
   `media/<thread>/<n>.<ext>` before the thread is queued; the thread gets the images and, under
   its question, the paths of everything attached. The block's footer says `📎 N attached` (the hub
