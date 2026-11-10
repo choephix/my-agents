@@ -115,8 +115,9 @@ export function createInbox(client: PluginClientContext): Inbox {
     return before?.key !== key || before.title !== (agent.title ?? null);
   };
 
+  // Bot threads and the agents they start live in background workspaces, which Paseo lists only on request.
   client.paseo.agents
-    .list({ subscribe: {}, signal: lifetime.signal })
+    .list({ subscribe: {}, filter: { includeBackground: true }, signal: lifetime.signal })
     .then(({ subscription }) => {
       if (lifetime.signal.aborted) return;
       subscription.subscribe({

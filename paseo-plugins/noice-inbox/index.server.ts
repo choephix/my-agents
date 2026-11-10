@@ -1,12 +1,31 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { PaseoApi } from "@getpaseo/client";
+import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { inboxClear, inboxList, inboxMarkRead } from "./shared/inbox";
 import { clip, finalReply } from "./server/reply";
 import { InboxStore } from "./server/store";
 
-/** Drops entries of agents that are gone (archived or deleted while the plugin wasn't running). */
+/**
+ * A bot hub (noice-bots) runs no model: its turn ends the moment a message becomes a thread, and the
+ * thread notifies on its own. The label marks the hub, also while it is being deleted.
+ */
+const isBotHub = (labels: Readonly<Record<string, string>>) => "noice-bots.role" in labels;
+
+/**
+ * The agent as Paseo has it now. The hook's copy carries the title the agent was created with, which
+ * is empty for nearly every agent: Paseo names it later, from its first message or a rename.
+ */
+async function liveAgent(paseo: PaseoApi, agentId: string): Promise<PaseoAgent | null> {
+  try {
+    return (await paseo.agents.ref(agentId).refresh())?.agent ?? null;
+  } catch (error) {
+    console.error(`[noice-inbox] couldn't read agent ${agentId}`, error);
+    return null;
+  }
+}
+
+/** Drops entries of agents that are gone (archived or deleted while the plugin wasn't running), and of bot hubs. */
 async function dropGoneAgents(store: InboxStore, paseo: PaseoApi): Promise<void> {
   const known = new Set<string>();
   let cursor: string | undefined;
@@ -15,7 +34,7 @@ async function dropGoneAgents(store: InboxStore, paseo: PaseoApi): Promise<void>
       filter: { includeBackground: true },
       page: { limit: 200, ...(cursor ? { cursor } : {}) },
     });
-    for (const { agent } of page.entries) known.add(agent.id);
+    for (const { agent } of page.entries) if (!isBotHub(agent.labels)) known.add(agent.id);
     cursor = page.pageInfo.hasMore ? (page.pageInfo.nextCursor ?? undefined) : undefined;
   } while (cursor);
   await store.retainAgents((agentId) => known.has(agentId));
@@ -29,6 +48,9 @@ export default function contribute(server: PluginServerContext) {
   // Sub-agents are skipped: Paseo doesn't notify for them either; they report to their parent.
   server.on("agent.turn_ended", async ({ agent, outcome }, { paseo }) => {
     if (agent.parentAgentId || outcome.kind === "canceled") return;
+    const live = await liveAgent(paseo, agent.id);
+    // An archived agent can't be opened: Paseo would show its workspace instead (a bot thread asleep).
+    if (live && (isBotHub(live.labels) || live.archivedAt)) return;
     const preview =
       outcome.kind === "failed"
         ? outcome.error.message
@@ -39,16 +61,18 @@ export default function contribute(server: PluginServerContext) {
     await store.put({
       agentId: agent.id,
       kind: outcome.kind === "failed" ? "error" : "finished",
-      title: agent.title ?? "",
+      title: live?.title ?? agent.title ?? "",
       preview: clip(preview),
       at: Date.now(),
       read: false,
     });
   });
-  server.on("agent.permission_requested", async ({ agent, request }) => {
+  server.on("agent.permission_requested", async ({ agent, request }, { paseo }) => {
     if (agent.parentAgentId) return;
+    const live = await liveAgent(paseo, agent.id);
+    if (live && isBotHub(live.labels)) return;
     const what = [request.title || request.name, request.description].filter(Boolean).join(": ");
-    await store.put({ agentId: agent.id, kind: "permission", title: agent.title ?? "", preview: clip(what), at: Date.now(), read: false });
+    await store.put({ agentId: agent.id, kind: "permission", title: live?.title ?? agent.title ?? "", preview: clip(what), at: Date.now(), read: false });
   });
   server.on("agent.permission_resolved", ({ agent }) => store.markRead([{ agentId: agent.id, kind: "permission" }]));
   server.on("agent.archived", ({ agent }) => store.retainAgents((agentId) => agentId !== agent.id));

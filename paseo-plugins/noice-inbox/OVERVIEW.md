@@ -16,6 +16,13 @@ older finished entry and moves it to the top; a permission request doesn't touch
 finished entry. Canceled turns are not listed. Sub-agents are not listed either: they report to their
 parent agent, and Paseo doesn't send notifications for them.
 
+Bot hubs (`noice-bots`, label `noice-bots.role`) are not listed: a hub runs no model, so its turn
+ends the moment a message becomes a thread, with no reply. The thread's own turn is listed, under
+the thread's title, and pressing it opens the thread's chat. A turn that ends on an agent already
+archived is not listed either (a bot thread that went to sleep): Paseo can't open an archived agent
+and would show its workspace instead. Hub entries recorded before this are dropped the next time
+the list loads.
+
 ## Read, unread and removal
 
 - An entry is unread until you see the agent. A finished or error entry turns read when Paseo clears
@@ -39,7 +46,9 @@ holds at most 300 entries; the oldest go first.
 - The sidebar count updates about 1.5 seconds after an agent changes state, because the client
   reloads the list after an agent update rather than receiving it pushed. Paseo 0.14 has no plugin
   push channel.
-- Agent titles are shown live for the newest 200 agents; older entries show the title the agent had
-  when the entry was made.
+- An entry stores the agent's title when it is made, read from Paseo then: the hook's own copy of
+  the agent carries only the title it was created with, which is empty for nearly every agent.
+  Titles are shown live for the newest 200 agents, bot (background) workspaces included; older
+  entries show the stored title.
 - Finished and error entries follow Paseo's own unread marker (the dot on the agent's tab): one
   stays unread here exactly as long as that dot shows.
