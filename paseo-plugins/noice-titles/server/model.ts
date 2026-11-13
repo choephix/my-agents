@@ -18,7 +18,7 @@ export type TitleRequest = { workspace: string; siblings: Sibling[]; conversatio
 // the most recently active ones of other projects; "tabs" and "rejected" for a manual retitle.
 export type WorkspaceTitleRequest = { projectName: string; project: Sibling[]; elsewhere: { title: string; project: string }[]; conversation: string; tabs?: string[]; rejected?: string[] };
 
-export type ModelChoice = Pick<Settings, "provider" | "ompModel" | "timeout">;
+export type ModelChoice = Pick<Settings, "provider" | "ompModel" | "fallback" | "timeout">;
 
 // The settings' model, or the defaults while the settings file is unreadable, so Retitle still works.
 export async function modelChoice(preferences: PluginSettings<typeof settings.schema>): Promise<ModelChoice> {
@@ -30,10 +30,22 @@ export const decideTitle = (model: ModelChoice, situation: TitleSituation, reque
 export const decideWorkspaceTitle = (model: ModelChoice, situation: WorkspaceSituation, request: WorkspaceTitleRequest) => ask(model, WORKSPACE_PROMPTS[situation], request);
 
 // The same prompt and request either way; the answer is parsed the same way.
+// A failed request (error, timeout, unusable answer) goes once to the fallback model, through OMP.
 async function ask(model: ModelChoice, systemPrompt: string, request: object) {
   const input = JSON.stringify(request);
   const timeoutMs = model.timeout * 1000;
-  return parseDecision(model.provider === "omp" ? await askOmp(model.ompModel, systemPrompt, input, timeoutMs) : await askClaude(systemPrompt, input, timeoutMs));
+  try {
+    return parseDecision(model.provider === "omp" ? await askOmp(model.ompModel, systemPrompt, input, timeoutMs) : await askClaude(systemPrompt, input, timeoutMs));
+  } catch (error) {
+    if (!model.fallback) throw error;
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(`noice-titles: ${reason}; asking the fallback ${model.fallback}`);
+    try {
+      return parseDecision(await askOmp(model.fallback, systemPrompt, input, timeoutMs));
+    } catch (second) {
+      throw new Error(`${reason}; fallback ${model.fallback}: ${second instanceof Error ? second.message : String(second)}`);
+    }
+  }
 }
 
 // Claude Haiku through Stefan's Claude Code subscription login: no tools, MCP,

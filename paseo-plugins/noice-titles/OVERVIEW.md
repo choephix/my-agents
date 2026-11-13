@@ -224,6 +224,15 @@ A dropdown filled from `omp models --json` was tried and dropped: Paseo
 0.12's settings menu doesn't scroll, so of its 82 entries (Cursor and
 OpenRouter left out) only the first ~30 were reachable on a 900 px window.
 
+**Fallback model** (either provider, empty by default) takes an OMP model or
+role, saved with **Save** like the Model field. When the main request fails
+(CLI error, timeout, or an answer that isn't a decision), the same prompt and
+request go once to it through OMP, with its own Timeout; the log gets one
+`… asking the fallback …` line. If it fails too, the error carries both:
+`OMP failed: …; fallback @tiny: …`. Added 2026-11-13 after OMP's Anthropic
+logins answered `Your credit balance is too low` and no tab got a title;
+Stefan's is `@tiny` (Codex login).
+
 Both CLIs run with the `ANTHROPIC_*`/`CLAUDE_CODE_USE_*` variables stripped,
 so no inherited API key or 3P routing is used. If the daemon's service PATH
 omits `~/.local/bin`, Titles adds it so native installations still work. On
@@ -231,7 +240,7 @@ Windows, an npm global install's `claude.cmd` shim is skipped for the
 `claude.exe` it wraps, since Node can't run `.cmd` files without a shell; each
 PATH folder is checked for a native `claude.exe` first, so whichever install
 comes first on PATH runs. Other installers (pnpm, Volta, bun) are not looked
-up. No retries;
+up. No retries besides the fallback model;
 **Timeout** (20 s default; 20 / 40 / 60 / 120 s, any whole 5–120 s in the
 settings file) kills the CLI of either provider, read for each request so a
 change applies to the next one. Errors name the provider: `Claude CLI failed:
@@ -326,9 +335,9 @@ paseo plugin disable noice-titles
 
 - `shared/agent-titles.mjs`: pure agent-title policy (placeholder rule, which titles Titles manages, how a sibling tab is described to Haiku, which timelines can be read without starting an agent, answer parsing, conversation excerpt).
 - `shared/workspace-titles.mjs`: pure workspace-title policy (whose a workspace's title is, including Paseo's generated one; how project siblings are marked; splitting and capping the sibling lists; a workspace's first agent).
-- `shared/settings.ts`: the *Automatic titles* setting (`off` / `first` / `every`), *Automatic workspace titles* (`workspaces`, on/off), *Model provider* (`provider`: `claude` / `omp`), the OMP *Model* (`ompModel`) and *Timeout* (`timeout`, seconds, default 20).
+- `shared/settings.ts`: the *Automatic titles* setting (`off` / `first` / `every`), *Automatic workspace titles* (`workspaces`, on/off), *Model provider* (`provider`: `claude` / `omp`), the OMP *Model* (`ompModel`), *Fallback model* (`fallback`, empty for none) and *Timeout* (`timeout`, seconds, default 20).
 - `server/prompts.ts`: the shared rules and the three situation tasks; `WORKSPACE_PROMPTS` with the workspace rules and their `first` / `manual` tasks.
-- `server/model.ts`: the Claude CLI and OMP calls, the OMP isolation extension and overlay it writes to the data directory.
+- `server/model.ts`: the Claude CLI and OMP calls, the fallback retry, the OMP isolation extension and overlay it writes to the data directory.
 - `server/rename.ts`: compare-and-set rename plus ownership labels over the local daemon RPC.
 - `server/agents.ts`: the agent listing, archived included.
 - `server/timeline.ts`: recent and opening timeline reads, first-prompt lines.

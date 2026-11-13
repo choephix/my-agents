@@ -32,8 +32,9 @@ const timeoutOptions = (current: number) => [...new Set([...TIMEOUTS, current])]
 
 export function TitlesSettings({ theme }: PluginSurfaceProps) {
   const state = useSettings(definition);
-  // The model being typed; saved only with Save, so a half-typed name never names a tab.
+  // The models being typed; saved only with Save, so a half-typed name never names a tab.
   const [draft, setDraft] = useState<string | null>(null);
+  const [fallbackDraft, setFallbackDraft] = useState<string | null>(null);
   const muted = { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 18 };
   if (state.status === "loading") return <Text style={muted}>Loading settings…</Text>;
   if (state.status !== "ready") return <SettingsSection title="Titles">
@@ -43,6 +44,7 @@ export function TitlesSettings({ theme }: PluginSurfaceProps) {
   </SettingsSection>;
   const save = (change: Partial<Settings>) => { void state.save({ ...state.values, ...change }, state.revision); };
   const model = draft?.trim() ?? state.values.ompModel;
+  const fallback = fallbackDraft?.trim() ?? state.values.fallback;
   return <SettingsSection title="Titles">
     <SettingsCard>
       <SettingsSelect label="Automatic titles" hint={EXPLAIN[state.values.automatic]} value={state.values.automatic} options={OPTIONS}
@@ -57,6 +59,10 @@ export function TitlesSettings({ theme }: PluginSurfaceProps) {
         <SettingsAction label={model === state.values.ompModel ? `Using ${state.values.ompModel}` : `Use ${model || "…"}`} actionLabel="Save"
           disabled={state.saving || !model || model === state.values.ompModel} onPress={() => save({ ompModel: model })} />
       </> : null}
+      <SettingsInput label="Fallback model" hint="Asked through OMP, once, when the request above fails or times out: an OMP model or a role such as @tiny, ideally on another login. Empty: no fallback."
+        initialValue={state.values.fallback} placeholder="none" disabled={state.saving} onChangeText={setFallbackDraft} />
+      <SettingsAction label={fallback === state.values.fallback ? (fallback ? `Falling back to ${fallback}` : "No fallback") : (fallback ? `Use ${fallback}` : "Remove the fallback")} actionLabel="Save"
+        disabled={state.saving || fallback === state.values.fallback} onPress={() => save({ fallback })} />
       <SettingsSelect label="Timeout" hint="How long a title request may take before it is given up, for either provider. A slow model or a busy login may need longer."
         value={String(state.values.timeout)} options={timeoutOptions(state.values.timeout)}
         disabled={state.saving} onValueChange={timeout => save({ timeout: Number(timeout) })} />
