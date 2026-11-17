@@ -138,7 +138,7 @@ local function restyle_picked()
 	end
 	local css = if #selectors == 0
 		then ""
-		else table.concat(selectors, ",\n") .. " { background: #facc15; color: #000; }"
+		else table.concat(selectors, ",\n") .. " { background: #facc15 content-box !important; color: #000; }"
 	tern.css("picked", css)
 end
 

@@ -1,12 +1,15 @@
 /* A choice: an omp Markdown link whose target starts with "@". Picked ones get the "picked" sheet (window.luau). */
+/* Tern underlines chat links with an inset box-shadow (a background stripe on touch layouts, which also pad
+   links 7px for tapping) from more specific rules, hence !important; content-box keeps the tint on the text. */
 [data-surface="omp.session"] .md a[href^="@"] {
 	font-weight: 600;
 	color: light-dark(#a16207, #facc15);
-	background: rgb(250 204 21 / 10%);
+	box-shadow: none !important;
+	background: rgb(250 204 21 / 10%) content-box !important;
 	border-radius: 2px;
 	text-decoration: none;
 }
 
 [data-surface="omp.session"] .md a[href^="@"]:hover {
-	background: rgb(250 204 21 / 35%);
+	background: rgb(250 204 21 / 35%) content-box !important;
 }
