@@ -42,6 +42,11 @@ export function embedKind(filePath: string): "image" | "html" | "text" {
   return extension === "html" || extension === "htm" ? "html" : "text";
 }
 
+/** Markdown files embed from any folder and preview as formatted Markdown. */
+export function isMarkdownPath(filePath: string): boolean {
+  return /\.(md|markdown)$/i.test(filePath);
+}
+
 export const readEmbedFile = defineRpc({
   name: "message-embeds.read-file",
   input: z.object({
@@ -49,6 +54,8 @@ export const readEmbedFile = defineRpc({
     path: z.string(),
     lineStart: z.number().int().positive().optional(),
     lineEnd: z.number().int().positive().optional(),
+    /** A heading's section instead of a line range: the lines under it, up to the next heading of its level or higher. */
+    heading: z.string().min(1).optional(),
   }),
   output: z.discriminatedUnion("status", [
     z.object({

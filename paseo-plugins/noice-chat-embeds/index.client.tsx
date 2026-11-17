@@ -7,7 +7,7 @@ import { useSettings } from "@getpaseo/plugin/client";
 import { AGENT_CARD_KIND, agentCardSchema, createAgentCard } from "./client/agent-card";
 import { EmbedCard, embedCardSchema, SvgBlockCard, svgBlockSchema } from "./client/card";
 import { MarkdownChunk, markdownSchema } from "./client/markdown";
-import { addColorSwatches, linkIssueRefs, parseMessage, SVG_FENCE } from "./client/parse";
+import { addColorSwatches, linkIssueRefs, linkWikiLinks, parseMessage, SVG_FENCE } from "./client/parse";
 import { type FeatureSwitch, featureSwitch } from "./client/feature-switch";
 import { startLinkClicks } from "./client/link-clicks";
 import { installStyles, SWATCHES } from "./client/web";
@@ -147,15 +147,16 @@ export default function contribute(client: PluginClientContext) {
       if (!current.enabled) return undefined;
       // Only finished replies, and not on phones: while streaming, a ```svg block stays code.
       const svg = current.svgBlocks && phase === "complete" && Platform.OS === "web";
-      // Cheap checks first; most messages have no embed, `#123`, hex colour or ```svg block.
+      // Cheap checks first; most messages have no embed, wiki link, `#123`, hex colour or ```svg block.
       const hasEmbed = item.text.includes("![[");
+      const text = item.text.includes("[[") ? linkWikiLinks(item.text) : item.text;
       const hasRef = /#\d\d/.test(item.text) && linkIssueRefs(item.text, () => "") !== item.text;
       // Swatches show in finished replies only; while streaming such a chunk would lose its Markdown.
       const hasHex = SWATCHES && phase === "complete" && /#[\da-f]{3}/i.test(item.text) && addColorSwatches(item.text, () => "x") !== item.text;
       const hasSvg = svg && SVG_FENCE.test(item.text);
-      if (!hasEmbed && !hasRef && !hasHex && !hasSvg) return undefined;
-      const segments = parseMessage(item.text, { svg });
-      // Unchanged text (half-typed or code-only embeds, unclosed ```svg, no `#123` or hex) keeps Paseo's own rendering.
+      if (!hasEmbed && text === item.text && !hasRef && !hasHex && !hasSvg) return undefined;
+      const segments = parseMessage(text, { svg });
+      // Unchanged text (half-typed or code-only embeds, unclosed ```svg, no wiki link, `#123` or hex) keeps Paseo's own rendering.
       if (!hasRef && !hasHex && segments.length === 1 && segments[0].kind === "markdown" && segments[0].text === item.text) return undefined;
       // No `id` on the rows: Paseo then uses `<source message id>/<index>`, unique across the chat.
       // Its chat list keys each row's measured height by id; the parser's per-message ids
@@ -176,6 +177,8 @@ export default function contribute(client: PluginClientContext) {
               phase,
               ...(segment.embed.lineStart === undefined ? {} : { lineStart: segment.embed.lineStart }),
               ...(segment.embed.lineEnd === undefined ? {} : { lineEnd: segment.embed.lineEnd }),
+              ...(segment.embed.heading === undefined ? {} : { heading: segment.embed.heading }),
+              ...(segment.embed.alias === undefined ? {} : { alias: segment.embed.alias }),
             };
             return { type: "plugin" as const, kind: "message-embeds-card", version: 1, data };
           }

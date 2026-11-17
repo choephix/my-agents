@@ -5,7 +5,7 @@ import { Markdown } from "@getpaseo/plugin/client/ui";
 import { createElement, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Image, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { z } from "zod";
-import { embedKind, readEmbedAsset, readEmbedFile } from "../shared/preferences";
+import { embedKind, isMarkdownPath, readEmbedAsset, readEmbedFile } from "../shared/preferences";
 import { cardColors } from "./card-colors";
 import { checkSvg, svgDataUri, unescapeSvg } from "./svg";
 
@@ -14,6 +14,9 @@ export const embedCardSchema = z.object({
   path: z.string(),
   lineStart: z.number().int().positive().optional(),
   lineEnd: z.number().int().positive().optional(),
+  heading: z.string().min(1).optional(),
+  /** Shown in the header in place of the original text. */
+  alias: z.string().min(1).optional(),
   phase: z.enum(["streaming", "complete"]),
 });
 
@@ -215,23 +218,27 @@ function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered, 
   const read = useRpc(readEmbedFile);
   const [expanded, toggleExpanded] = useToggle(stateKey);
   const result = useRead(
-    () => read({ agentId, path: data.path, lineStart: data.lineStart, lineEnd: data.lineEnd }),
-    `text\n${agentId}\n${data.path}\n${data.lineStart}\n${data.lineEnd}`,
+    () => read({ agentId, path: data.path, lineStart: data.lineStart, lineEnd: data.lineEnd, heading: data.heading }),
+    `text\n${agentId}\n${data.path}\n${data.lineStart}\n${data.lineEnd}\n${data.heading}`,
   );
   const ok = result?.status === "ok" ? result : null;
   const detail = ok ? lineLabel(ok.lineStart, ok.lineEnd) : data.lineStart ? lineLabel(data.lineStart, data.lineEnd ?? data.lineStart) : null;
   return (
     <>
-      <CardHeader theme={theme} original={data.original} href={ok ? fileHref(ok.path, ok.lineStart, ok.lineEnd) : null} detail={detail} cardHovered={cardHovered} />
+      <CardHeader theme={theme} original={data.alias ?? data.original} href={ok ? fileHref(ok.path, ok.lineStart, ok.lineEnd) : null} detail={detail} cardHovered={cardHovered} />
       {result?.status === "error" ? (
         <Note theme={theme}>{result.message}</Note>
       ) : ok ? (
         <Pressable accessibilityRole="button" accessibilityLabel={expanded ? "Collapse file preview" : "Expand file preview"} onPress={toggleExpanded}>
           <View style={{ position: "relative" }}>
             <ScrollView scrollEnabled={expanded} style={{ maxHeight: expanded ? bodyHeight : FOLDED_TEXT_HEIGHT }} contentContainerStyle={{ paddingHorizontal: 9, paddingBottom: 8 }}>
-              <Text selectable style={{ color: theme.colors.foreground, fontFamily: MONO, fontSize: CODE_SIZE, lineHeight: 17 }}>
-                {ok.text}
-              </Text>
+              {isMarkdownPath(data.path) ? (
+                <Markdown>{ok.text}</Markdown>
+              ) : (
+                <Text selectable style={{ color: theme.colors.foreground, fontFamily: MONO, fontSize: CODE_SIZE, lineHeight: 17 }}>
+                  {ok.text}
+                </Text>
+              )}
             </ScrollView>
             {!expanded && ok.text.includes("\n") ? <Fade background={background} /> : null}
           </View>

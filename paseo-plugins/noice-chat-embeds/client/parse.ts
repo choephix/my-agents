@@ -5,6 +5,10 @@ export interface Embed {
   path: string;
   lineStart?: number;
   lineEnd?: number;
+  /** `#Some heading`: that heading's section. */
+  heading?: string;
+  /** `|Label`: shown in place of the original text. */
+  alias?: string;
 }
 
 export type Segment =
@@ -20,13 +24,33 @@ const FENCE_START = /^\s*(`{3,}|~{3,})/;
 /** Any line opening a ```svg or ~~~svg fence; a cheap pre-check before parsing. */
 export const SVG_FENCE = /^\s*(?:`{3,}|~{3,})\s*svg(?:\s|$)/im;
 
+/** `path[#fragment][|alias]`, trimmed; null for an empty path. */
+function splitTarget(inner: string): { path: string; fragment: string; alias: string } | null {
+  const [ref, ...aliasParts] = inner.split("|");
+  const hash = ref.indexOf("#");
+  const path = (hash < 0 ? ref : ref.slice(0, hash)).trim();
+  if (!path) return null;
+  return { path, fragment: hash < 0 ? "" : ref.slice(hash + 1).trim(), alias: aliasParts.join("|").trim() };
+}
+
+/** A `#L10`, `#L10-42` or `#L10-L42` fragment (any case) as lines; null when it is not one, "invalid" when backwards. */
+function lineRange(fragment: string): { lineStart: number; lineEnd: number } | "invalid" | null {
+  const range = /^L(\d+)(?:-L?(\d+))?$/i.exec(fragment);
+  if (!range) return null;
+  const lineStart = Number(range[1]);
+  const lineEnd = range[2] ? Number(range[2]) : lineStart;
+  return lineStart < 1 || lineEnd < lineStart ? "invalid" : { lineStart, lineEnd };
+}
+
+/** The syntax of omp's md-embed extension: `path`, then `#L10-L42` or `#Heading`, then `|Label`. */
 function parseEmbed(original: string, inner: string): Embed | null {
-  const range = /^(.*?)(?:#L(\d+)(?:-L?(\d+))?)?$/.exec(inner);
-  if (!range || !range[1].trim()) return null;
-  const lineStart = range[2] ? Number(range[2]) : undefined;
-  const lineEnd = range[3] ? Number(range[3]) : lineStart;
-  if (lineStart !== undefined && lineEnd !== undefined && lineEnd < lineStart) return null;
-  return { original, path: range[1], ...(lineStart ? { lineStart } : {}), ...(lineEnd ? { lineEnd } : {}) };
+  const target = splitTarget(inner);
+  if (!target) return null;
+  const embed: Embed = { original, path: target.path, ...(target.alias ? { alias: target.alias } : {}) };
+  if (!target.fragment) return embed;
+  const range = lineRange(target.fragment);
+  if (range === "invalid") return null;
+  return range ? { ...embed, ...range } : { ...embed, heading: target.fragment };
 }
 
 /** Returns inline-code spans for one non-fenced line. Spans are [start, end), including backticks. */
@@ -99,6 +123,32 @@ export function linkIssueRefs(text: string, link: (number: string) => string): s
   });
 }
 
+const WIKILINK = /(?<![![])\[\[([^[\]\n]+?)\]\](?!\])/g;
+
+/**
+ * Rewrites plain `[[path#fragment|Label]]` wiki links outside code and Markdown links as Markdown
+ * links, which Paseo opens in its file panel. Only targets that look like files are rewritten: a
+ * `/` or `~/` path, or a name with an extension. The label is the alias, else the file name with
+ * its fragment; a line range also goes on the link.
+ */
+export function linkWikiLinks(text: string): string {
+  return mapProseLines(text, (line) => {
+    if (!line.includes("[[")) return line;
+    const spans = [...inlineCodeSpans(line), ...markdownLinkSpans(line)];
+    return line.replace(WIKILINK, (whole, inner: string, offset: number) => {
+      const target = splitTarget(inner);
+      if (!target || isInside(spans, offset) || target.path.includes("://")) return whole;
+      if (!/^~?\//.test(target.path) && !/\.[a-z\d]+$/i.test(target.path)) return whole;
+      const range = lineRange(target.fragment);
+      if (range === "invalid") return whole;
+      const name = target.path.slice(target.path.lastIndexOf("/") + 1);
+      const label = (target.alias || `${name}${target.fragment ? `#${target.fragment}` : ""}`).replace(/[\\[\]]/g, "\\$&");
+      const lines = range ? `#L${range.lineStart}${range.lineEnd === range.lineStart ? "" : `-L${range.lineEnd}`}` : "";
+      return `[${label}](${encodeURI(target.path).replace(/[()]/g, (paren) => (paren === "(" ? "%28" : "%29"))}${lines})`;
+    });
+  });
+}
+
 // `#rgb`, `#rrggbb` or `#rrggbbaa` as a whole token: not after a word character, a backslash
 // escape or URL punctuation (`page#abc`, `/#fff`, `&#123;`), and not followed by more of a word.
 const HEX_COLOR = /(?<![\w#&/?=%\\])#(?:[\da-f]{8}|[\da-f]{6}|[\da-f]{3})(?![\w-])/gi;
@@ -130,8 +180,9 @@ export function addColorSwatches(text: string, swatch: (hex: string) => string):
 
 /**
  * Splits assistant text into markdown, complete Obsidian-style file embeds, and agent embeds
- * (`![[https://app.paseo.sh/h/<serverId>/agent/<agentId>]]`). An agent embed becomes a card only
- * on a line of its own; inside a sentence it is written back as the plain link.
+ * (`![[https://app.paseo.sh/h/<serverId>/agent/<agentId>]]`). File embeds follow omp's md-embed
+ * syntax: `![[path]]`, `![[path#L10-L42]]`, `![[path#Some heading]]`, each optionally `|Label`.
+ * An agent embed becomes a card only on a line of its own; inside a sentence it is written back as the plain link.
  * Fenced blocks and inline-code spans are left untouched, except that with `svg` on, a closed
  * ```svg block becomes its own segment; an unclosed one stays markdown.
  */

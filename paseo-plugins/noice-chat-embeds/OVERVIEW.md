@@ -1,6 +1,18 @@
-Shows inline file previews when an assistant writes an Obsidian-style embed such as `![[src/app.ts#L40-80]]`. The embed text is replaced by a compact card that keeps the original spelling, shows the requested line range, and loads a bounded preview from the agent's working directory. Tap the preview to expand it and scroll; the file link opens the normal Paseo file panel on the side.
+Shows inline file previews when an assistant writes an Obsidian-style embed such as `![[src/app.ts#L40-80]]`. The embed text is replaced by a compact card that keeps the original spelling, shows the requested line range, and loads a bounded preview. Tap the preview to expand it and scroll; the file link opens the normal Paseo file panel on the side.
 
-Only complete embeds in assistant messages are converted. Fenced code blocks, inline code, and half-typed embeds stay as the assistant wrote them. Relative paths use the chat's working directory. Absolute paths and `~/` paths are accepted only when they resolve inside that directory. Missing, unreadable, binary, and oversized requests show a muted error instead of breaking the message.
+Only complete embeds in assistant messages are converted. Fenced code blocks, inline code, and half-typed embeds stay as the assistant wrote them. Relative paths use the chat's working directory. Missing, unreadable, binary, and oversized requests show a muted error instead of breaking the message.
+
+## Embed syntax
+
+The syntax is the same as omp's md-embed extension (drawn in Tern by the `md-embed` Tern plugin), so one instruction to agents works in both:
+
+- `![[/abs/file.md]]` or `![[~/file.md]]`: the whole file. A Markdown file drops its front matter.
+- `![[file#L10-L42]]`, `#L10-42` or `#L10`: those lines, `L` in any case.
+- `![[file.md#Some heading]]`: that heading's section, from below the heading up to the next heading of its level or higher. The heading text matches in any case; headings inside fenced code don't count.
+- `|Label` after any of the above, as in `![[file.md#Plan|The plan]]`: the card header shows the label instead of the original text.
+- `[[file.md#Plan]]` without the `!`: a plain Markdown link, labelled with the file name and fragment or the `|Label`, which opens in the file panel. Only targets that look like files are linked: a `/` or `~/` path, or a name with an extension, so `[[Page Name]]` stays text.
+
+Markdown files (`.md`, `.markdown`) preview as formatted Markdown and may live in any folder. Every other file previews as monospace text and must be inside the chat's working directory: absolute and `~/` paths are accepted only when they resolve there, and a symlink inside the folder can't point outside it. A `.md` symlink may point anywhere, as long as its target is also Markdown. Embeds inside an embedded Markdown file stay as text.
 
 The plugin is enabled by default, and one switch covers every embed kind below, colour swatches included. Use **⌘K → Toggle file embeds** (or Ctrl+K on Windows and Linux) for a quick switch. The same setting is available at **Settings → Plugins → noice-chat-embeds → File embeds**. Turning it off leaves native Paseo message rendering untouched. Opening Paseo tab links in place (last section) has its own switch next to it.
 

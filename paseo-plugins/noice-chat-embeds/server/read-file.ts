@@ -5,7 +5,7 @@ import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
-import { embedKind, IMAGE_TYPES, readEmbedAsset, readEmbedFile, type EmbedReadErrorCode } from "../shared/preferences";
+import { embedKind, IMAGE_TYPES, isMarkdownPath, readEmbedAsset, readEmbedFile, type EmbedReadErrorCode } from "../shared/preferences";
 
 /** Most text a card receives. */
 const MAX_BYTES = 64 * 1024;
@@ -27,7 +27,10 @@ function isInside(target: string, root: string): boolean {
   return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
 
-/** Resolves an embed path against the chat's folder; only regular files inside it are returned. */
+/**
+ * Resolves an embed path against the chat's folder. Markdown files resolve from anywhere, as in
+ * omp's md-embed extension; every other file only inside the chat's folder.
+ */
 async function resolveEmbedPath(
   agentId: string,
   requestedPath: string,
@@ -38,13 +41,15 @@ async function resolveEmbedPath(
 
   const cwd = path.resolve(agent.agent.cwd);
   const requested = path.resolve(cwd, requestedPath.replace(/^~(?=$|[\\/])/, homedir()));
-  // Checked before touching the disk so "not found" never reveals files outside the chat's folder.
-  if (!isInside(requested, cwd)) return error("disallowed", "That file is outside the chat's working directory.");
+  const markdown = isMarkdownPath(requested);
+  // Checked before touching the disk so "not found" never reveals other files outside the chat's folder.
+  if (!markdown && !isInside(requested, cwd)) return error("disallowed", "That file is outside the chat's working directory.");
 
   try {
-    // Symlinks are resolved on both sides, so a link inside the folder cannot point outside it.
+    // Symlinks are resolved on both sides, so a link inside the folder cannot point outside it,
+    // and a Markdown name cannot point at another kind of file outside it.
     const [realRoot, real] = await Promise.all([realpath(cwd), realpath(requested)]);
-    if (!isInside(real, realRoot)) return error("disallowed", "That file links outside the chat's working directory.");
+    if (!isInside(real, realRoot) && !(markdown && isMarkdownPath(real))) return error("disallowed", "That file links outside the chat's working directory.");
     // FIFOs, devices and directories would block or never end; only regular files are read.
     const info = await stat(real);
     if (!info.isFile()) return error("unreadable", "Only regular files are previewed.");
@@ -74,6 +79,65 @@ export async function readAsset(
   }
 }
 
+const FENCE = /^\s*(?:>\s?)*\s*(`{3,}|~{3,})/;
+const HEADING = /^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/;
+
+/**
+ * The section under a heading, as omp's md-embed reads it: the first heading outside fenced code
+ * whose text matches (any case), up to the next heading of its level or higher. Blank lines at
+ * either end are dropped.
+ */
+async function readSection(real: string, size: number, heading: string): Promise<Output> {
+  if (size > MAX_SCAN_BYTES) return error("too-large", "This file is too large to search for a heading.");
+  let source: Buffer;
+  try {
+    source = await readFile(real);
+  } catch {
+    return error("unreadable", "File could not be read.");
+  }
+  if (source.includes(0)) return error("binary", "Binary files are not previewed.");
+  const lines = source.toString("utf8").replace(/\r\n?/g, "\n").split("\n");
+  const want = heading.trim().toLowerCase();
+  let open: string | undefined;
+  let headingLine = 0;
+  let level = 0;
+  let to = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    const fence = FENCE.exec(lines[i])?.[1];
+    if (open) {
+      if (fence && fence[0] === open[0] && fence.length >= open.length) open = undefined;
+      continue;
+    }
+    if (fence) {
+      open = fence;
+      continue;
+    }
+    const match = HEADING.exec(lines[i]);
+    if (!match) continue;
+    if (!headingLine) {
+      if (match[2].trim().toLowerCase() !== want) continue;
+      headingLine = i + 1;
+      level = match[1].length;
+    } else if (match[1].length <= level) {
+      to = i;
+      break;
+    }
+  }
+  if (!headingLine) return error("missing", `No heading "${heading}" in this file.`);
+
+  let from = headingLine;
+  while (from < to && !lines[from].trim()) from++;
+  while (to > from && !lines[to - 1].trim()) to--;
+  if (from === to) return { status: "ok", path: real, lineStart: headingLine, lineEnd: headingLine, text: "", truncated: false };
+  let last = from;
+  let bytes = 0;
+  while (last < to && bytes + lines[last].length <= MAX_BYTES) bytes += lines[last++].length + 1;
+  // One endless first line: show its beginning.
+  const text = last === from ? lines[from].slice(0, MAX_BYTES) : lines.slice(from, last).join("\n");
+  last = Math.max(last, from + 1);
+  return { status: "ok", path: real, lineStart: from + 1, lineEnd: last, text, truncated: last < to };
+}
+
 export async function readFileWindow(
   input: RpcInput<typeof readEmbedFile>,
   context: PluginHandlerContext,
@@ -84,6 +148,7 @@ export async function readFileWindow(
   const file = await resolveEmbedPath(input.agentId, input.path, context);
   if ("status" in file) return file;
   const { real } = file;
+  if (input.heading) return readSection(real, file.size, input.heading);
 
   const lines: string[] = [];
   let bytes = 0;
@@ -144,5 +209,13 @@ export async function readFileWindow(
     if (input.lineStart !== undefined || lineNo > 1) return error("invalid-range", "The requested line is not present in this file.");
     return { status: "ok", path: real, lineStart: 1, lineEnd: 1, text: "", truncated: false };
   }
-  return { status: "ok", path: real, lineStart: start, lineEnd: start + lines.length - 1, text: lines.join("\n"), truncated };
+  // A whole Markdown file drops its front matter and leading blank lines, as in omp's md-embed.
+  let first = 0;
+  if (input.lineStart === undefined && isMarkdownPath(real)) {
+    const close = lines[0] === "---" ? lines.indexOf("---", 1) : -1;
+    if (close > 0) first = close + 1;
+    while (first < lines.length && !lines[first].trim()) first++;
+    if (first === lines.length) first = 0;
+  }
+  return { status: "ok", path: real, lineStart: start + first, lineEnd: start + lines.length - 1, text: lines.slice(first).join("\n"), truncated };
 }
