@@ -84,25 +84,36 @@ local function question_of(main: any, url: string): { string }
 	return {}
 end
 
--- The composer text after picking `line`, whose question's lines are `siblings`.
+-- The composer text after picking `line`, whose question's lines are `siblings`. When the text ends in a
+-- quote, a blank line follows it with the caret after, so typing starts a new paragraph, not more quote.
 local function picked(text: string, line: string, siblings: { [string]: boolean }): string
 	local lines = if text == "" then {} else text:split("\n")
+	local placed = false
 	for i, l in lines do
 		if l == line then
 			table.remove(lines, i)
-			return table.concat(lines, "\n")
+			placed = true
+			break
 		end
 	end
-	for i, l in lines do
-		if siblings[l] then
-			lines[i] = line
-			return table.concat(lines, "\n")
+	if not placed then
+		for i, l in lines do
+			if siblings[l] then
+				lines[i] = line
+				placed = true
+				break
+			end
 		end
 	end
-	if #lines > 0 and lines[#lines] == "" then
-		lines[#lines] = line
-	else
+	while #lines > 0 and lines[#lines] == "" do
+		table.remove(lines)
+	end
+	if not placed then
 		table.insert(lines, line)
+	end
+	if #lines > 0 and lines[#lines]:sub(1, #QUOTE) == QUOTE then
+		table.insert(lines, "")
+		table.insert(lines, "")
 	end
 	return table.concat(lines, "\n")
 end
