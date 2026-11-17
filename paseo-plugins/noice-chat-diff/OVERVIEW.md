@@ -23,10 +23,16 @@ colors.
 
 Blocks fenced as `diff` or `patch` are always colored. Unlabeled blocks are colored only when they
 look like a diff: git headers (`diff --git`, `---`/`+++`, `@@ -1,3`) or every line starting with
-`+`, `-` or a space, with at least one of each. Blocks labeled with another language are left alone.
-The code language comes from the file names in the diff headers; mock diffs without headers get a
-best guess. Lines that read as prose (a prompt, docs, a message) get no syntax colors, so words like
-`from` and `in` aren't painted as keywords; neither do Markdown and text files. Markdown is read
+`+`, `-` or a space, with at least one of each. Blocks labeled with a code language (`ts`,
+`typescript`, `python`, `sh`, `yaml`…) pass the same checks, and also count as a mock diff when at
+least one line starts with `+ ` and one with `- ` (sign, then a space), so plain code and `//` notes
+between the rows are fine; their syntax colors follow the label. Markdown, text and unknown labels
+are left alone, since their `- ` and `+ ` are list markers. Of 2,182 distinct code-labeled blocks in
+Stefan's transcripts (2026-11-17), 12 count as diffs this way, all of them mock diffs.
+The code language comes from the file names in the diff headers, else the fence label; mock diffs
+with neither get a best guess. Lines that read as prose (a prompt, docs, a message) get no syntax
+colors, so words like `from` and `in` aren't painted as keywords; neither do Markdown and text
+files. Markdown is read
 through: list and quote markers, headings, links, bold and inline code don't stop a line from being
 prose, and a headerless diff whose every line is Markdown or text gets no syntax colors at all.
 Comments keep their comment color; `key: value` lines stay code (YAML).

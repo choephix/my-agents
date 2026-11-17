@@ -46,14 +46,16 @@ const MAX_SYNTAX_CHARS = 100_000;
 const DIFF_FENCES: Record<string, true> = { diff: true, patch: true, udiff: true };
 
 /**
- * Whether a fenced block is a diff. Labeled `diff`/`patch` fences always are. Unlabeled fences need
- * git structure (`@@ -1`, `diff --git`, a `---`/`+++` pair) or every line shaped like a diff row with
- * at least one addition and one removal. Fences labeled with any other language are left alone.
+ * Whether a fenced block is a diff. Labeled `diff`/`patch` fences always are. Unlabeled fences and
+ * fences labeled with a code language (`fenceLang`) need git structure (`@@ -1`, `diff --git`, a
+ * `---`/`+++` pair) or every line shaped like a diff row with at least one addition and one removal.
+ * A code fence also passes as a mock diff: at least one `+ ` and one `- ` line (sign, then a space or
+ * nothing) among plain code and comments. Other fences (Markdown, text, unknown) are left alone.
  */
 export function isDiffBlock(language: string | null, text: string): boolean {
   const lang = (language ?? "").trim().split(/\s+/)[0]!.toLowerCase();
   if (DIFF_FENCES[lang] === true) return true;
-  if (lang) return false;
+  if (lang && !fenceLang(lang)) return false;
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
@@ -62,13 +64,44 @@ export function isDiffBlock(language: string | null, text: string): boolean {
   }
   let adds = 0;
   let dels = 0;
+  let spacedAdds = 0;
+  let spacedDels = 0;
+  let shaped = true;
   for (const line of lines) {
     if (line === "") continue;
-    if (line[0] === "+") adds++;
-    else if (line[0] === "-") dels++;
-    else if (line[0] !== " ") return false;
+    const spaced = line.length === 1 || line[1] === " " || line[1] === "\t";
+    if (line[0] === "+") {
+      adds++;
+      if (spaced) spacedAdds++;
+    } else if (line[0] === "-") {
+      dels++;
+      if (spaced) spacedDels++;
+    } else if (line[0] !== " ") {
+      if (!lang) return false;
+      shaped = false;
+    }
   }
-  return adds > 0 && dels > 0;
+  if (shaped) return adds > 0 && dels > 0;
+  return spacedAdds > 0 && spacedDels > 0;
+}
+
+/** Fence labels that are no file extension, mapped to one. */
+const FENCE_ALIASES: Record<string, string> = {
+  typescript: "ts",
+  javascript: "js",
+  rust: "rs",
+  golang: "go",
+  kotlin: "kt",
+  csharp: "cs",
+  "c#": "cs",
+  "c++": "cpp",
+};
+
+/** Language for a fence label (`ts`, `typescript`, `python`), or undefined for Markdown, text and unknown labels. */
+export function fenceLang(language: string | null): LangId | undefined {
+  const label = (language ?? "").trim().split(/\s+/)[0]!.toLowerCase();
+  if (Object.hasOwn(LANGS, label)) return label as LangId;
+  return EXTENSIONS[FENCE_ALIASES[label] ?? label];
 }
 
 // ---------------------------------------------------------------- languages
@@ -296,8 +329,11 @@ function headerPath(line: string): string | undefined {
   return undefined;
 }
 
-/** Classifies each line of a diff block and colors its code by the file's language. */
-export function parseDiff(text: string): DiffModel {
+/**
+ * Classifies each line of a diff block and colors its code by the file's language: from the diff's
+ * file headers, else the fence's language (`fenceLang`), else a guess from the code.
+ */
+export function parseDiff(text: string, fence?: LangId): DiffModel {
   const rows = text.split("\n");
   const kinds: LineKind[] = rows.map((line, i) => {
     if (FILE_META.test(line) || PATCH_FILE.test(line)) return "header";
@@ -311,12 +347,13 @@ export function parseDiff(text: string): DiffModel {
   });
 
   // A diff that names its files colors each file by extension (unknown extensions stay plain);
-  // a headerless mock diff is sniffed once from its code. A headerless diff of Markdown or plain
-  // text (every line a heading, a rule or prose) gets no syntax colors, like a `.md` file.
+  // a headerless mock diff takes its fence's language, else it is sniffed once from its code. A
+  // headerless diff of Markdown or plain text (every line a heading, a rule or prose) gets no
+  // syntax colors, like a `.md` file.
   const named = rows.some((line, i) => kinds[i] === "header" && headerPath(line) !== undefined);
   const highlightSyntax = text.length <= MAX_SYNTAX_CHARS;
   const code = highlightSyntax && !named ? rows.filter((_, i) => kinds[i] !== "header" && kinds[i] !== "hunk").map((l) => l.slice(1)) : [];
-  let lang: Lang | undefined = highlightSyntax && !named ? LANGS[sniffLang(code.join("\n"))] : undefined;
+  let lang: Lang | undefined = highlightSyntax && !named ? LANGS[fence ?? sniffLang(code.join("\n"))] : undefined;
   if (lang && isTextBlock(lang, code)) lang = undefined;
   let oldState: TokenState = {};
   let newState: TokenState = {};

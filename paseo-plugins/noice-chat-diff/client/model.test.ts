@@ -7,8 +7,15 @@ describe("isDiffBlock", () => {
     expect(isDiffBlock("patch", "x")).toBe(true);
   });
 
-  it("leaves fences labeled with another language alone, even with +/- lines", () => {
-    expect(isDiffBlock("ts", "- const a = 1;\n+ const a = 2;")).toBe(false);
+  it("accepts mock diffs in fences labeled with a code language, among plain code and comments", () => {
+    expect(isDiffBlock("ts", "// web.ts\n- const a = 1;\n+ const a = 2;\ntry {")).toBe(true);
+    expect(isDiffBlock("typescript", "-const a = 1;\n+const a = 2;\n  b();")).toBe(true);
+  });
+
+  it("leaves code fences without both +/- rows, and Markdown or unknown fences, alone", () => {
+    expect(isDiffBlock("ts", "const a = 1\n+ b\n-c")).toBe(false);
+    expect(isDiffBlock("md", "- one\n+ two")).toBe(false);
+    expect(isDiffBlock("text", "- one\n+ two")).toBe(false);
   });
 
   it("accepts unlabeled blocks with git structure or diff-shaped rows", () => {

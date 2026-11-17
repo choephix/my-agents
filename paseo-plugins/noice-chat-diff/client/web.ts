@@ -1,5 +1,5 @@
 import { Platform } from "react-native";
-import { isDiffBlock, parseDiff, type DiffModel, type EditKind, type TokenKind } from "./model";
+import { fenceLang, isDiffBlock, parseDiff, type DiffModel, type EditKind, type TokenKind } from "./model";
 import { diffPalette, tint, type DiffPalette, type Scheme, type Side } from "./palette";
 
 // Web and desktop only. Paseo renders chat code blocks as React Native Web views marked with
@@ -312,7 +312,8 @@ export function startDiffHighlighting(): () => void {
   const process = (pre: DomElement) => {
     const code = pre.querySelector(CODE);
     const text = code?.textContent ?? "";
-    if (!code || !pre.isConnected || !isDiffBlock(pre.getAttribute(LANGUAGE), text)) return clear(pre);
+    const language = pre.getAttribute(LANGUAGE);
+    if (!code || !pre.isConnected || !isDiffBlock(language, text)) return clear(pre);
     const existing = blocks.get(pre);
     // Same nodes: the colors so far still sit on the right text. Replaced text nodes (a re-render
     // with the same text) leave the old ranges pointing nowhere, so those blocks are redone now.
@@ -337,7 +338,7 @@ export function startDiffHighlighting(): () => void {
       offset += textNode.data.length;
     }
     const quiet = pre.closest(QUIET) !== null;
-    const block: Block = { code, text, model: parseDiff(text), ranges: [], nodes, starts, quiet, size: "", shown: false, at: Date.now() };
+    const block: Block = { code, text, model: parseDiff(text, fenceLang(language)), ranges: [], nodes, starts, quiet, size: "", shown: false, at: Date.now() };
     const mark = (name: string, start: number, end: number) => {
       const from = highlights.has(name) && locate(block, start);
       const to = from && locate(block, end);
