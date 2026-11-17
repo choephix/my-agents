@@ -1,6 +1,6 @@
 ---
 name: tern
-description: Control Tern, Stefan's terminal (tabs, panes, sessions): open a tab or split running a command, type into a pane, read its screen, wait for its program, follow events, drive its browser. Works from any shell of user cx, inside a Tern pane or not.
+description: Control Tern, Stefan's terminal (tabs, panes, sessions): open a tab or split running a command, type into a pane, read its screen, wait for its program, follow events, drive its browser; or link Stefan to a pane. Works from any shell of user cx, inside a Tern pane or not.
 ---
 
 # tern
@@ -20,9 +20,13 @@ tern ls --json                                   # sessions, tabs, blocks
 id=$(tern new tab --json --cwd DIR --keep-open -- CMD… | jq .block)
 tern wait "$id" --until exit --timeout 60        # or --until prompt | idle=MS; 124 = timed out
 tern capture "$id" --scrollback                  # what the pane shows
-tern close "$id"                                 # leave his tabs as you found them
+tern close "$id"
 ```
 
 `--keep-open` keeps a tab whose program succeeds; without it the tab closes on exit 0 and there is nothing to capture. `tern run BLOCK CMD…` types into an existing shell pane; `tern send BLOCK keys|text|paste …` for anything finer.
 
 Tabs you open for a check are yours to close before yielding.
+
+## Links to a pane
+
+`http://HOST/tern/focus/<pane>`, HOST being `hostname`'s output, switches Stefan's Tern window to that pane when he clicks it; `<pane>` is the numeric block id (`$TERN_PANE` inside it, or `tern ls --json`). Give one whenever you point him at a Tern session. The link dies with the pane. On this machine HOST does not answer; `http://127.0.0.1:7070/tern/focus/<pane>` is the same route.
