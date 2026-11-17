@@ -276,6 +276,42 @@ treated like other providers: Fork context and held delivery.
 plugin, where it is now off by default). OMP's live command list has no `tangent`
 command for this one to shadow.
 
+## Move tab to a new workspace (Command Center)
+
+With a chat tab focused, **Command Center → Move tab to a new workspace** opens the
+plugin's **Move tab** screen for that tab (the item is hidden when the focused tab is not
+an agent). The screen has two fields, both prefilled:
+
+- **Workspace name**: the tab's title. Empty uses the tab's title too.
+- **Folder**: the tab's folder. `~` is expanded; the folder must exist.
+
+**Move** creates a new workspace for that folder, then:
+
+- **Same folder** (compared by real path): the agent is archived and its provider
+  session is imported into the new workspace. Paseo answers that import by unarchiving
+  the **same agent** there: same ID, title, history, settings and labels. If the import
+  fails, the agent is reopened where it was.
+- **Another folder**: Paseo refuses to import a session into a different folder than
+  its own, so a new agent continues the chat there, built like a side agent but
+  standalone (no parent link, not in any sub-agents strip), with the tab's title and
+  the tab's provider/model, mode, thinking and features. OMP tabs get **Full** memory
+  (provider ID `omp` only), with the copied session's header `cwd` set to the new folder
+  and a `side-fork` note saying the chat moved and that paths in earlier messages name
+  the old folder; nothing is sent, the new tab opens idle. Other providers get
+  **Fork** context and the prompt to reply only "Ready." The old agent is archived once
+  the new one exists. The full-memory copy stays in the old folder's OMP session directory.
+
+A tab that is mid-turn is refused ("still working"), since archiving would stop the turn.
+Any failure archives the new workspace again and shows the error in red on the screen.
+On success the app opens the moved (or new) agent; **Cancel** goes back to the tab.
+
+Checked live on Paseo 0.16.1 in the web app: an OMP tab moved within its folder kept its ID
+and answered from its history; an OMP tab moved to another folder answered from its old
+history and ran `pwd` in the new folder; a Codex tab did the same through the fork summary;
+a missing folder showed the error and created nothing. Seen twice, right after an OMP move
+in the same page: the first reply only showed after a page refresh; the moved agent opened
+later streamed normally.
+
 ## Files and operation
 
 - Fork mode creates only the normal Paseo/OMP child session.
@@ -286,7 +322,7 @@ command for this one to shadow.
 - Failed full launches archive the imported child and remove their copy when
   cleanup succeeds. The live tests archived their agents before explicitly
   deleting all test-created full-memory copies and sidecar directories.
-- The server part registers settings, the `/side` and `/tangent` RPC
+- The server part registers settings, the `/side`, `/tangent` and move-tab RPC
   handlers, two lifecycle listeners
   (`agent.turn_ended`, `agent.archived`) that watch tangents, and the
   `agent.session_open` hook that gives tangents their tools. It uses

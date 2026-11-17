@@ -6,6 +6,7 @@ import { createSide, createTangent } from "./shared/preferences";
 import { parseTangentReports, TANGENT_REPORT_START, TANGENT_ROW_KIND } from "./shared/report";
 import { ContextSettings } from "./client/settings";
 import { createTangentRows, ReportRowData, TangentRowData } from "./client/tangent-row";
+import { MoveTabScreen } from "./client/move";
 
 // Slash callbacks and timeline rows have openScreen, not navigation. A registered screen
 // supplies the public host navigation on native as well as web, without private imports.
@@ -82,5 +83,16 @@ export default function contribute(client: PluginClientContext) {
   const rows = createTangentRows((serverId, agentId) => client.openScreen({ screenId: "open", params: { serverId, agentId } }));
   const reportRow = client.addTimelineRenderer({ kind: "tangent-report", version: 1, schema: ReportRowData, Component: rows.ReportMessageRow });
   const tangentRow = client.addTimelineRenderer({ kind: TANGENT_ROW_KIND, version: 1, schema: TangentRowData, Component: rows.TangentRow });
-  return () => { tangentRow(); reportRow(); reports(); tangent(); slash(); settings(); screen(); };
+  const moveScreen = client.addScreen({ id: "move", title: "Move tab", Component: MoveTabScreen });
+  const moveItem = client.addCommandCenterItem({
+    id: "move-tab",
+    title: "Move tab to a new workspace",
+    icon: "FolderInput",
+    keywords: ["move", "workspace", "folder", "cwd", "relocate", "tab"],
+    context: "agent",
+    onSelect({ agent, openScreen }) {
+      openScreen({ screenId: "move", params: { agentId: agent.id, cwd: agent.cwd, title: agent.title ?? "", provider: agent.provider } });
+    },
+  });
+  return () => { moveItem(); moveScreen(); tangentRow(); reportRow(); reports(); tangent(); slash(); settings(); screen(); };
 }

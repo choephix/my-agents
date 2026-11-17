@@ -2,8 +2,9 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { PaseoApi } from "@getpaseo/client";
 import { defineAgentTool, type PluginServerContext } from "@getpaseo/plugin/server";
 import { z } from "zod";
-import { createSide, createTangent, preferences } from "./shared/preferences";
+import { createSide, createTangent, moveTab, preferences } from "./shared/preferences";
 import { childTitle, launchChild } from "./server/launch";
+import { moveTab as move } from "./server/move";
 import { daemonPort, rowTask, TangentWatcher, TANGENT_LABEL, TANGENT_PARENT_LABEL, TANGENT_STARTED_LABEL, TANGENT_TASK_LABEL } from "./server/tangents";
 
 export default function contribute(server: PluginServerContext) {
@@ -24,6 +25,7 @@ export default function contribute(server: PluginServerContext) {
     }));
     return { agentId: child.agentId, mode: child.mode };
   });
+  server.handle(moveTab, (input, { paseo }) => move(paseo, input));
 
   // The plugin's own Paseo API, from the first handler or hook call: only it may append timeline rows.
   let api: PaseoApi | undefined;

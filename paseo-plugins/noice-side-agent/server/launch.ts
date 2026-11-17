@@ -15,6 +15,11 @@ export interface ChildPlan {
   /** Full mode: sent as the child's first message; empty sends nothing. */
   task: string;
   labels: Record<string, string>;
+  /** Where the child works; defaults to the parent's folder and workspace. */
+  cwd?: string;
+  workspaceId?: string;
+  /** False makes a standalone agent, outside the parent's sub-agents strip. Default true. */
+  linkParent?: boolean;
 }
 
 export interface LaunchedChild {
@@ -29,7 +34,8 @@ export async function launchChild(paseo: PaseoApi, parentId: string, plan: (pare
   const result = await paseo.agents.ref(parentId).refresh();
   if (!result || result.agent.archivedAt) throw new Error("The parent agent is no longer available.");
   const parent = result.agent;
-  const { mode, title, forkPrompt, fullNote, task, labels } = plan(parent);
+  const { mode, title, forkPrompt, fullNote, task, labels, cwd: targetCwd, workspaceId, linkParent = true } = plan(parent);
+  const cwd = targetCwd ?? parent.cwd;
   const thinkingOptionId = parent.thinkingOptionId ?? parent.effectiveThinkingOptionId;
   const featureValues = Object.fromEntries((parent.features ?? []).map(feature => [feature.id, feature.value]));
   const daemon = await connectLocalDaemon();
@@ -44,8 +50,8 @@ export async function launchChild(paseo: PaseoApi, parentId: string, plan: (pare
       const attachment = { ...context.attachment };
       const prefix = "<chat-history-summary>\n[Earlier history omitted; newest kept]\n";
       if (attachment.text.length > 100_000) attachment.text = prefix + attachment.text.slice(-(100_000 - prefix.length));
-      const child = await paseo.agents.create({
-        cwd: parent.cwd, parent: parent.id, title, prompt: forkPrompt, labels,
+      const options = {
+        ...(linkParent ? { parent: parent.id } : {}), title, prompt: forkPrompt, labels,
         config: {
           provider: parent.model ? `${parent.provider}/${parent.model}` : parent.provider,
           ...(parent.currentModeId ? { modeId: parent.currentModeId } : {}),
@@ -53,16 +59,18 @@ export async function launchChild(paseo: PaseoApi, parentId: string, plan: (pare
           featureValues,
         },
         attachments: [attachment],
-      });
+      };
+      const child = workspaceId ? await paseo.workspaces.ref(workspaceId).agents.create(options) : await paseo.agents.create({ cwd, ...options });
       return { agentId: child.id, mode, title, parent };
     }
     if (parent.provider !== "omp") throw new Error("Full memory is OMP-only; use /side --fork for this provider.");
     if (!parent.persistence?.nativeHandle) throw new Error("Parent OMP session file is unavailable.");
-    sessionCopy = await copyCompletedSession(parent.persistence.nativeHandle, fullNote);
+    sessionCopy = await copyCompletedSession(parent.persistence.nativeHandle, fullNote, targetCwd);
+    const target = workspaceId ?? parent.workspaceId;
     const child = await daemon.importAgent({
-      providerId: "omp", providerHandleId: sessionCopy, cwd: parent.cwd,
-      ...(parent.workspaceId ? { workspaceId: parent.workspaceId } : {}),
-      labels: { "paseo.parent-agent-id": parent.id, ...labels },
+      providerId: "omp", providerHandleId: sessionCopy, cwd,
+      ...(target ? { workspaceId: target } : {}),
+      labels: linkParent ? { "paseo.parent-agent-id": parent.id, ...labels } : labels,
     });
     importedId = child.id;
     await daemon.updateAgent(child.id, { name: title });

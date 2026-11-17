@@ -20,3 +20,10 @@ export const createTangent = defineRpc({
   input: z.object({ parentId: z.string().min(1), task: z.string().trim().min(1) }),
   output: z.object({ agentId: z.string(), mode: modeSchema, title: z.string() }),
 });
+
+/** `folder` empty or the tab's own folder moves the agent itself; another folder continues it there. */
+export const moveTab = defineRpc({
+  name: "move-tab",
+  input: z.object({ agentId: z.string().min(1), folder: z.string().trim().default(""), title: z.string().trim().default("") }),
+  output: z.object({ agentId: z.string(), workspaceId: z.string(), how: z.enum(["moved", "fork", "full"]) }),
+});

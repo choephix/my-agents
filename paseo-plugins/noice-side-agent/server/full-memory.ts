@@ -11,7 +11,8 @@ const entrySchema = z.object({
   }).passthrough().optional(),
 }).passthrough();
 
-export async function copyCompletedSession(source: string, contextNote: string): Promise<string> {
+/** `cwd`, when given, becomes the copy's working folder (header `cwd`); paths in the history stay as they were. */
+export async function copyCompletedSession(source: string, contextNote: string, cwd?: string): Promise<string> {
   if (!source.startsWith("/") || !source.endsWith(".jsonl")) throw new Error("Parent OMP session path is unavailable.");
   const handle = await open(source, "r");
   let bytes: Buffer;
@@ -45,7 +46,7 @@ export async function copyCompletedSession(source: string, contextNote: string):
   const timestamp = new Date().toISOString();
   const id = randomUUID();
   entries[headerIndex] = {
-    ...header, id, timestamp, parentSession: header.id,
+    ...header, id, timestamp, ...(cwd ? { cwd } : {}), parentSession: header.id,
     providerPromptCacheKey: header.providerPromptCacheKey ?? header.id,
   };
   const parentEntryId = entries.at(-1)?.id;
