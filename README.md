@@ -12,6 +12,7 @@ My agentic stuff.
 - [Warn, stop subagents, or pause when a provider quota runs low](.omp/extensions/usage-guard)
 - [Keep a running ledger of a long planning conversation](.omp/extensions/scribe), written by a cheap side model
 - [`@imports` and `` !`shell` `` expansion in SKILL.md](.omp/extensions/skill-directives)
+- [Show a Markdown file inline when a reply writes `![[/path.md]]`](.omp/extensions/md-embed), Obsidian style
 
 ## Old sessions
 
