@@ -16,6 +16,11 @@ local function lower(s: string?): string?
 	return if s then string.lower(s) else nil
 end
 
+-- Tern names a remote host as it was added (`cx@server`, `ark:2222`); rules name the machine.
+local function machine(s: string?): string?
+	return if s then lower((s:gsub("^.*@", ""):gsub(":%d+$", ""))) else nil
+end
+
 -- `--profile X`, `OMP_PROFILE=X` or `PI_PROFILE=X` in a command line, and whether it runs omp at all.
 local function profile_in(line: string?): (boolean, string?)
 	if not line then
@@ -106,7 +111,7 @@ end
 -- The first rule whose every condition holds, and its position.
 local function match(cx, ctx): (number?, any)
 	for i, rule in doc.rules or {} do
-		if (rule.host == nil or lower(rule.host) == lower(ctx.host))
+		if (rule.host == nil or machine(rule.host) == machine(ctx.host))
 			and (rule.session == nil or lower(rule.session) == lower(ctx.session))
 			and (rule.profile == nil or lower(rule.profile) == lower(ctx.profile))
 			and installed(cx, rule)

@@ -48,7 +48,7 @@ Stefan's Tern app runs the [theme-rules plugin](~/workspace/my-agents/tern-plugi
 
 - The first rule whose every key matches wins; order the list by priority. Keys compare case-insensitively.
 - `profile` is the omp profile of the focused pane's omp (`default` when none is picked); it never matches a pane without omp. Your own is `$OMP_PROFILE`, else the `profiles/<name>/` part of your session file's path, else `default`. `dirs` mirrors the `omp()` wrapper in `~/.bashrc`: a bare `omp` under a folder named `nilo` or `nilo-*` runs profile `nilo`.
-- `session` is the Tern session name (`tern ls --json`); `host` is the machine the session runs on, as Tern on Stefan's PC names it. "Theme rules: why this theme" in Tern's palette shows the exact host, session and profile.
+- `session` is the Tern session name (`tern ls --json`); `host` is the machine the session runs on, bare (`ark`): Tern's `user@` and `:port` around it are ignored. "Theme rules: why this theme" in Tern's palette shows the exact host, session and profile.
 - `theme` sets the dark appearance, `light` the light one; an appearance a rule leaves out keeps Stefan's own pick. Names come only from [themes.txt](~/workspace/my-agents/tern-plugins/theme-rules/themes.txt); an unknown one shows Stefan an error toast and the rule is skipped.
 - With no rule matching, Tern goes back to the theme Stefan last picked himself.
 
