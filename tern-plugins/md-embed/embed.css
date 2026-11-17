@@ -1,0 +1,38 @@
+/* omp's md-embed extension draws an embed as a NOTE callout whose first line links the
+   file with the title "Embedded file" (Tern shows the title, then the path, as the
+   link's tooltip). These rules restyle only those callouts. */
+
+.sf-md .md .callout.note:has(> .co-body > p:first-child > a[title^="Embedded file"]) {
+	align-self: stretch;
+	box-sizing: border-box;
+	width: 100%;
+	padding: 10px 14px;
+	border: 1px dashed rgb(from var(--accent) r g b / 35%);
+	border-radius: 10px;
+	background: none;
+	box-shadow: none;
+}
+
+.sf-md .md .callout.note:has(> .co-body > p:first-child > a[title^="Embedded file"]) > .co-ic {
+	display: none;
+}
+
+.sf-md .md .callout.note:has(> .co-body > p:first-child > a[title^="Embedded file"]) > .co-body > p:first-child {
+	margin: 0 0 6px;
+	font: 12px var(--mono);
+	opacity: 0.7;
+}
+
+.sf-md .md .callout.note:has(> .co-body > p:first-child > a[title^="Embedded file"]) :is(h1, h2, h3, h4, h5, h6) {
+	margin: 12px 0 4px;
+	font-size: 1.05em;
+	color: inherit;
+}
+
+/* Bodies of embeds, and of callouts holding one, span the width, so an embed inside your
+   own callout is as wide as it, and callouts inside an embed line up the same at every depth. */
+.sf-md .md .callout.note:has(> .co-body > p:first-child > a[title^="Embedded file"]) > .co-body,
+.sf-md .md .callout > .co-body:has(> .callout.note > .co-body > p:first-child > a[title^="Embedded file"]) {
+	flex: 1 1 auto;
+	min-width: 0;
+}

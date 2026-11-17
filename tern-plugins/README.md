@@ -11,3 +11,11 @@ tern plugin install github.com/choephix/my-agents/tern-plugins/choices --force
 ```
 
 `--force` replaces an installed copy, so the same command installs and updates.
+
+## [Markdown embeds](md-embed)
+
+Draws the embeds of the [md-embed omp extension](../.omp/extensions/md-embed) (`![[/abs/file.md]]` in a reply) as quiet dashed cards instead of blue NOTE callouts.
+
+```sh
+tern plugin install github.com/choephix/my-agents/tern-plugins/md-embed --force
+```

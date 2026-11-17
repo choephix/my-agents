@@ -63,6 +63,7 @@ My agentic stuff.
 ## Tern
 
 - [Clickable answer choices in omp chats](tern-plugins/choices), [with copy-paste install commands](tern-plugins)
+- [Embedded Markdown files as quiet dashed cards](tern-plugins/md-embed), for the [md-embed extension](.omp/extensions/md-embed)
 
 ## Skills
 

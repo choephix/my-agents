@@ -1,0 +1,2 @@
+--!strict
+-- Styling only: embed.css (manifest `styles`) does the work; Tern needs a window or host entry.
