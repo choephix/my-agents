@@ -1,6 +1,6 @@
 ---
 name: tern
-description: Control Tern, Stefan's terminal (tabs, panes, sessions): open a tab or split running a command, type into a pane, read its screen, wait for its program, follow events, drive its browser; or link Stefan to a pane. Works from any shell of user cx, inside a Tern pane or not.
+description: Control Tern, Stefan's terminal (tabs, panes, sessions): open a tab or split running a command, type into a pane, read its screen, wait for its program, follow events, drive its browser; link Stefan to a pane; or set which theme Tern shows per omp profile, session or host. Works from any shell of user cx, inside a Tern pane or not.
 ---
 
 # tern
@@ -30,3 +30,26 @@ Tabs you open for a check are yours to close before yielding.
 ## Links to a pane
 
 `http://HOST/tern/focus/<pane>`, HOST being `hostname`'s output, switches Stefan's Tern window to that pane when he clicks it; `<pane>` is the numeric block id (`$TERN_PANE` inside it, or `tern ls --json`). Give one whenever you point him at a Tern session. The link dies with the pane. On this machine HOST does not answer; `http://127.0.0.1:7070/tern/focus/<pane>` is the same route.
+
+## Theme rules
+
+Stefan's Tern app runs the [theme-rules plugin](~/workspace/my-agents/tern-plugins/theme-rules), which sets Tern's theme from `~/.config/tern-theme/rules.json` on this server (served to the app through webshare at `<webshare origin>/tern-theme/rules.json`). To make "this profile / this session / anything on this host" use a theme, edit that file:
+
+```json
+{
+  "dirs": { "nilo": "nilo" },
+  "rules": [
+    { "host": "ark", "theme": "dark-retro", "light": "light-retro" },
+    { "profile": "nilo", "theme": "dark-forest" },
+    { "session": "Nilo", "theme": "dark-nord" }
+  ]
+}
+```
+
+- The first rule whose every key matches wins; order the list by priority. Keys compare case-insensitively.
+- `profile` is the omp profile of the focused pane's omp (`default` when none is picked); it never matches a pane without omp. Your own is `$OMP_PROFILE`, else the `profiles/<name>/` part of your session file's path, else `default`. `dirs` mirrors the `omp()` wrapper in `~/.bashrc`: a bare `omp` under a folder named `nilo` or `nilo-*` runs profile `nilo`.
+- `session` is the Tern session name (`tern ls --json`); `host` is the machine the session runs on, as Tern on Stefan's PC names it. "Theme rules: why this theme" in Tern's palette shows the exact host, session and profile.
+- `theme` sets the dark appearance, `light` the light one; an appearance a rule leaves out keeps Stefan's own pick. Names come only from [themes.txt](~/workspace/my-agents/tern-plugins/theme-rules/themes.txt); an unknown one shows Stefan an error toast and the rule is skipped.
+- With no rule matching, Tern goes back to the theme Stefan last picked himself.
+
+The change shows on Stefan's next focus change or command, within about 5 seconds of the edit. Check the JSON parses (`jq . ~/.config/tern-theme/rules.json`).
