@@ -131,7 +131,8 @@ local function restyle_picked()
 	local selectors = {}
 	for _, prompts in picked_by_pane do
 		for _, prompt in prompts do
-			local a = '[data-surface="omp.session"] .md a[href=' .. css_string("@" .. prompt) .. "]"
+			-- `.sf-md >` outranks the muted rule in choices.css, so a picked choice in an older reply still shows picked.
+			local a = '[data-surface="omp.session"] .sf-md > .md a[href=' .. css_string("@" .. prompt) .. "]"
 			table.insert(selectors, a)
 			table.insert(selectors, a .. ":hover")
 		end

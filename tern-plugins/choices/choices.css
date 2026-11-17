@@ -13,3 +13,18 @@
 [data-surface="omp.session"] .md a[href^="@"]:hover {
 	background: rgb(250 204 21 / 35%) content-box !important;
 }
+
+/* Muted: choices in a reply you've written after. Tern's selectors lack `~`, so "after" means your message
+   within the next six blocks; a reply further back stays bright. :where() keeps this at the base rule's
+   specificity, so hover (above) and the "picked" sheet still win. */
+:where([data-surface="omp.session"] > [data-role="omp.assistant"]:has(
+	+ [data-role="omp.user"],
+	+ * + [data-role="omp.user"],
+	+ * + * + [data-role="omp.user"],
+	+ * + * + * + [data-role="omp.user"],
+	+ * + * + * + * + [data-role="omp.user"],
+	+ * + * + * + * + * + [data-role="omp.user"]
+)) .md a[href^="@"]:not(:hover) {
+	color: light-dark(rgb(161 98 7 / 75%), #eab308);
+	background: none !important;
+}
