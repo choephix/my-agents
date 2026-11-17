@@ -19,3 +19,11 @@ Draws the embeds of the [md-embed omp extension](../.omp/extensions/md-embed) (`
 ```sh
 tern plugin install github.com/choephix/my-agents/tern-plugins/md-embed --force
 ```
+
+## [Theme rules](theme-rules)
+
+Switches Tern's theme by rules: the focused omp's profile, the current session, the session's host. The rules are a JSON file on the server your agents run on, served over HTTP (webshare: `~/www/webshare/tern-theme` → `~/.config/tern-theme`), so an agent there edits the file and the theme follows on the next focus change. After installing, run Palette › "Theme rules: set rules URL" once on that machine and paste the file's URL (`<webshare origin>/tern-theme/rules.json`). Palette › "Theme rules: why this theme" shows the host, session and profile Tern sees and which rule matched.
+
+```sh
+tern plugin install github.com/choephix/my-agents/tern-plugins/theme-rules --force
+```

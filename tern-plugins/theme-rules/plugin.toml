@@ -1,0 +1,6 @@
+schema = 1
+id = "theme-rules"
+name = "Theme rules"
+version = "0.1.0"
+description = "Tern's theme follows rules matching the focused omp's profile, the session and its host."
+window = "window.luau"
