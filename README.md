@@ -59,6 +59,10 @@ My agentic stuff.
 - [Run a setup script in every new worktree](.herdr/plugins/worktree-setup)
 - [Restart settled OMP agents in their panes](scripts/restart-omp-sessions)
 
+## Tern
+
+- [Clickable answer choices in omp chats](tern-plugins/choices), [with copy-paste install commands](tern-plugins)
+
 ## Skills
 
 - [Rehearse an implementation without running anything](skills/dev/dry-dev)
