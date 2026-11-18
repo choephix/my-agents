@@ -14,6 +14,14 @@
 	background: rgb(250 204 21 / 35%) content-box !important;
 }
 
+/* Inline code in a choice: Tern gives chat code its own chip colour and background from rules more specific
+   than these, hence !important. It takes the choice's colour (also when muted or picked) on a yellow chip,
+   which muted and picked choices clear through --choice-code-bg. */
+[data-surface="omp.session"] .md a[href^="@"] code {
+	color: inherit !important;
+	background: var(--choice-code-bg, rgb(250 204 21 / 15%)) !important;
+}
+
 /* Muted: choices in a reply you've written after. Tern's selectors lack `~`, so "after" means your message
    within the next six blocks; a reply further back stays bright. :where() keeps this at the base rule's
    specificity, so hover (above) and the "picked" sheet still win. */
@@ -27,4 +35,5 @@
 )) .md a[href^="@"]:not(:hover) {
 	color: light-dark(rgb(161 98 7 / 75%), #eab308);
 	background: none !important;
+	--choice-code-bg: none;
 }

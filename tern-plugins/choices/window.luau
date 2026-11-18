@@ -1,5 +1,5 @@
 -- Choices: a Markdown link [label](<@prompt>) in an omp reply is a choice.
--- Clicking it puts "> prompt" on its own line in that omp's composer; it never sends.
+-- Clicking it puts "> prompt" in that omp's composer as its own paragraph; it never sends.
 -- Picking another choice of the same question replaces that line; picking the same one again removes it.
 
 local QUOTE = "> "
@@ -84,14 +84,19 @@ local function question_of(main: any, url: string): { string }
 	return {}
 end
 
--- The composer text after picking `line`, whose question's lines are `siblings`. When the text ends in a
--- quote, a blank line follows it with the caret after, so typing starts a new paragraph, not more quote.
+-- The composer text after picking `line`, whose question's lines are `siblings`. A new quote gets a blank
+-- line above it when the composer has text. When the text ends in a quote, a blank line follows it with the
+-- caret after, so typing starts a new paragraph, not more quote.
 local function picked(text: string, line: string, siblings: { [string]: boolean }): string
 	local lines = if text == "" then {} else text:split("\n")
 	local placed = false
 	for i, l in lines do
 		if l == line then
 			table.remove(lines, i)
+			-- Removing a quote leaves the blank lines around it; drop one so no double gap remains.
+			if lines[i] == "" and (i == 1 or lines[i - 1] == "") then
+				table.remove(lines, i)
+			end
 			placed = true
 			break
 		end
@@ -109,6 +114,9 @@ local function picked(text: string, line: string, siblings: { [string]: boolean 
 		table.remove(lines)
 	end
 	if not placed then
+		if #lines > 0 then
+			table.insert(lines, "")
+		end
 		table.insert(lines, line)
 	end
 	if #lines > 0 and lines[#lines]:sub(1, #QUOTE) == QUOTE then
@@ -139,7 +147,8 @@ local function restyle_picked()
 	end
 	local css = if #selectors == 0
 		then ""
-		else table.concat(selectors, ",\n") .. " { background: #facc15 content-box !important; color: #000; }"
+		else table.concat(selectors, ",\n")
+			.. " { background: #facc15 content-box !important; color: #000; --choice-code-bg: none; }"
 	tern.css("picked", css)
 end
 
