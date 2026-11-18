@@ -7,6 +7,8 @@ import { Image, Platform, Pressable, ScrollView, Text, View, useWindowDimensions
 import { z } from "zod";
 import { embedKind, isMarkdownPath, readEmbedAsset, readEmbedFile } from "../shared/preferences";
 import { cardColors } from "./card-colors";
+import { useWikiLinks } from "./markdown";
+import { embedsAsLinks, parseMessage } from "./parse";
 import { checkSvg, svgDataUri, unescapeSvg } from "./svg";
 
 export const embedCardSchema = z.object({
@@ -32,6 +34,8 @@ interface BodyProps {
   cardHovered: boolean;
   /** Keys this card's expanded/open state, which outlives remounts. */
   stateKey: string;
+  /** Real paths of the Markdown files this card is nested in, outermost first. */
+  stack: readonly string[];
 }
 
 const MONO = Platform.select({
@@ -42,6 +46,8 @@ const MONO = Platform.select({
 const CODE_SIZE = 12;
 const FOLDED_TEXT_HEIGHT = 12 * 17;
 const FOLDED_IMAGE_HEIGHT = 240;
+/** Embedded Markdown files nested this deep show their own embeds as links, as in omp's md-embed. */
+const MAX_DEPTH = 2;
 
 function fileHref(filePath: string, lineStart?: number, lineEnd?: number): string {
   const range = lineStart ? `#L${lineStart}${lineEnd && lineEnd !== lineStart ? `-L${lineEnd}` : ""}` : "";
@@ -214,7 +220,41 @@ function Fade({ background }: { background: string }) {
   );
 }
 
-function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered, stateKey }: BodyProps) {
+/** Markdown with its wiki links linked, bare names through the vault folder. */
+function LinkedMarkdown({ text }: { text: string }) {
+  return <Markdown>{useWikiLinks(text, true)}</Markdown>;
+}
+
+interface FrameProps {
+  data: CardData;
+  agentId: string;
+  theme: PluginTheme;
+  bodyHeight: number;
+  stack: readonly string[];
+}
+
+/**
+ * An embedded Markdown file's text with its own embeds as nested cards. `stack` already ends with
+ * this file; MAX_DEPTH files deep, embeds become plain links instead.
+ */
+function EmbeddedMarkdown({ text, ...frame }: Omit<FrameProps, "data"> & { text: string }) {
+  const deep = frame.stack.length >= MAX_DEPTH;
+  const segments = useMemo(() => (deep ? null : parseMessage(text)), [text, deep]);
+  const flat = useMemo(() => (deep ? embedsAsLinks(text) : ""), [text, deep]);
+  if (!segments) return <LinkedMarkdown text={flat} />;
+  return (
+    <>
+      {segments.map((segment, index) =>
+        segment.kind === "embed" ? (
+          <EmbedFrame key={index} {...frame} data={{ ...segment.embed, phase: "complete" }} />
+        ) : (
+          <LinkedMarkdown key={index} text={segment.kind === "markdown" ? segment.text : segment.kind === "agent" ? segment.url : segment.source} />
+        ))}
+    </>
+  );
+}
+
+function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered, stateKey, stack }: BodyProps) {
   const read = useRpc(readEmbedFile);
   const [expanded, toggleExpanded] = useToggle(stateKey);
   const result = useRead(
@@ -222,18 +262,23 @@ function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered, 
     `text\n${agentId}\n${data.path}\n${data.lineStart}\n${data.lineEnd}\n${data.heading}`,
   );
   const ok = result?.status === "ok" ? result : null;
+  // A file inside itself, at any depth, is not drawn again.
+  const loop = ok !== null && stack.includes(ok.path);
   const detail = ok ? lineLabel(ok.lineStart, ok.lineEnd) : data.lineStart ? lineLabel(data.lineStart, data.lineEnd ?? data.lineStart) : null;
   return (
     <>
       <CardHeader theme={theme} original={data.alias ?? data.original} href={ok ? fileHref(ok.path, ok.lineStart, ok.lineEnd) : null} detail={detail} cardHovered={cardHovered} />
       {result?.status === "error" ? (
         <Note theme={theme}>{result.message}</Note>
+      ) : loop ? (
+        <Note theme={theme}>Already embedded above.</Note>
       ) : ok ? (
         <Pressable accessibilityRole="button" accessibilityLabel={expanded ? "Collapse file preview" : "Expand file preview"} onPress={toggleExpanded}>
           <View style={{ position: "relative" }}>
-            <ScrollView scrollEnabled={expanded} style={{ maxHeight: expanded ? bodyHeight : FOLDED_TEXT_HEIGHT }} contentContainerStyle={{ paddingHorizontal: 9, paddingBottom: 8 }}>
-              {isMarkdownPath(data.path) ? (
-                <Markdown>{ok.text}</Markdown>
+            {/* On web the Pressable is a <button>, whose centred text the Markdown would inherit. */}
+            <ScrollView scrollEnabled={expanded} style={{ maxHeight: expanded ? bodyHeight : FOLDED_TEXT_HEIGHT }} contentContainerStyle={{ paddingHorizontal: 9, paddingBottom: 8, ...({ textAlign: "left" } as object) }}>
+              {isMarkdownPath(data.path) || isMarkdownPath(ok.path) ? (
+                <EmbeddedMarkdown text={ok.text} agentId={agentId} theme={theme} bodyHeight={bodyHeight} stack={[...stack, ok.path]} />
               ) : (
                 <Text selectable style={{ color: theme.colors.foreground, fontFamily: MONO, fontSize: CODE_SIZE, lineHeight: 17 }}>
                   {ok.text}
@@ -351,9 +396,7 @@ function HtmlEmbed({ data, agentId, theme, bodyHeight, cardHovered, stateKey }: 
   );
 }
 
-export function EmbedCard({ item, agentId, theme, layout }: PluginTimelineItemProps<CardData>) {
-  const { height: windowHeight } = useWindowDimensions();
-  const bodyHeight = Math.max(FOLDED_TEXT_HEIGHT, windowHeight - (layout.compact ? 260 : 220));
+function EmbedFrame({ data, agentId, theme, bodyHeight, stack }: FrameProps) {
   // Same background as the agent card (theme tokens, a little toward surface2).
   const background = cardColors(theme).background;
   const cardStyle = useMemo(() => ({
@@ -366,14 +409,21 @@ export function EmbedCard({ item, agentId, theme, layout }: PluginTimelineItemPr
   }), [theme.colors.border, background]);
   const [cardHovered, setCardHovered] = useState(false);
   // Plugin rows carry no id here; the same embed text twice in one chat shares its open state.
-  const props: BodyProps = { data: item.data, agentId, theme, background, bodyHeight, cardHovered, stateKey: `${agentId}\n${item.data.original}` };
-  const kind = embedKind(item.data.path);
+  const stateKey = [agentId, ...stack, data.original].join("\n");
+  const props: BodyProps = { data, agentId, theme, background, bodyHeight, cardHovered, stateKey, stack };
+  const kind = embedKind(data.path);
   return (
     // Hover brightens the header texts. Pointer events, not a Pressable: an outer Pressable never got hover on web.
     <View onPointerEnter={() => setCardHovered(true)} onPointerLeave={() => setCardHovered(false)} style={cardStyle}>
       {kind === "image" ? <ImageEmbed {...props} /> : kind === "html" ? <HtmlEmbed {...props} /> : <TextEmbed {...props} />}
     </View>
   );
+}
+
+export function EmbedCard({ item, agentId, theme, layout }: PluginTimelineItemProps<CardData>) {
+  const { height: windowHeight } = useWindowDimensions();
+  const bodyHeight = Math.max(FOLDED_TEXT_HEIGHT, windowHeight - (layout.compact ? 260 : 220));
+  return <EmbedFrame data={item.data} agentId={agentId} theme={theme} bodyHeight={bodyHeight} stack={[]} />;
 }
 
 export const svgBlockSchema = z.object({ source: z.string() });

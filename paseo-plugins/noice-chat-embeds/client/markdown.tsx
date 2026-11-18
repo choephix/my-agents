@@ -3,8 +3,8 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { Markdown, StreamedText } from "@getpaseo/plugin/client/ui";
 import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
-import { readChatRepo } from "../shared/preferences";
-import { addColorSwatches, linkIssueRefs } from "./parse";
+import { readChatRepo, resolveVaultNames } from "../shared/preferences";
+import { addColorSwatches, bareWikiNames, linkIssueRefs, linkWikiLinks } from "./parse";
 import { swatch, SWATCHES } from "./web";
 
 export const markdownSchema = z.object({
@@ -17,8 +17,37 @@ type MarkdownData = z.output<typeof markdownSchema>;
 /** One lookup per chat for the whole session: a chat's folder keeps its repository. */
 const repos = new Map<string, Promise<string | null>>();
 
+/** The last vault answer per set of names, so a remounted chunk starts linked; asked again on every mount. */
+const vaultAnswers = new Map<string, ReadonlyMap<string, string>>();
+
+/**
+ * `text` with its wiki links as Markdown links. While `active`, bare names (`[[note]]`) are looked
+ * up in the vault folder; until the answer comes, and for names it lacks, they link as before.
+ */
+export function useWikiLinks(text: string, active: boolean): string {
+  const resolve = useRpc(resolveVaultNames);
+  const key = useMemo(() => (active ? bareWikiNames(text).join("\n") : ""), [text, active]);
+  const [paths, setPaths] = useState(() => vaultAnswers.get(key));
+  useEffect(() => {
+    if (!key) return;
+    let live = true;
+    setPaths(vaultAnswers.get(key));
+    resolve({ names: key.split("\n") }).then((result) => {
+      const next = new Map(Object.entries(result.paths));
+      vaultAnswers.delete(key);
+      vaultAnswers.set(key, next);
+      if (vaultAnswers.size > 40) vaultAnswers.delete(vaultAnswers.keys().next().value as string);
+      if (live) setPaths(next);
+    }, () => {});
+    return () => { live = false; };
+  }, [key, resolve]);
+  return useMemo(() => linkWikiLinks(text, { vaultPaths: paths }), [text, paths]);
+}
+
 export function MarkdownChunk({ item, agentId }: PluginTimelineItemProps<MarkdownData>) {
-  const { text, phase } = item.data;
+  const { phase } = item.data;
+  // The transformer leaves bare wiki links to this pass while a vault folder is set.
+  const text = useWikiLinks(item.data.text, phase === "complete");
   const readRepo = useRpc(readChatRepo);
   const [repo, setRepo] = useState<string | null>(null);
   const wantsRepo = phase === "complete" && linkIssueRefs(text, () => "") !== text;
@@ -40,5 +69,5 @@ export function MarkdownChunk({ item, agentId }: PluginTimelineItemProps<Markdow
     const issues = repo && wantsRepo ? linkIssueRefs(text, (n) => `[#${n}](${repo}/issues/${n})`) : text;
     return SWATCHES ? addColorSwatches(issues, swatch) : issues;
   }, [repo, text, wantsRepo]);
-  return phase === "streaming" ? <StreamedText text={text} phase="streaming" /> : <Markdown>{linked}</Markdown>;
+  return phase === "streaming" ? <StreamedText text={item.data.text} phase="streaming" /> : <Markdown>{linked}</Markdown>;
 }

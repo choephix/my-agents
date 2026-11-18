@@ -1,3 +1,4 @@
+import { isBareName } from "../shared/preferences";
 import { type AgentLink, parseAgentLink } from "./agent-link";
 
 export interface Embed {
@@ -125,26 +126,65 @@ export function linkIssueRefs(text: string, link: (number: string) => string): s
 
 const WIKILINK = /(?<![![])\[\[([^[\]\n]+?)\]\](?!\])/g;
 
-/**
- * Rewrites plain `[[path#fragment|Label]]` wiki links outside code and Markdown links as Markdown
- * links, which Paseo opens in its file panel. Only targets that look like files are rewritten: a
- * `/` or `~/` path, or a name with an extension. The label is the alias, else the file name with
- * its fragment; a line range also goes on the link.
- */
-export function linkWikiLinks(text: string): string {
+export interface WikiLinkOptions {
+  /** Leave bare names (no `/`, no `~/`) as written, for a later pass that knows the vault. */
+  skipBare?: boolean;
+  /** Bare names found in the vault folder, to their absolute paths. */
+  vaultPaths?: ReadonlyMap<string, string>;
+}
+
+/** Runs `visit` on each wiki link outside code and Markdown links; its return value replaces the link. */
+function mapWikiLinks(text: string, visit: (whole: string, target: { path: string; fragment: string; alias: string }) => string): string {
   return mapProseLines(text, (line) => {
     if (!line.includes("[[")) return line;
     const spans = [...inlineCodeSpans(line), ...markdownLinkSpans(line)];
     return line.replace(WIKILINK, (whole, inner: string, offset: number) => {
       const target = splitTarget(inner);
-      if (!target || isInside(spans, offset) || target.path.includes("://")) return whole;
-      if (!/^~?\//.test(target.path) && !/\.[a-z\d]+$/i.test(target.path)) return whole;
-      const range = lineRange(target.fragment);
-      if (range === "invalid") return whole;
-      const name = target.path.slice(target.path.lastIndexOf("/") + 1);
-      const label = (target.alias || `${name}${target.fragment ? `#${target.fragment}` : ""}`).replace(/[\\[\]]/g, "\\$&");
-      const lines = range ? `#L${range.lineStart}${range.lineEnd === range.lineStart ? "" : `-L${range.lineEnd}`}` : "";
-      return `[${label}](${encodeURI(target.path).replace(/[()]/g, (paren) => (paren === "(" ? "%28" : "%29"))}${lines})`;
+      return !target || isInside(spans, offset) || target.path.includes("://") ? whole : visit(whole, target);
+    });
+  });
+}
+
+/**
+ * Rewrites plain `[[path#fragment|Label]]` wiki links outside code and Markdown links as Markdown
+ * links, which Paseo opens in its file panel. Only targets that look like files are rewritten: a
+ * `/` or `~/` path, a name with an extension, or a bare name found in the vault folder. The label
+ * is the alias, else the file name with its fragment; a line range also goes on the link.
+ */
+export function linkWikiLinks(text: string, options: WikiLinkOptions = {}): string {
+  return mapWikiLinks(text, (whole, target) => {
+    const bare = isBareName(target.path);
+    if (bare && options.skipBare) return whole;
+    const vaultPath = bare ? options.vaultPaths?.get(target.path) : undefined;
+    if (!vaultPath && !/^~?\//.test(target.path) && !/\.[a-z\d]+$/i.test(target.path)) return whole;
+    const range = lineRange(target.fragment);
+    if (range === "invalid") return whole;
+    const name = target.path.slice(target.path.lastIndexOf("/") + 1);
+    const label = (target.alias || `${name}${target.fragment ? `#${target.fragment}` : ""}`).replace(/[\\[\]]/g, "\\$&");
+    const lines = range ? `#L${range.lineStart}${range.lineEnd === range.lineStart ? "" : `-L${range.lineEnd}`}` : "";
+    return `[${label}](${encodeURI(vaultPath ?? target.path).replace(/[()]/g, (paren) => (paren === "(" ? "%28" : "%29"))}${lines})`;
+  });
+}
+
+/** The bare names of the wiki links `linkWikiLinks` would look up in the vault folder, sorted, once each. */
+export function bareWikiNames(text: string): string[] {
+  if (!text.includes("[[")) return [];
+  const names = new Set<string>();
+  mapWikiLinks(text, (whole, target) => {
+    if (isBareName(target.path)) names.add(target.path);
+    return whole;
+  });
+  return [...names].sort();
+}
+
+/** Embeds outside code written as wiki links (chat embeds as their plain link), for embeds nested too deep to expand. */
+export function embedsAsLinks(text: string): string {
+  if (!text.includes("![[")) return text;
+  return mapProseLines(text, (line) => {
+    const spans = inlineCodeSpans(line);
+    return line.replace(EMBED, (whole, inner: string, offset: number) => {
+      if (isInside(spans, offset)) return whole;
+      return parseAgentLink(inner) ? inner.trim() : whole.slice(1);
     });
   });
 }

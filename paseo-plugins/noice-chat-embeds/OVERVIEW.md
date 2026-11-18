@@ -10,11 +10,24 @@ The syntax is the same as omp's md-embed extension (drawn in Tern by the `md-emb
 - `![[file#L10-L42]]`, `#L10-42` or `#L10`: those lines, `L` in any case.
 - `![[file.md#Some heading]]`: that heading's section, from below the heading up to the next heading of its level or higher. The heading text matches in any case; headings inside fenced code don't count.
 - `|Label` after any of the above, as in `![[file.md#Plan|The plan]]`: the card header shows the label instead of the original text.
-- `[[file.md#Plan]]` without the `!`: a plain Markdown link, labelled with the file name and fragment or the `|Label`, which opens in the file panel. Only targets that look like files are linked: a `/` or `~/` path, or a name with an extension, so `[[Page Name]]` stays text.
+- `[[file.md#Plan]]` without the `!`: a plain Markdown link, labelled with the file name and fragment or the `|Label`, which opens in the file panel. Only targets that look like files are linked: a `/` or `~/` path, a name with an extension, or a bare name found in the vault folder (below), so `[[Page Name]]` otherwise stays text.
 
-Markdown files (`.md`, `.markdown`) preview as formatted Markdown and may live in any folder. Every other file previews as monospace text and must be inside the chat's working directory: absolute and `~/` paths are accepted only when they resolve there, and a symlink inside the folder can't point outside it. A `.md` symlink may point anywhere, as long as its target is also Markdown. Embeds inside an embedded Markdown file stay as text.
+Markdown files (`.md`, `.markdown`) preview as formatted Markdown and may live in any folder. Every other file previews as monospace text and must be inside the chat's working directory or the vault folder: absolute and `~/` paths are accepted only when they resolve there, and a symlink inside either folder can't point outside it. A `.md` symlink may point anywhere, as long as its target is also Markdown.
+
+Embeds inside an embedded Markdown file show as cards inside its card, as in omp's md-embed: two files deep, after which embeds show as plain links. A file embedded inside itself, at any depth, shows "Already embedded above." instead of repeating. Wiki links inside an embedded file are linked too. Paths in an embedded file resolve the same way as in the reply, from the chat's working directory or the vault folder, not from the embedded file's own folder.
 
 The plugin is enabled by default, and one switch covers every embed kind below, colour swatches included. Use **⌘K → Toggle file embeds** (or Ctrl+K on Windows and Linux) for a quick switch. The same setting is available at **Settings → Plugins → noice-chat-embeds → File embeds**. Turning it off leaves native Paseo message rendering untouched. Opening Paseo tab links in place (last section) has its own switch next to it.
+
+## Vault folder
+
+**Vault folder** (Obsidian's term) is an absolute path in the plugin's settings, next to the switches; empty, the default, turns it off. Type the path and press **Save** below the field. While set:
+
+- A bare name, with no `/` and no `~/`, is looked up in that folder and its subfolders by file name, in embeds and wiki links alike: `![[2026-11-18-note]]` finds `2026-11-18-note.md`, `![[shot.png]]` finds `shot.png`. `#L10-L42`, `#Heading` and `|Label` work as above. So a note keeps its links when it moves to another subfolder.
+- With several matches the card shows a muted error naming them; with none the name resolves from the chat's working directory as before.
+- Any file inside the vault folder (pictures, HTML pages, Markdown) embeds from every chat, as files inside the chat's own folder do.
+- Dot-folders (`.git`, `.obsidian`) and `node_modules` are not searched, and symlinked folders are not followed.
+
+The folder is read afresh on each lookup, with no cache and no watcher: a new or moved file resolves at once, and nothing runs while idle. Each card or reply with bare names reads the folder once, so point it at a notes folder, not a whole home folder. Wiki links to bare names are linked once the reply finishes; until the lookup answers they link as without a vault.
 
 ## Images
 

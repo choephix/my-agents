@@ -1,11 +1,21 @@
-import { createReadStream } from "node:fs";
-import { readFile, realpath, stat } from "node:fs/promises";
+import { createReadStream, type Dirent } from "node:fs";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
-import { embedKind, IMAGE_TYPES, isMarkdownPath, readEmbedAsset, readEmbedFile, type EmbedReadErrorCode } from "../shared/preferences";
+import {
+  embedKind,
+  IMAGE_TYPES,
+  isBareName,
+  isMarkdownPath,
+  readEmbedAsset,
+  readEmbedFile,
+  resolveVaultNames,
+  vaultFileName,
+  type EmbedReadErrorCode,
+} from "../shared/preferences";
 
 /** Most text a card receives. */
 const MAX_BYTES = 64 * 1024;
@@ -27,29 +37,93 @@ function isInside(target: string, root: string): boolean {
   return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
 
+/** The vault folder setting as an absolute path; null when empty or not absolute. */
+export function vaultRoot(setting: string): string | null {
+  const value = setting.trim().replace(/^~(?=$|[\\/])/, homedir());
+  return value && path.isAbsolute(value) ? path.resolve(value) : null;
+}
+
 /**
- * Resolves an embed path against the chat's folder. Markdown files resolve from anywhere, as in
- * omp's md-embed extension; every other file only inside the chat's folder.
+ * Every file under the vault folder, by file name. Walked afresh on each lookup, with no cache and
+ * no watcher, so a new or moved file resolves at once and nothing runs while idle. Dot-folders
+ * (`.git`, `.obsidian`) and `node_modules` are skipped; symlinked folders are not followed.
+ */
+async function vaultFiles(vault: string): Promise<Map<string, string[]>> {
+  const files = new Map<string, string[]>();
+  const folders = [vault];
+  for (let folder = folders.pop(); folder !== undefined; folder = folders.pop()) {
+    let entries: Dirent[];
+    try {
+      entries = await readdir(folder, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(folder, entry.name);
+      if (entry.isDirectory()) {
+        if (!entry.name.startsWith(".") && entry.name !== "node_modules") folders.push(full);
+      } else if (entry.isFile() || entry.isSymbolicLink()) {
+        const same = files.get(entry.name);
+        if (same) same.push(full);
+        else files.set(entry.name, [full]);
+      }
+    }
+  }
+  return files;
+}
+
+export async function resolveNames(
+  { names }: RpcInput<typeof resolveVaultNames>,
+  vault: string | null,
+): Promise<RpcOutput<typeof resolveVaultNames>> {
+  const paths: Record<string, string> = {};
+  const bare = names.filter(isBareName);
+  if (!vault || !bare.length) return { paths };
+  const files = await vaultFiles(vault);
+  for (const name of bare) {
+    const matches = files.get(vaultFileName(name));
+    if (matches?.length === 1) paths[name] = matches[0];
+  }
+  return { paths };
+}
+
+/**
+ * Resolves an embed path. A bare name with one match in the vault folder is that file; with several
+ * it is an error naming them; with none it resolves as before. Other paths resolve against the
+ * chat's folder. Markdown files resolve from anywhere, as in omp's md-embed extension; every other
+ * file only inside the chat's folder or the vault folder.
  */
 async function resolveEmbedPath(
   agentId: string,
   requestedPath: string,
   { paseo }: PluginHandlerContext,
+  vault: string | null,
 ): Promise<{ real: string; size: number } | ReadError> {
   const agent = await paseo.agents.ref(agentId).refresh();
   if (!agent) return error("disallowed", "This chat is no longer available.");
 
   const cwd = path.resolve(agent.agent.cwd);
-  const requested = path.resolve(cwd, requestedPath.replace(/^~(?=$|[\\/])/, homedir()));
+  let requested: string | undefined;
+  if (vault && isBareName(requestedPath)) {
+    const matches = (await vaultFiles(vault)).get(vaultFileName(requestedPath)) ?? [];
+    if (matches.length > 1) {
+      const names = matches.map((match) => path.relative(vault, match)).sort();
+      return error("ambiguous", `Several files in the vault folder have this name: ${names.join(", ")}.`);
+    }
+    requested = matches[0];
+  }
+  requested ??= path.resolve(cwd, requestedPath.replace(/^~(?=$|[\\/])/, homedir()));
   const markdown = isMarkdownPath(requested);
-  // Checked before touching the disk so "not found" never reveals other files outside the chat's folder.
-  if (!markdown && !isInside(requested, cwd)) return error("disallowed", "That file is outside the chat's working directory.");
+  const where = vault ? "the chat's working directory and the vault folder" : "the chat's working directory";
+  // Checked before touching the disk so "not found" never reveals other files outside the trusted folders.
+  if (!markdown && !isInside(requested, cwd) && !(vault && isInside(requested, vault))) return error("disallowed", `That file is outside ${where}.`);
 
   try {
-    // Symlinks are resolved on both sides, so a link inside the folder cannot point outside it,
+    // Symlinks are resolved on both sides, so a link inside a trusted folder cannot point outside it,
     // and a Markdown name cannot point at another kind of file outside it.
-    const [realRoot, real] = await Promise.all([realpath(cwd), realpath(requested)]);
-    if (!isInside(real, realRoot) && !(markdown && isMarkdownPath(real))) return error("disallowed", "That file links outside the chat's working directory.");
+    const [realRoot, realVault, real] = await Promise.all([realpath(cwd), vault ? realpath(vault).catch(() => null) : null, realpath(requested)]);
+    const trusted = isInside(real, realRoot) || (realVault !== null && isInside(real, realVault));
+    if (!trusted && !(markdown && isMarkdownPath(real))) return error("disallowed", `That file links outside ${where}.`);
     // FIFOs, devices and directories would block or never end; only regular files are read.
     const info = await stat(real);
     if (!info.isFile()) return error("unreadable", "Only regular files are previewed.");
@@ -63,10 +137,11 @@ async function resolveEmbedPath(
 export async function readAsset(
   input: RpcInput<typeof readEmbedAsset>,
   context: PluginHandlerContext,
+  vault: string | null,
 ): Promise<RpcOutput<typeof readEmbedAsset>> {
   const kind = embedKind(input.path);
   if (kind === "text") return error("unsupported", "Only images and HTML pages load this way.");
-  const file = await resolveEmbedPath(input.agentId, input.path, context);
+  const file = await resolveEmbedPath(input.agentId, input.path, context, vault);
   if ("status" in file) return file;
   if (file.size > MAX_ASSET_BYTES) return error("too-large", `Larger than ${MAX_ASSET_BYTES / 1024 / 1024} MB; open it on the side instead.`);
   try {
@@ -141,11 +216,12 @@ async function readSection(real: string, size: number, heading: string): Promise
 export async function readFileWindow(
   input: RpcInput<typeof readEmbedFile>,
   context: PluginHandlerContext,
+  vault: string | null,
 ): Promise<Output> {
   const start = input.lineStart ?? 1;
   const end = input.lineEnd;
   if (end !== undefined && end < start) return error("invalid-range", "The requested line range is invalid.");
-  const file = await resolveEmbedPath(input.agentId, input.path, context);
+  const file = await resolveEmbedPath(input.agentId, input.path, context, vault);
   if ("status" in file) return file;
   const { real } = file;
   if (input.heading) return readSection(real, file.size, input.heading);

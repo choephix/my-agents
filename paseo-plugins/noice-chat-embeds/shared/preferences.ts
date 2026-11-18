@@ -11,16 +11,21 @@ export const preferences = defineSettings({
     svgBlocks: z.boolean().default(false),
     /** A plain click on an `app.paseo.sh` agent link switches tabs in place; independent of `enabled`. */
     openLinksInPlace: z.boolean().default(true),
+    /**
+     * Obsidian's "vault folder": an absolute path (or `~/…`). Bare names (`![[note]]`, `[[shot.png]]`)
+     * are looked up in it by file name, and any file inside it embeds from every chat. Empty: off.
+     */
+    vaultFolder: z.string().default(""),
   }),
 });
 
 export type Preferences = z.output<typeof preferences.schema>;
 export const DEFAULTS: Preferences = preferences.schema.parse({});
-export type EmbedReadErrorCode = "missing" | "unreadable" | "binary" | "disallowed" | "too-large" | "invalid-range" | "unsupported";
+export type EmbedReadErrorCode = "missing" | "unreadable" | "binary" | "disallowed" | "too-large" | "invalid-range" | "unsupported" | "ambiguous";
 
 const readError = z.object({
   status: z.literal("error"),
-  code: z.enum(["missing", "unreadable", "binary", "disallowed", "too-large", "invalid-range", "unsupported"]),
+  code: z.enum(["missing", "unreadable", "binary", "disallowed", "too-large", "invalid-range", "unsupported", "ambiguous"]),
   message: z.string(),
 });
 
@@ -45,6 +50,16 @@ export function embedKind(filePath: string): "image" | "html" | "text" {
 /** Markdown files embed from any folder and preview as formatted Markdown. */
 export function isMarkdownPath(filePath: string): boolean {
   return /\.(md|markdown)$/i.test(filePath);
+}
+
+/** A target with no `/` and no `~/`, looked up in the vault folder by file name. */
+export function isBareName(target: string): boolean {
+  return !/[\\/]/.test(target) && target !== "~" && target !== "." && target !== "..";
+}
+
+/** The file name a bare name matches: itself when it has an extension, else `<name>.md`. */
+export function vaultFileName(name: string): string {
+  return /\.[a-z\d]+$/i.test(name) ? name : `${name}.md`;
 }
 
 export const readEmbedFile = defineRpc({
@@ -91,4 +106,11 @@ export const readChatRepo = defineRpc({
   name: "message-embeds.read-repo",
   input: z.object({ agentId: z.string() }),
   output: z.object({ url: z.string().nullable() }),
+});
+
+/** Bare names to the one vault file each names; names with no match or several are left out. */
+export const resolveVaultNames = defineRpc({
+  name: "message-embeds.resolve-vault-names",
+  input: z.object({ names: z.array(z.string()).max(100) }),
+  output: z.object({ paths: z.record(z.string(), z.string()) }),
 });

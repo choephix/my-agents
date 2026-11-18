@@ -1,13 +1,13 @@
 import { type PluginTimelineItem, settingsRpc } from "@getpaseo/plugin";
 import type { PluginClientContext, PluginScreenProps } from "@getpaseo/plugin/client";
-import { SettingsCard, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
-import { useEffect } from "react";
+import { SettingsAction, SettingsCard, SettingsInput, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
+import { useEffect, useState } from "react";
 import { Platform, Text } from "react-native";
 import { useSettings } from "@getpaseo/plugin/client";
 import { AGENT_CARD_KIND, agentCardSchema, createAgentCard } from "./client/agent-card";
 import { EmbedCard, embedCardSchema, SvgBlockCard, svgBlockSchema } from "./client/card";
 import { MarkdownChunk, markdownSchema } from "./client/markdown";
-import { addColorSwatches, linkIssueRefs, linkWikiLinks, parseMessage, SVG_FENCE } from "./client/parse";
+import { addColorSwatches, bareWikiNames, linkIssueRefs, linkWikiLinks, parseMessage, SVG_FENCE } from "./client/parse";
 import { type FeatureSwitch, featureSwitch } from "./client/feature-switch";
 import { startLinkClicks } from "./client/link-clicks";
 import { installStyles, SWATCHES } from "./client/web";
@@ -38,6 +38,7 @@ function apply(values: Preferences): void {
 
 function Settings() {
   const settings = useSettings(preferences);
+  const [vault, setVault] = useState<string | null>(null);
   useEffect(() => {
     if (settings.status === "ready") apply(settings.values);
   }, [settings]);
@@ -80,6 +81,28 @@ function Settings() {
             void settings.save(next, settings.revision);
           }}
         />
+        <SettingsInput
+          label="Vault folder"
+          hint="Absolute path of a notes folder, as in Obsidian. A bare name such as ![[2026-11-18-note]] or ![[shot.png]] is looked up in it by file name, and any file inside it embeds from every chat. Empty: off."
+          initialValue={settings.values.vaultFolder}
+          placeholder="/home/me/notes"
+          error={vault !== null && vault.trim() && !/^~?\//.test(vault.trim()) ? "Use an absolute path." : null}
+          onChangeText={setVault}
+          disabled={settings.saving}
+        />
+        {vault !== null && vault.trim() !== settings.values.vaultFolder && (!vault.trim() || /^~?\//.test(vault.trim())) ? (
+          <SettingsAction
+            label={vault.trim() ? `Use ${vault.trim()}` : "Turn the vault folder off"}
+            actionLabel="Save"
+            disabled={settings.saving}
+            onPress={() => {
+              const next = { ...settings.values, vaultFolder: vault.trim() };
+              apply(next);
+              void settings.save(next, settings.revision);
+              setVault(null);
+            }}
+          />
+        ) : null}
       </SettingsCard>
     </SettingsSection>
   );
@@ -149,15 +172,18 @@ export default function contribute(client: PluginClientContext) {
       const svg = current.svgBlocks && phase === "complete" && Platform.OS === "web";
       // Cheap checks first; most messages have no embed, wiki link, `#123`, hex colour or ```svg block.
       const hasEmbed = item.text.includes("![[");
-      const text = item.text.includes("[[") ? linkWikiLinks(item.text) : item.text;
+      // With a vault folder, bare wiki links are left for the Markdown rows, which look them up there.
+      const vault = current.vaultFolder.trim() !== "";
+      const text = item.text.includes("[[") ? linkWikiLinks(item.text, { skipBare: vault }) : item.text;
+      const hasBare = vault && phase === "complete" && bareWikiNames(text).length > 0;
       const hasRef = /#\d\d/.test(item.text) && linkIssueRefs(item.text, () => "") !== item.text;
       // Swatches show in finished replies only; while streaming such a chunk would lose its Markdown.
       const hasHex = SWATCHES && phase === "complete" && /#[\da-f]{3}/i.test(item.text) && addColorSwatches(item.text, () => "x") !== item.text;
       const hasSvg = svg && SVG_FENCE.test(item.text);
-      if (!hasEmbed && text === item.text && !hasRef && !hasHex && !hasSvg) return undefined;
+      if (!hasEmbed && text === item.text && !hasRef && !hasHex && !hasSvg && !hasBare) return undefined;
       const segments = parseMessage(text, { svg });
       // Unchanged text (half-typed or code-only embeds, unclosed ```svg, no wiki link, `#123` or hex) keeps Paseo's own rendering.
-      if (!hasRef && !hasHex && segments.length === 1 && segments[0].kind === "markdown" && segments[0].text === item.text) return undefined;
+      if (!hasRef && !hasHex && !hasBare && segments.length === 1 && segments[0].kind === "markdown" && segments[0].text === item.text) return undefined;
       // No `id` on the rows: Paseo then uses `<source message id>/<index>`, unique across the chat.
       // Its chat list keys each row's measured height by id; the parser's per-message ids
       // (`markdown-0`, `embed-0`) repeated in every converted message, rows fought over one height
