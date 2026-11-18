@@ -5,17 +5,22 @@
 //   ![[~/file.md#Some heading]]  that heading's section
 //   ![[~/file.md|Label]]         any of the above under another label
 //   [[~/any/file]]               a plain link to the file
+//   ![[2026-11-18-note]]         a bare name, looked up in the vault folder
 //
 // An embed draws as a `> [!NOTE]` callout whose first line links the file with
 // the title EMBED_TITLE; the md-embed Tern plugin (tern-plugins/md-embed) keys its styling on that
 // title. Tern's native view draws the callout as a card; a plain terminal gets
 // a quote without the `[!NOTE]` line, since omp's terminal Markdown has no
-// callouts. Only `.md` files on absolute or `~` paths embed; anything that does
-// not resolve stays as written. Needs `extensionRenderers.assistantText` on.
+// callouts. Only `.md` files on absolute or `~` paths, or bare names found in the
+// vault folder, embed; anything that does not resolve stays as written.
+// Needs `extensionRenderers.assistantText` on.
+//
+// Vault folder: `vaultFolder` in `$PI_CODING_AGENT_DIR/md-embed.json`, re-read when the file changes.
+import type { Dirent } from "node:fs";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
-import { readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, isAbsolute, normalize } from "node:path";
+import { basename, isAbsolute, join, normalize, relative } from "node:path";
 
 export const EMBED_TITLE = "Embedded file";
 const MAX_LINES = 300;
@@ -39,6 +44,8 @@ interface Target {
 	path: string;
 	fragment: string | undefined;
 	alias: string | undefined;
+	/** A bare name several vault files share: their paths, and `path` is the vault folder. */
+	several?: string[];
 }
 
 interface Cached {
@@ -49,13 +56,93 @@ interface Cached {
 
 const cache = new Map<string, Cached>();
 
-/** `path[#fragment][|alias]` with the path made absolute; undefined unless it names an existing file. */
+let config: { stamp: string | null; vault: string | undefined } = { stamp: null, vault: undefined };
+
+/** The vault folder from `md-embed.json` (`{ "vaultFolder": "/abs/path" }`); undefined when unset or invalid. */
+function vaultFolder(): string | undefined {
+	// Per lookup: named profiles point PI_CODING_AGENT_DIR at their own agent dir.
+	const file = join(process.env.PI_CODING_AGENT_DIR?.trim() || join(homedir(), ".omp", "agent"), "md-embed.json");
+	let stamp: string | null;
+	try {
+		const stat = statSync(file);
+		stamp = `${file}:${stat.mtimeMs}:${stat.size}`;
+	} catch {
+		stamp = null;
+	}
+	if (stamp === config.stamp) return config.vault;
+	let vault: string | undefined;
+	try {
+		const value: unknown = stamp && JSON.parse(readFileSync(file, "utf8")).vaultFolder;
+		const path = typeof value === "string" ? value.trim().replace(/^~(?=$|\/)/, homedir()) : "";
+		if (path && isAbsolute(path)) vault = normalize(path);
+	} catch {}
+	config = { stamp, vault };
+	return vault;
+}
+
+/**
+ * The vault's files by file name, with each folder's mtime when it was read. Reused while every
+ * folder keeps its mtime (a file added, removed or renamed changes its folder's), so a lookup costs
+ * one stat per folder; nothing runs between lookups. Dot-folders and `node_modules` are skipped;
+ * symlinked folders are not followed.
+ */
+let vaultIndex: { root: string; folders: Map<string, number>; files: Map<string, string[]> } | undefined;
+
+function vaultFiles(root: string): Map<string, string[]> {
+	const fresh = (folder: string, mtimeMs: number) => {
+		try {
+			return statSync(folder).mtimeMs === mtimeMs;
+		} catch {
+			return false;
+		}
+	};
+	if (vaultIndex?.root === root && [...vaultIndex.folders].every(([folder, mtimeMs]) => fresh(folder, mtimeMs))) {
+		return vaultIndex.files;
+	}
+	const folders = new Map<string, number>();
+	const files = new Map<string, string[]>();
+	const pending = [root];
+	for (let folder = pending.pop(); folder !== undefined; folder = pending.pop()) {
+		let entries: Dirent[];
+		try {
+			folders.set(folder, statSync(folder).mtimeMs);
+			entries = readdirSync(folder, { withFileTypes: true });
+		} catch {
+			folders.set(folder, -1);
+			continue;
+		}
+		for (const entry of entries) {
+			const full = join(folder, entry.name);
+			if (entry.isDirectory()) {
+				if (!entry.name.startsWith(".") && entry.name !== "node_modules") pending.push(full);
+			} else if (entry.isFile() || entry.isSymbolicLink()) {
+				const same = files.get(entry.name);
+				if (same) same.push(full);
+				else files.set(entry.name, [full]);
+			}
+		}
+	}
+	vaultIndex = { root, folders, files };
+	return files;
+}
+
+/**
+ * `path[#fragment][|alias]` with the path made absolute; undefined unless it names an existing file.
+ * A bare name (no `/`, no `~/`) is looked up in the vault folder by file name, `<name>.md` when it
+ * has no extension; with no match it resolves as before (and, being relative, does not resolve).
+ */
 function parseTarget(raw: string): Target | undefined {
 	const [ref, ...aliasParts] = raw.split("|");
 	const alias = aliasParts.join("|").trim() || undefined;
 	const hash = ref!.indexOf("#");
 	let path = (hash < 0 ? ref! : ref!.slice(0, hash)).trim();
 	const fragment = hash < 0 ? undefined : ref!.slice(hash + 1).trim() || undefined;
+	const vault = path && !path.includes("/") && path !== "~" && path !== "." && path !== ".." ? vaultFolder() : undefined;
+	if (vault) {
+		const matches = vaultFiles(vault).get(/\.[a-z\d]+$/i.test(path) ? path : `${path}.md`) ?? [];
+		if (matches.length > 1) return { path: vault, fragment, alias: alias ?? path, several: matches };
+		if (matches.length === 1) path = matches[0]!;
+	}
 	if (path === "~" || path.startsWith("~/")) path = homedir() + path.slice(1);
 	if (!isAbsolute(path)) return undefined;
 	path = normalize(path);
@@ -137,9 +224,18 @@ function link(label: string, path: string, title?: string): string {
 	return `[${label.replace(/([\\\[\]])/g, "\\$1")}](${dest}${title ? ` "${title}"` : ""})`;
 }
 
+/** The callout for a bare name several vault files share: a note linking each of them. */
+function severalBlock(target: Target, opts: RenderOptions): string[] {
+	const names = target.several!.map(path => link(relative(target.path, path), path)).sort();
+	const header = link(target.alias!, target.path, EMBED_TITLE);
+	const block = [...(opts.callouts ? ["[!NOTE]"] : []), header, "", `*Several files in the vault folder have this name: ${names.join(", ")}.*`];
+	return block.map(line => (line === "" ? ">" : `> ${line}`));
+}
+
 /** The callout lines for one embed, unprefixed; undefined when it does not resolve or embeds a file already open above it. */
 function embedBlock(raw: string, opts: RenderOptions, stack: readonly string[]): string[] | undefined {
 	const target = parseTarget(raw);
+	if (target?.several) return severalBlock(target, opts);
 	if (!target || !MARKDOWN.test(target.path) || stack.includes(target.path)) return undefined;
 	const all = readLines(target.path);
 	if (!all) return undefined;
@@ -166,7 +262,7 @@ function embedBlock(raw: string, opts: RenderOptions, stack: readonly string[]):
 function linkOnly(text: string): string {
 	return text.replace(EMBED, (whole, raw: string) => {
 		const target = parseTarget(raw);
-		return target ? link(target.alias ?? basename(target.path), target.path) : whole;
+		return target && !target.several ? link(target.alias ?? basename(target.path), target.path) : whole;
 	});
 }
 
@@ -227,7 +323,7 @@ export function transform(text: string, opts: RenderOptions, stack: readonly str
 				})
 				.replace(WIKILINK, (whole, raw: string) => {
 					const target = parseTarget(raw);
-					if (!target) return whole;
+					if (!target || target.several) return whole;
 					return link(target.alias ?? `${basename(target.path)}${target.fragment ? `#${target.fragment}` : ""}`, target.path);
 				});
 			const restore = (piece: string) => piece.replace(/\u0000(\d+)\u0000/g, (_, n: string) => masked[Number(n)]!);
