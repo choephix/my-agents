@@ -4,6 +4,7 @@
 //   ![[~/file.md#L10-L40]]       lines 10–40 (`#L10` is one line)
 //   ![[~/file.md#Some heading]]  that heading's section
 //   ![[~/file.md|Label]]         any of the above under another label
+//   ![[~/shot.svg]]              a picture (png, jpg, gif, webp, avif, svg) under its file link
 //   [[~/any/file]]               a plain link to the file
 //   ![[2026-11-18-note]]         a name looked up in the vault folder
 //   ![[efforts/slip-box/map]]    the vault file whose path ends with these folders and name
@@ -12,8 +13,8 @@
 // the title EMBED_TITLE; the md-embed Tern plugin (tern-plugins/md-embed) keys its styling on that
 // title. Tern's native view draws the callout as a card; a plain terminal gets
 // a quote without the `[!NOTE]` line, since omp's terminal Markdown has no
-// callouts. Only `.md` files on absolute or `~` paths, or names found in the
-// vault folder, embed; anything that does not resolve stays as written.
+// callouts. Only `.md` files and pictures on absolute or `~` paths, or names found
+// in the vault folder, embed; anything that does not resolve stays as written.
 // Needs `extensionRenderers.assistantText` on.
 //
 // Vault folder: `vaultFolder` in `$PI_CODING_AGENT_DIR/md-embed.json`, re-read when the file changes.
@@ -28,6 +29,7 @@ const MAX_LINES = 300;
 const MAX_DEPTH = 2;
 const MAX_BYTES = 2 * 1024 * 1024;
 const MARKDOWN = /\.(md|markdown)$/i;
+const PICTURE = /\.(png|jpe?g|gif|webp|avif|svg)$/i;
 
 const EMBED = /!\[\[([^\[\]\n]+?)\]\]/g;
 const WIKILINK = /(?<!!)\[\[([^\[\]\n]+?)\]\]/g;
@@ -255,10 +257,20 @@ function severalBlock(target: Target, opts: RenderOptions): string[] {
 	return block.map(line => (line === "" ? ">" : `> ${line}`));
 }
 
+/** The callout for a picture: its header link, then the picture as a Markdown image (absolute path; see `link`). */
+function pictureBlock(target: Target, opts: RenderOptions): string[] {
+	const name = target.alias ?? basename(target.path);
+	const header = link(name, target.path, EMBED_TITLE);
+	const picture = `!${link(name, target.path)}`;
+	const block = [...(opts.callouts ? ["[!NOTE]"] : []), header, "", picture];
+	return block.map(line => (line === "" ? ">" : `> ${line}`));
+}
+
 /** The callout lines for one embed, unprefixed; undefined when it does not resolve or embeds a file already open above it. */
 function embedBlock(raw: string, opts: RenderOptions, stack: readonly string[]): string[] | undefined {
 	const target = parseTarget(raw);
 	if (target?.several) return severalBlock(target, opts);
+	if (target && PICTURE.test(target.path)) return pictureBlock(target, opts);
 	if (!target || !MARKDOWN.test(target.path) || stack.includes(target.path)) return undefined;
 	const all = readLines(target.path);
 	if (!all) return undefined;

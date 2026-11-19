@@ -2,6 +2,8 @@
 
 `![[/abs/file.md]]` in an assistant reply shows the file inline, Obsidian style: `#Heading` or `#L10-L40` picks a part, `|Label` renames it, `[[path]]` is a plain link. Display only: the model and the session keep the text as written. Needs `extensionRenderers.assistantText` on. In Tern, [the md-embed plugin](../../../tern-plugins/md-embed) draws embeds as dashed cards.
 
+`![[shot.png]]` (also jpg, gif, webp, avif, svg) shows the picture in the same card, under its file link, as a Markdown image with the absolute path. Other files stay as written.
+
 ## Vault folder
 
 Set `vaultFolder` in `$PI_CODING_AGENT_DIR/md-embed.json` (normally `~/.omp/agent/md-embed.json`) to an absolute path, Obsidian's "vault". Edits apply on the next reply; a missing file or empty value turns it off.
