@@ -35,7 +35,7 @@ The padding is the same in every state, so text never shifts. With reduced motio
 - **Web and desktop app only.** The iOS and Android apps show choices as ordinary links, and tapping one does nothing useful: plugins can't reach link taps or the message box there.
 - **Writing into the message box is a DOM trick, not an API.** Paseo has no plugin call that fills the composer, so the plugin sets the chat's `textarea[data-composer-input]` value and fires `input`, as `noice-chat-quote` does. A composer refactor in Paseo can break it.
 - **Settling only sees what's on screen.** A long chat may not keep every message in the page; a reply whose later messages aren't loaded shows as open until they are.
-- Works alongside `noice-chat-embeds`, whose redrawn replies are covered too.
+- **Choices in embedded memos.** `noice-chat-embeds` draws a reply's `![[note.md]]` as a card with the file's Markdown; choices in that card, and in a memo embedded inside it, work as in the reply itself: each paragraph or list in the memo is its own question, and picked, passed-over and settled states follow the same rules. A folded card hides the choices below its fold until you click the card to expand it; clicking a choice never folds or expands the card. Checked 2026-11-19 in the web app (Chromium and WebKit) with picks from two questions in one memo, one in a nested memo, and a sent message settling them.
 
 ## Cost
 
