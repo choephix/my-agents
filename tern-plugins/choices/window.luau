@@ -56,6 +56,12 @@ local function targets_in(line: string, out: { string })
 	end
 end
 
+-- Blank also when it holds only quote markers: an embedded memo arrives quoted ("> "), and its
+-- paragraph breaks are ">" lines.
+local function has_text(line: string): boolean
+	return line:find("[^>%s]") ~= nil
+end
+
 -- The choice targets of the question `url` belongs to: every choice in the run of
 -- non-blank lines (a paragraph or a list) holding it, in the newest reply that has it.
 local function question_of(main: any, url: string): { string }
@@ -67,10 +73,10 @@ local function question_of(main: any, url: string): { string }
 		for at, line in lines do
 			if line:find(needles[1], 1, true) or line:find(needles[2], 1, true) then
 				local first, last = at, at
-				while first > 1 and lines[first - 1]:match("%S") do
+				while first > 1 and has_text(lines[first - 1]) do
 					first -= 1
 				end
-				while last < #lines and lines[last + 1]:match("%S") do
+				while last < #lines and has_text(lines[last + 1]) do
 					last += 1
 				end
 				local found = {}
