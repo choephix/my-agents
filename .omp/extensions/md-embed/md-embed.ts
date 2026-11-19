@@ -5,13 +5,14 @@
 //   ![[~/file.md#Some heading]]  that heading's section
 //   ![[~/file.md|Label]]         any of the above under another label
 //   [[~/any/file]]               a plain link to the file
-//   ![[2026-11-18-note]]         a bare name, looked up in the vault folder
+//   ![[2026-11-18-note]]         a name looked up in the vault folder
+//   ![[efforts/slip-box/map]]    the vault file whose path ends with these folders and name
 //
 // An embed draws as a `> [!NOTE]` callout whose first line links the file with
 // the title EMBED_TITLE; the md-embed Tern plugin (tern-plugins/md-embed) keys its styling on that
 // title. Tern's native view draws the callout as a card; a plain terminal gets
 // a quote without the `[!NOTE]` line, since omp's terminal Markdown has no
-// callouts. Only `.md` files on absolute or `~` paths, or bare names found in the
+// callouts. Only `.md` files on absolute or `~` paths, or names found in the
 // vault folder, embed; anything that does not resolve stays as written.
 // Needs `extensionRenderers.assistantText` on.
 //
@@ -44,7 +45,7 @@ interface Target {
 	path: string;
 	fragment: string | undefined;
 	alias: string | undefined;
-	/** A bare name several vault files share: their paths, and `path` is the vault folder. */
+	/** A vault name several vault files match: their paths, and `path` is the vault folder. */
 	several?: string[];
 }
 
@@ -127,9 +128,31 @@ function vaultFiles(root: string): Map<string, string[]> {
 }
 
 /**
+ * A target looked up in the vault folder: not absolute, not `~/`, and every `/`-separated part a
+ * name (no empty, `.` or `..` part).
+ */
+function isVaultName(path: string): boolean {
+	if (path.startsWith("/") || path === "~" || path.startsWith("~/")) return false;
+	return path.split("/").every(part => part !== "" && part !== "." && part !== "..");
+}
+
+/**
+ * The vault files a vault name names, `<name>.md` when it has no extension: those whose
+ * vault-relative path is the name or ends with `/` + it, so `a/map` finds `efforts/a/map.md` but
+ * `map` never finds `roadmap.md`. Only files sharing the name's file name are compared.
+ */
+function vaultMatches(vault: string, name: string): string[] {
+	const want = /\.[a-z\d]+$/i.test(name) ? name : `${name}.md`;
+	return (vaultFiles(vault).get(basename(want)) ?? []).filter(full => {
+		const rel = relative(vault, full);
+		return rel === want || rel.endsWith(`/${want}`);
+	});
+}
+
+/**
  * `path[#fragment][|alias]` with the path made absolute; undefined unless it names an existing file.
- * A bare name (no `/`, no `~/`) is looked up in the vault folder by file name, `<name>.md` when it
- * has no extension; with no match it resolves as before (and, being relative, does not resolve).
+ * A path that is not absolute and not `~/` is looked up in the vault folder by `vaultMatches`; with
+ * no match it resolves as before (and, being relative, does not resolve).
  */
 function parseTarget(raw: string): Target | undefined {
 	const [ref, ...aliasParts] = raw.split("|");
@@ -137,9 +160,9 @@ function parseTarget(raw: string): Target | undefined {
 	const hash = ref!.indexOf("#");
 	let path = (hash < 0 ? ref! : ref!.slice(0, hash)).trim();
 	const fragment = hash < 0 ? undefined : ref!.slice(hash + 1).trim() || undefined;
-	const vault = path && !path.includes("/") && path !== "~" && path !== "." && path !== ".." ? vaultFolder() : undefined;
+	const vault = isVaultName(path) ? vaultFolder() : undefined;
 	if (vault) {
-		const matches = vaultFiles(vault).get(/\.[a-z\d]+$/i.test(path) ? path : `${path}.md`) ?? [];
+		const matches = vaultMatches(vault, path);
 		if (matches.length > 1) return { path: vault, fragment, alias: alias ?? path, several: matches };
 		if (matches.length === 1) path = matches[0]!;
 	}
@@ -224,7 +247,7 @@ function link(label: string, path: string, title?: string): string {
 	return `[${label.replace(/([\\\[\]])/g, "\\$1")}](${dest}${title ? ` "${title}"` : ""})`;
 }
 
-/** The callout for a bare name several vault files share: a note linking each of them. */
+/** The callout for a vault name several vault files match: a note linking each of them. */
 function severalBlock(target: Target, opts: RenderOptions): string[] {
 	const names = target.several!.map(path => link(relative(target.path, path), path)).sort();
 	const header = link(target.alias!, target.path, EMBED_TITLE);
