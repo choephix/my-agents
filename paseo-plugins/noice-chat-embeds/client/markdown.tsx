@@ -4,7 +4,7 @@ import { Markdown, StreamedText } from "@getpaseo/plugin/client/ui";
 import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import { readChatRepo, resolveVaultNames } from "../shared/preferences";
-import { addColorSwatches, bareWikiNames, linkIssueRefs, linkWikiLinks } from "./parse";
+import { addColorSwatches, linkIssueRefs, linkWikiLinks, vaultWikiNames } from "./parse";
 import { swatch, SWATCHES } from "./web";
 
 export const markdownSchema = z.object({
@@ -21,12 +21,12 @@ const repos = new Map<string, Promise<string | null>>();
 const vaultAnswers = new Map<string, ReadonlyMap<string, string>>();
 
 /**
- * `text` with its wiki links as Markdown links. While `active`, bare names (`[[note]]`) are looked
+ * `text` with its wiki links as Markdown links. While `active`, vault names (`[[note]]`, `[[a/map]]`) are looked
  * up in the vault folder; until the answer comes, and for names it lacks, they link as before.
  */
 export function useWikiLinks(text: string, active: boolean): string {
   const resolve = useRpc(resolveVaultNames);
-  const key = useMemo(() => (active ? bareWikiNames(text).join("\n") : ""), [text, active]);
+  const key = useMemo(() => (active ? vaultWikiNames(text).join("\n") : ""), [text, active]);
   const [paths, setPaths] = useState(() => vaultAnswers.get(key));
   useEffect(() => {
     if (!key) return;
@@ -46,7 +46,7 @@ export function useWikiLinks(text: string, active: boolean): string {
 
 export function MarkdownChunk({ item, agentId }: PluginTimelineItemProps<MarkdownData>) {
   const { phase } = item.data;
-  // The transformer leaves bare wiki links to this pass while a vault folder is set.
+  // The transformer leaves wiki links to vault names to this pass while a vault folder is set.
   const text = useWikiLinks(item.data.text, phase === "complete");
   const readRepo = useRpc(readChatRepo);
   const [repo, setRepo] = useState<string | null>(null);

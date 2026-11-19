@@ -8,7 +8,7 @@ import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import {
   embedKind,
   IMAGE_TYPES,
-  isBareName,
+  isVaultName,
   isMarkdownPath,
   readEmbedAsset,
   readEmbedFile,
@@ -72,26 +72,40 @@ async function vaultFiles(vault: string): Promise<Map<string, string[]>> {
   return files;
 }
 
+/**
+ * The vault files a vault name names: those whose vault-relative path is `vaultFileName(name)` or
+ * ends with `/` + it, so `a/map` finds `efforts/a/map.md` but `map` never finds `roadmap.md`. Only
+ * the files sharing its file name are compared.
+ */
+function vaultMatches(files: Map<string, string[]>, vault: string, name: string): string[] {
+  const want = vaultFileName(name);
+  return (files.get(path.basename(want)) ?? []).filter((full) => {
+    const relative = path.relative(vault, full);
+    return relative === want || relative.endsWith(`/${want}`);
+  });
+}
+
 export async function resolveNames(
   { names }: RpcInput<typeof resolveVaultNames>,
   vault: string | null,
 ): Promise<RpcOutput<typeof resolveVaultNames>> {
   const paths: Record<string, string> = {};
-  const bare = names.filter(isBareName);
-  if (!vault || !bare.length) return { paths };
+  const wanted = names.filter(isVaultName);
+  if (!vault || !wanted.length) return { paths };
   const files = await vaultFiles(vault);
-  for (const name of bare) {
-    const matches = files.get(vaultFileName(name));
-    if (matches?.length === 1) paths[name] = matches[0];
+  for (const name of wanted) {
+    const matches = vaultMatches(files, vault, name);
+    if (matches.length === 1) paths[name] = matches[0];
   }
   return { paths };
 }
 
 /**
- * Resolves an embed path. A bare name with one match in the vault folder is that file; with several
- * it is an error naming them; with none it resolves as before. Other paths resolve against the
- * chat's folder. Markdown files resolve from anywhere, as in omp's md-embed extension; every other
- * file only inside the chat's folder or the vault folder.
+ * Resolves an embed path. A path that is not absolute and not `~/` is first looked up in the vault
+ * folder by `vaultMatches`: one match is that file; several are an error naming them; with none it
+ * resolves as before. Other paths resolve against the chat's folder. Markdown files resolve from
+ * anywhere, as in omp's md-embed extension; every other file only inside the chat's folder or the
+ * vault folder.
  */
 async function resolveEmbedPath(
   agentId: string,
@@ -104,8 +118,8 @@ async function resolveEmbedPath(
 
   const cwd = path.resolve(agent.agent.cwd);
   let requested: string | undefined;
-  if (vault && isBareName(requestedPath)) {
-    const matches = (await vaultFiles(vault)).get(vaultFileName(requestedPath)) ?? [];
+  if (vault && isVaultName(requestedPath)) {
+    const matches = vaultMatches(await vaultFiles(vault), vault, requestedPath);
     if (matches.length > 1) {
       const names = matches.map((match) => path.relative(vault, match)).sort();
       return error("ambiguous", `Several files in the vault folder have this name: ${names.join(", ")}.`);

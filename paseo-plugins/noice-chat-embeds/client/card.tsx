@@ -220,7 +220,7 @@ function Fade({ background }: { background: string }) {
   );
 }
 
-/** Markdown with its wiki links linked, bare names through the vault folder. */
+/** Markdown with its wiki links linked, vault names through the vault folder. */
 function LinkedMarkdown({ text }: { text: string }) {
   return <Markdown>{useWikiLinks(text, true)}</Markdown>;
 }

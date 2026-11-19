@@ -1,4 +1,4 @@
-import { isBareName } from "../shared/preferences";
+import { isVaultName } from "../shared/preferences";
 import { type AgentLink, parseAgentLink } from "./agent-link";
 
 export interface Embed {
@@ -127,9 +127,9 @@ export function linkIssueRefs(text: string, link: (number: string) => string): s
 const WIKILINK = /(?<![![])\[\[([^[\]\n]+?)\]\](?!\])/g;
 
 export interface WikiLinkOptions {
-  /** Leave bare names (no `/`, no `~/`) as written, for a later pass that knows the vault. */
-  skipBare?: boolean;
-  /** Bare names found in the vault folder, to their absolute paths. */
+  /** Leave vault names (not `/` or `~/`) as written, for a later pass that knows the vault. */
+  skipVaultNames?: boolean;
+  /** Vault names found in the vault folder, to their absolute paths. */
   vaultPaths?: ReadonlyMap<string, string>;
 }
 
@@ -148,14 +148,14 @@ function mapWikiLinks(text: string, visit: (whole: string, target: { path: strin
 /**
  * Rewrites plain `[[path#fragment|Label]]` wiki links outside code and Markdown links as Markdown
  * links, which Paseo opens in its file panel. Only targets that look like files are rewritten: a
- * `/` or `~/` path, a name with an extension, or a bare name found in the vault folder. The label
+ * `/` or `~/` path, a path with an extension, or a vault name found in the vault folder. The label
  * is the alias, else the file name with its fragment; a line range also goes on the link.
  */
 export function linkWikiLinks(text: string, options: WikiLinkOptions = {}): string {
   return mapWikiLinks(text, (whole, target) => {
-    const bare = isBareName(target.path);
-    if (bare && options.skipBare) return whole;
-    const vaultPath = bare ? options.vaultPaths?.get(target.path) : undefined;
+    const vaultName = isVaultName(target.path);
+    if (vaultName && options.skipVaultNames) return whole;
+    const vaultPath = vaultName ? options.vaultPaths?.get(target.path) : undefined;
     if (!vaultPath && !/^~?\//.test(target.path) && !/\.[a-z\d]+$/i.test(target.path)) return whole;
     const range = lineRange(target.fragment);
     if (range === "invalid") return whole;
@@ -166,12 +166,12 @@ export function linkWikiLinks(text: string, options: WikiLinkOptions = {}): stri
   });
 }
 
-/** The bare names of the wiki links `linkWikiLinks` would look up in the vault folder, sorted, once each. */
-export function bareWikiNames(text: string): string[] {
+/** The vault names of the wiki links `linkWikiLinks` would look up in the vault folder, sorted, once each. */
+export function vaultWikiNames(text: string): string[] {
   if (!text.includes("[[")) return [];
   const names = new Set<string>();
   mapWikiLinks(text, (whole, target) => {
-    if (isBareName(target.path)) names.add(target.path);
+    if (isVaultName(target.path)) names.add(target.path);
     return whole;
   });
   return [...names].sort();

@@ -1,6 +1,6 @@
 Shows inline file previews when an assistant writes an Obsidian-style embed such as `![[src/app.ts#L40-80]]`. The embed text is replaced by a compact card that keeps the original spelling, shows the requested line range, and loads a bounded preview. Tap the preview to expand it and scroll; the file link opens the normal Paseo file panel on the side.
 
-Only complete embeds in assistant messages are converted. Fenced code blocks, inline code, and half-typed embeds stay as the assistant wrote them. Relative paths use the chat's working directory. Missing, unreadable, binary, and oversized requests show a muted error instead of breaking the message.
+Only complete embeds in assistant messages are converted. Fenced code blocks, inline code, and half-typed embeds stay as the assistant wrote them. Relative paths use the vault folder first when one is set (below), then the chat's working directory. Missing, unreadable, binary, and oversized requests show a muted error instead of breaking the message.
 
 ## Embed syntax
 
@@ -10,7 +10,7 @@ The syntax is the same as omp's md-embed extension (drawn in Tern by the `md-emb
 - `![[file#L10-L42]]`, `#L10-42` or `#L10`: those lines, `L` in any case.
 - `![[file.md#Some heading]]`: that heading's section, from below the heading up to the next heading of its level or higher. The heading text matches in any case; headings inside fenced code don't count.
 - `|Label` after any of the above, as in `![[file.md#Plan|The plan]]`: the card header shows the label instead of the original text.
-- `[[file.md#Plan]]` without the `!`: a plain Markdown link, labelled with the file name and fragment or the `|Label`, which opens in the file panel. Only targets that look like files are linked: a `/` or `~/` path, a name with an extension, or a bare name found in the vault folder (below), so `[[Page Name]]` otherwise stays text.
+- `[[file.md#Plan]]` without the `!`: a plain Markdown link, labelled with the file name and fragment or the `|Label`, which opens in the file panel. Only targets that look like files are linked: a `/` or `~/` path, a path with an extension, or a path found in the vault folder (below), so `[[Page Name]]` otherwise stays text.
 
 Markdown files (`.md`, `.markdown`) preview as formatted Markdown and may live in any folder. Every other file previews as monospace text and must be inside the chat's working directory or the vault folder: absolute and `~/` paths are accepted only when they resolve there, and a symlink inside either folder can't point outside it. A `.md` symlink may point anywhere, as long as its target is also Markdown.
 
@@ -22,12 +22,12 @@ The plugin is enabled by default, and one switch covers every embed kind below, 
 
 **Vault folder** (Obsidian's term) is an absolute path in the plugin's settings, next to the switches; empty, the default, turns it off. Type the path and press **Save** below the field. While set:
 
-- A bare name, with no `/` and no `~/`, is looked up in that folder and its subfolders by file name, in embeds and wiki links alike: `![[2026-11-18-note]]` finds `2026-11-18-note.md`, `![[shot.png]]` finds `shot.png`. `#L10-L42`, `#Heading` and `|Label` work as above. So a note keeps its links when it moves to another subfolder.
-- With several matches the card shows a muted error naming them; with none the name resolves from the chat's working directory as before.
+- A path that does not start with `/` or `~/` is read as the end of a path inside that folder, in embeds and wiki links alike. It finds the one file there whose path, counted from the vault folder, is that path or ends with it, whole folder and file names only; with no extension `.md` is added. So `![[2026-11-18-note]]` finds `2026-11-18-note.md` in any subfolder, `![[shot.png]]` finds `shot.png`, and `![[efforts/slip-box/map]]` or `![[slip-box/map]]` finds `efforts/slip-box/map.md` even when other efforts have their own `map.md`; `![[map]]` never finds `roadmap.md`. `#L10-L42`, `#Heading` and `|Label` work as above. So a link keeps working when its file, or a folder above it, moves (say `efforts/` into `trash/`), as long as the part written stays the same and matches one file.
+- With several matches the card shows a muted error naming them; with none the path resolves from the chat's working directory as before. Paths with a `.` or `..` part are not looked up in the vault.
 - Any file inside the vault folder (pictures, HTML pages, Markdown) embeds from every chat, as files inside the chat's own folder do.
 - Dot-folders (`.git`, `.obsidian`) and `node_modules` are not searched, and symlinked folders are not followed.
 
-The folder is read afresh on each lookup, with no cache and no watcher: a new or moved file resolves at once, and nothing runs while idle. Each card or reply with bare names reads the folder once, so point it at a notes folder, not a whole home folder. Wiki links to bare names are linked once the reply finishes; until the lookup answers they link as without a vault.
+The folder is read afresh on each lookup, with no cache and no watcher: a new or moved file resolves at once, and nothing runs while idle. Each card or reply with such paths reads the folder once, so point it at a notes folder, not a whole home folder. Wiki links to such paths are linked once the reply finishes; until the lookup answers they link as without a vault.
 
 ## Images
 

@@ -12,8 +12,8 @@ export const preferences = defineSettings({
     /** A plain click on an `app.paseo.sh` agent link switches tabs in place; independent of `enabled`. */
     openLinksInPlace: z.boolean().default(true),
     /**
-     * Obsidian's "vault folder": an absolute path (or `~/…`). Bare names (`![[note]]`, `[[shot.png]]`)
-     * are looked up in it by file name, and any file inside it embeds from every chat. Empty: off.
+     * Obsidian's "vault folder": an absolute path (or `~/…`). Other paths (`![[note]]`, `[[shot.png]]`,
+     * `![[efforts/x/map]]`) are looked up in it as path endings, and any file inside it embeds from every chat. Empty: off.
      */
     vaultFolder: z.string().default(""),
   }),
@@ -52,12 +52,16 @@ export function isMarkdownPath(filePath: string): boolean {
   return /\.(md|markdown)$/i.test(filePath);
 }
 
-/** A target with no `/` and no `~/`, looked up in the vault folder by file name. */
-export function isBareName(target: string): boolean {
-  return !/[\\/]/.test(target) && target !== "~" && target !== "." && target !== "..";
+/**
+ * A target looked up in the vault folder: not absolute, not `~/`, and every `/`-separated part a
+ * name (no empty, `.` or `..` part). It names the end of a path inside the vault folder.
+ */
+export function isVaultName(target: string): boolean {
+  if (target.startsWith("/") || target === "~" || target.startsWith("~/")) return false;
+  return target.split("/").every((part) => part !== "" && part !== "." && part !== "..");
 }
 
-/** The file name a bare name matches: itself when it has an extension, else `<name>.md`. */
+/** The path end a vault name matches: itself when it has an extension, else `<name>.md`. */
 export function vaultFileName(name: string): string {
   return /\.[a-z\d]+$/i.test(name) ? name : `${name}.md`;
 }
@@ -108,7 +112,7 @@ export const readChatRepo = defineRpc({
   output: z.object({ url: z.string().nullable() }),
 });
 
-/** Bare names to the one vault file each names; names with no match or several are left out. */
+/** Vault names to the one vault file each names; names with no match or several are left out. */
 export const resolveVaultNames = defineRpc({
   name: "message-embeds.resolve-vault-names",
   input: z.object({ names: z.array(z.string()).max(100) }),
