@@ -36,3 +36,25 @@
 	flex: 1 1 auto;
 	min-width: 0;
 }
+
+/* A settled slip (front matter `settled:`) arrives as `<details><summary>Settled · name</summary>`, then its
+   embed. Tern's chat Markdown draws the embed after the details block, not inside it, so the fold happens
+   here: while the details block is closed, the embed right after it is hidden. The summary is muted.
+   Each top-level block of a reply sits in its own `.md`; inside a callout the blocks are plain siblings. */
+.sf-md .md:has(> .md-markup > .md-details:not(.open)) + .md:has(> .callout.note > .co-body > p:first-child > a[title^="Embedded file"]),
+.sf-md .md .md-markup:has(> .md-details:not(.open)) + .callout.note:has(> .co-body > p:first-child > a[title^="Embedded file"]) {
+	display: none;
+}
+
+/* `</details>` after the embed draws as an empty block that would still take a gap. */
+.sf-md .md:has(> .callout.note > .co-body > p:first-child > a[title^="Embedded file"]) + .md:has(> .md-markup:empty),
+.sf-md .md .callout.note:has(> .co-body > p:first-child > a[title^="Embedded file"]) + .md-markup:empty {
+	display: none;
+}
+
+.sf-md .md:has(+ .md > .callout.note > .co-body > p:first-child > a[title^="Embedded file"]) > .md-markup > .md-details > .md-summary,
+.sf-md .md .md-markup:has(+ .callout.note > .co-body > p:first-child > a[title^="Embedded file"]) > .md-details > .md-summary {
+	font-size: 12px;
+	font-weight: 400;
+	opacity: 0.55;
+}

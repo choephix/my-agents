@@ -287,10 +287,25 @@ function embedBlock(raw: string, opts: RenderOptions, stack: readonly string[]):
 	const lines = rendered.split("\n");
 	if (cut > 0) lines.push("", `*… ${cut} more lines in ${link(basename(target.path), target.path)}*`);
 
-	const header = link(target.alias ?? `${basename(target.path)}${part.label}`, target.path, EMBED_TITLE);
+	const label = target.alias ?? `${basename(target.path)}${part.label}`;
+	const header = link(label, target.path, EMBED_TITLE);
 	const block = opts.callouts ? ["[!NOTE]", header] : [header];
 	if (lines.some(line => line.trim() !== "")) block.push("", ...lines);
-	return block.map(line => (line === "" ? ">" : `> ${line}`));
+	const callout = block.map(line => (line === "" ? ">" : `> ${line}`));
+	// A settled slip folds behind a one-line summary; the md-embed Tern plugin mutes it. A plain
+	// terminal has no `<details>`, so there it stays open.
+	if (!opts.callouts || !isSettled(all)) return callout;
+	const summary = `Settled · ${label.replace(/[&<>]/g, c => (c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;"))}`;
+	return ["<details>", `<summary>${summary}</summary>`, "", ...callout, "", "</details>"];
+}
+
+/** Whether the file's front matter has a non-empty `settled:` (the slip box's mark for a slip that no longer needs Stefan). */
+function isSettled(lines: readonly string[]): boolean {
+	if (lines[0] !== "---") return false;
+	for (let i = 1; i < lines.length && lines[i] !== "---"; i++) {
+		if (/^settled:[ \t]*[^\s#]/.test(lines[i]!)) return true;
+	}
+	return false;
 }
 
 /** Embeds MAX_DEPTH levels down, drawn as plain links. */

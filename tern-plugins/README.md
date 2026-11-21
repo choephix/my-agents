@@ -14,7 +14,7 @@ tern plugin install github.com/choephix/my-agents/tern-plugins/choices --force
 
 ## [Markdown embeds](md-embed)
 
-Draws the embeds of the [md-embed omp extension](../.omp/extensions/md-embed) (`![[/abs/file.md]]` in a reply) as quiet dashed cards instead of blue NOTE callouts.
+Draws the embeds of the [md-embed omp extension](../.omp/extensions/md-embed) (`![[/abs/file.md]]` in a reply) as quiet dashed cards instead of blue NOTE callouts, and folds a settled slip's embed behind a muted `Settled · <name>` line until it is clicked.
 
 ```sh
 tern plugin install github.com/choephix/my-agents/tern-plugins/md-embed --force
