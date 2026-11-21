@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Discord Thread → Markdown (for AI agents)
 // @namespace    local.tools
-// @version      0.10.0
-// @description  Copy a Discord conversation as markdown, with per-message permalinks and attachment URLs.
+// @version      0.11.0
+// @description  Copy a Discord conversation as markdown, with per-message permalinks, attachment URLs and author avatars.
 // @match        https://discord.com/channels/*
 // @grant        GM_setClipboard
 // @run-at       document-idle
@@ -105,6 +105,20 @@
     return [...set];
   }
 
+  /** Only the first message of a group renders an avatar; reply previews carry the replied-to author's. */
+  function avatarIn(host) {
+    const img = [...host.querySelectorAll('img[class*="avatar"]')]
+      .find(i => !i.closest(REPLYCX) && !/decoration/i.test(i.className));
+    const src = img?.getAttribute('src');
+    if (!src) return null;
+    try {
+      const u = new URL(src, location.href);
+      u.search = '';
+      if (u.hostname === 'cdn.discordapp.com') u.searchParams.set('size', '128');
+      return u.href;
+    } catch { return null; }
+  }
+
   // --------------------------------------------------------- host discovery
   function messageHosts() {
     const hosts = new Set();
@@ -151,6 +165,7 @@
     openSandbox();
     let lastAuthor = '(unknown)';
     const seen = new Set();
+    const avatars = new Map();   // author → avatar URL, first seen wins
 
     const messages = nodes.map(host => {
       const id = messageId(host);
@@ -168,6 +183,8 @@
           : headerEl?.querySelector('[class*="username"]') || headerEl
       ) || lastAuthor;
       lastAuthor = author;
+      const avatar = avatarIn(host);
+      if (avatar && !avatars.has(author)) avatars.set(author, avatar);
 
       const text   = richText(contentEl);
       const reply  = richText(replyEl?.querySelector('[class*="repliedTextContent"]') || replyEl);
@@ -188,11 +205,13 @@
     }).filter(Boolean);
 
     closeSandbox();
+    const authors = new Set(messages.map(m => m.author));
     return {
       source: document.title.replace(/^\(\d+\)\s*/, ''),
       url: location.href,
       exportedAt: new Date().toISOString(),
       messages,
+      avatars: Object.fromEntries([...avatars].filter(([a]) => authors.has(a))),
       ...meta,
     };
   }
@@ -248,6 +267,11 @@
         m.links.forEach(l => out.push(`- ${l}`));
       }
       out.push('');
+    }
+    const avatars = Object.entries(d.avatars);
+    if (avatars.length) {
+      out.push('---', '', 'Avatars:');
+      avatars.forEach(([a, url]) => out.push(`- **${a}**: ${url}`));
     }
     return out.join('\n');
   }
