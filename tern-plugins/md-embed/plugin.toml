@@ -1,7 +1,7 @@
 schema = 1
 id = "md-embed"
 name = "Markdown embeds"
-version = "0.2.0"
+version = "0.3.0"
 description = "Draws omp's md-embed callouts as quiet dashed cards; folds settled slips."
 window = "window.luau"
 styles = ["embed.css"]

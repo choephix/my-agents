@@ -292,11 +292,11 @@ function embedBlock(raw: string, opts: RenderOptions, stack: readonly string[]):
 	const block = opts.callouts ? ["[!NOTE]", header] : [header];
 	if (lines.some(line => line.trim() !== "")) block.push("", ...lines);
 	const callout = block.map(line => (line === "" ? ">" : `> ${line}`));
-	// A settled slip folds behind a one-line summary; the md-embed Tern plugin mutes it. A plain
-	// terminal has no `<details>`, so there it stays open.
+	// A settled slip folds: the md-embed Tern plugin draws the `settled` summary as a tag on the card's
+	// top right and shows only the card's file line until it is clicked. A plain terminal has no
+	// `<details>`, so there it stays open.
 	if (!opts.callouts || !isSettled(all)) return callout;
-	const summary = `Settled · ${label.replace(/[&<>]/g, c => (c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;"))}`;
-	return ["<details>", `<summary>${summary}</summary>`, "", ...callout, "", "</details>"];
+	return ["<details>", "<summary>settled</summary>", "", ...callout, "", "</details>"];
 }
 
 /** Whether the file's front matter has a non-empty `settled:` (the slip box's mark for a slip that no longer needs Stefan). */

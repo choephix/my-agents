@@ -4,7 +4,7 @@
 
 `![[shot.png]]` (also jpg, gif, webp, avif, svg) shows the picture in the same card, under its file link, as a Markdown image with the absolute path. Other files stay as written.
 
-An embedded `.md` file whose front matter has `settled:` (a settled slip-box slip) arrives folded in Tern: a `<details>` block whose summary reads `Settled · <name>`, then the embed. The md-embed plugin mutes that line and hides the embed until it is clicked open. A plain terminal shows the embed open, as before.
+An embedded `.md` file whose front matter has `settled:` (a settled slip-box slip) arrives folded in Tern: a `<details>` block whose summary reads `settled`, then the embed. The md-embed plugin draws the card with a gray outline and a tiny `settled` tag above its top right corner, and shows only its file line until the card is clicked open; the tag folds it again. A plain terminal shows the embed open, as before.
 
 ## Vault folder
 
