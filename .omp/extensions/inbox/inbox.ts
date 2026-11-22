@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { homedir } from "node:os";
-import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type { AgentSession, ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
 /**
  * An inbox for the running session: other programs on this machine (Stefan's desk) can send it a message as if he
@@ -41,6 +41,8 @@ import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
  *   resolve, specs   which of `specs` (models or roles, `@sol`) this omp can switch to: `models`, each spec's
  *                    `provider/id` or null (a role whose model omp's catalog doesn't have)
  *   compact          compacts the context
+ *   command, text, key   runs a `/command` the session lists (`commands`) as omp's own prompt does: extension commands,
+ *                    prompt templates, skills. Idle only. Answers once it started; what the command says shows in omp.
  *
  * A subscriber whose socket backs up past 1 MB is dropped; it subscribes again and gets the whole state.
  * Only the main agent listens; a subagent's memos belong to its parent. No timers while idle.
@@ -180,6 +182,22 @@ export default function inbox(pi: ExtensionAPI): void {
 		}
 	};
 
+	// omp's `sendUserMessage` skips command handling on purpose, so a command goes to the live AgentSession (found as
+	// `headless-builtins` finds it): its `prompt()` runs extension commands and prompt templates; skills, which omp's
+	// terminal expands itself, go as omp's RPC mode sends them. The skill helpers load only here, so an omp update
+	// that moves them breaks skills from the desk, not the inbox.
+	const command = async (session: AgentSession, text: string) => {
+		if (!text.startsWith("/skill:")) return void session.prompt(text).catch(() => { });
+		const { buildSkillPromptMessage, parseSkillInvocation } = await import("@oh-my-pi/pi-coding-agent/extensibility/skills");
+		const { SKILL_PROMPT_MESSAGE_TYPE } = await import("@oh-my-pi/pi-coding-agent/session/messages");
+		const parsed = parseSkillInvocation(text);
+		const skill = parsed && session.skills.find((each) => each.name === parsed.name);
+		if (!parsed || !skill) throw new Error(`no skill ${text.split(/\s/, 1)[0]}`);
+		const built = await buildSkillPromptMessage(skill, parsed, "user");
+		const message = { customType: SKILL_PROMPT_MESSAGE_TYPE, content: built.message, display: true, details: built.details, attribution: "user" as const };
+		void session.promptCustomMessage(message).catch(() => { });
+	};
+
 	const handle = async (msg: Request, conn: Socket): Promise<object | null> => {
 		const ctx = latest!;
 		const id = ctx.sessionManager.getSessionId();
@@ -266,6 +284,23 @@ export default function inbox(pi: ExtensionAPI): void {
 			case "compact":
 				void Promise.resolve(ctx.compact()).catch(() => { });
 				return info;
+			case "command": {
+				// Only commands this session lists: any other `/word` (omp's built-ins, `/tan`, `/tree`) would reach the
+				// model as plain text.
+				const name = text.startsWith("/") ? text.slice(1).split(/\s/, 1)[0] : "";
+				if (!name || !pi.getCommands().some((each) => each.name === name)) return fail(`/${name} isn't one of this session's commands; omp's own (/tan, /tree, …) run only from its prompt`);
+				if (!idle) return fail("omp is working: run it once the turn ends");
+				if (!fresh()) return info;
+				const session = pi.pi.AgentRegistry.global().list().find((ref) => ref.session?.sessionManager === ctx.sessionManager)?.session;
+				if (!session) return fail("couldn't find this omp's live session");
+				remember();
+				try {
+					await command(session, text);
+					return info;
+				} catch (error) {
+					return fail(error);
+				}
+			}
 			default:
 				return fail(`unknown command ${String(msg.cmd)}`);
 		}
