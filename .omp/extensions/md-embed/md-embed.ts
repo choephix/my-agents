@@ -26,12 +26,12 @@ import { basename, isAbsolute, join, normalize, relative } from "node:path";
 
 export const EMBED_TITLE = "Embedded file";
 const MAX_LINES = 300;
-const MAX_DEPTH = 2;
+export const MAX_DEPTH = 2;
 const MAX_BYTES = 2 * 1024 * 1024;
-const MARKDOWN = /\.(md|markdown)$/i;
+export const MARKDOWN = /\.(md|markdown)$/i;
 const PICTURE = /\.(png|jpe?g|gif|webp|avif|svg)$/i;
 
-const EMBED = /!\[\[([^\[\]\n]+?)\]\]/g;
+export const EMBED = /!\[\[([^\[\]\n]+?)\]\]/g;
 const WIKILINK = /(?<!!)\[\[([^\[\]\n]+?)\]\]/g;
 /** A trailing `![[` or `[[` the stream has not closed yet. */
 const OPEN_TAIL = /!?\[\[[^\[\]\n]*\]?$/;
@@ -62,7 +62,7 @@ const cache = new Map<string, Cached>();
 let config: { stamp: string | null; vault: string | undefined } = { stamp: null, vault: undefined };
 
 /** The vault folder from `md-embed.json` (`{ "vaultFolder": "/abs/path" }`); undefined when unset or invalid. */
-function vaultFolder(): string | undefined {
+export function vaultFolder(): string | undefined {
 	// Per lookup: named profiles point PI_CODING_AGENT_DIR at their own agent dir.
 	const file = join(process.env.PI_CODING_AGENT_DIR?.trim() || join(homedir(), ".omp", "agent"), "md-embed.json");
 	let stamp: string | null;
@@ -78,7 +78,7 @@ function vaultFolder(): string | undefined {
 		const value: unknown = stamp && JSON.parse(readFileSync(file, "utf8")).vaultFolder;
 		const path = typeof value === "string" ? value.trim().replace(/^~(?=$|\/)/, homedir()) : "";
 		if (path && isAbsolute(path)) vault = normalize(path);
-	} catch {}
+	} catch { }
 	config = { stamp, vault };
 	return vault;
 }
@@ -91,7 +91,7 @@ function vaultFolder(): string | undefined {
  */
 let vaultIndex: { root: string; folders: Map<string, number>; files: Map<string, string[]> } | undefined;
 
-function vaultFiles(root: string): Map<string, string[]> {
+export function vaultFiles(root: string): Map<string, string[]> {
 	const fresh = (folder: string, mtimeMs: number) => {
 		try {
 			return statSync(folder).mtimeMs === mtimeMs;
@@ -133,7 +133,7 @@ function vaultFiles(root: string): Map<string, string[]> {
  * A target looked up in the vault folder: not absolute, not `~/`, and every `/`-separated part a
  * name (no empty, `.` or `..` part).
  */
-function isVaultName(path: string): boolean {
+export function isVaultName(path: string): boolean {
 	if (path.startsWith("/") || path === "~" || path.startsWith("~/")) return false;
 	return path.split("/").every(part => part !== "" && part !== "." && part !== "..");
 }
@@ -156,7 +156,7 @@ function vaultMatches(vault: string, name: string): string[] {
  * A path that is not absolute and not `~/` is looked up in the vault folder by `vaultMatches`; with
  * no match it resolves as before (and, being relative, does not resolve).
  */
-function parseTarget(raw: string): Target | undefined {
+export function parseTarget(raw: string): Target | undefined {
 	const [ref, ...aliasParts] = raw.split("|");
 	const alias = aliasParts.join("|").trim() || undefined;
 	const hash = ref!.indexOf("#");
@@ -179,7 +179,7 @@ function parseTarget(raw: string): Target | undefined {
 	return { path, fragment, alias };
 }
 
-function readLines(path: string): string[] | undefined {
+export function readLines(path: string): string[] | undefined {
 	const stat = statSync(path);
 	if (stat.size > MAX_BYTES) return undefined;
 	const hit = cache.get(path);
@@ -190,7 +190,7 @@ function readLines(path: string): string[] | undefined {
 }
 
 /** Lines outside fenced code, as a mask: true where the line is fence or fence content. */
-function fencedLines(lines: readonly string[]): boolean[] {
+export function fencedLines(lines: readonly string[]): boolean[] {
 	const mask: boolean[] = [];
 	let open: string | undefined;
 	for (const line of lines) {
@@ -209,7 +209,7 @@ function fencedLines(lines: readonly string[]): boolean[] {
 }
 
 /** The slice of `lines` a fragment names and the label suffix for it; undefined when it names nothing. */
-function slice(lines: string[], fragment: string | undefined): { lines: string[]; label: string } | undefined {
+export function slice(lines: string[], fragment: string | undefined): { lines: string[]; label: string } | undefined {
 	if (!fragment) {
 		let start = 0;
 		if (lines[0] === "---") {
@@ -357,6 +357,16 @@ function expandLine(
 	return out.join("\n");
 }
 
+/** A line with its inline code spans swapped for placeholders, and the function that puts them back. */
+export function maskCode(line: string): { plain: string; restore: (text: string) => string } {
+	const masked: string[] = [];
+	const plain = line.replace(/(`+)(?:(?!\1)[\s\S])*?\1/g, span => {
+		masked.push(span);
+		return `\u0000${masked.length - 1}\u0000`;
+	});
+	return { plain, restore: piece => piece.replace(/\u0000(\d+)\u0000/g, (_, n: string) => masked[Number(n)]!) };
+}
+
 /** The text with every resolvable embed and wiki link outside code expanded. */
 export function transform(text: string, opts: RenderOptions, stack: readonly string[] = []): string {
 	if (!text.includes("[[")) return text;
@@ -365,18 +375,12 @@ export function transform(text: string, opts: RenderOptions, stack: readonly str
 	return lines
 		.map((line, i) => {
 			if (fenced[i] || !line.includes("[[")) return line;
-			const masked: string[] = [];
-			const plain = line
-				.replace(/(`+)(?:(?!\1)[\s\S])*?\1/g, span => {
-					masked.push(span);
-					return `\u0000${masked.length - 1}\u0000`;
-				})
-				.replace(WIKILINK, (whole, raw: string) => {
-					const target = parseTarget(raw);
-					if (!target || target.several) return whole;
-					return link(target.alias ?? `${basename(target.path)}${target.fragment ? `#${target.fragment}` : ""}`, target.path);
-				});
-			const restore = (piece: string) => piece.replace(/\u0000(\d+)\u0000/g, (_, n: string) => masked[Number(n)]!);
+			const { plain: masked, restore } = maskCode(line);
+			const plain = masked.replace(WIKILINK, (whole, raw: string) => {
+				const target = parseTarget(raw);
+				if (!target || target.several) return whole;
+				return link(target.alias ?? `${basename(target.path)}${target.fragment ? `#${target.fragment}` : ""}`, target.path);
+			});
 			return expandLine(plain, restore, opts, stack) ?? restore(plain);
 		})
 		.join("\n");
@@ -389,7 +393,7 @@ export default async function mdEmbed(pi: ExtensionAPI) {
 	try {
 		const state = await import("@oh-my-pi/pi-tui/native/state");
 		native = state.isNativeRendering;
-	} catch {}
+	} catch { }
 
 	pi.registerAssistantTextRenderer(({ text, streaming }) => {
 		try {
