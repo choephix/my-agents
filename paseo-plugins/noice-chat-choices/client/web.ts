@@ -1,14 +1,14 @@
+import type { PluginClientContext, PluginComposer } from "@getpaseo/plugin/client";
 import { Platform } from "react-native";
 import { choicePrompt, deriveStates, fillChoiceText } from "./choices";
 
 // Web and desktop only. Paseo renders `[label](<@prompt>)` in an agent reply as an ordinary link with
 // the href `@prompt`. This module styles those links as choices, catches their clicks before Paseo
-// opens them, writes the prompt into that chat's message box (native textarea setter plus an
-// `input` event, which Paseo's draft follows), and marks each choice's state with an attribute.
-// States are derived from the page every time, nothing is stored: the box text says what is
-// picked, later user messages say what was settled. Work runs only on events: a click, typing in a
-// message box, and new or replaced chat rows (one observer, coalesced to at most one pass per
-// 120 ms). Nothing runs while the page is idle.
+// opens them, writes the prompt into that chat's message box through Paseo's `client.composers` API,
+// and marks each choice's state with an attribute. States are derived from the page every time,
+// nothing is stored: the box text says what is picked, later user messages say what was settled.
+// Work runs only on events: a click, typing in a message box, and new or replaced chat rows (one
+// observer, scoped to chats and coalesced to at most one pass per 120 ms). Nothing runs while idle.
 
 // The plugin typechecks without the DOM library; declare only what this module uses.
 interface Rect {
@@ -43,11 +43,6 @@ interface DomElement extends DomNode {
   remove(): void;
   dispatchEvent(event: unknown): boolean;
 }
-interface DomTextArea extends DomElement {
-  readonly value: string;
-  focus(): void;
-  setSelectionRange(start: number, end: number): void;
-}
 interface DomEvent {
   readonly target: unknown;
   readonly relatedTarget?: unknown;
@@ -58,6 +53,11 @@ interface DomEvent {
 interface DomMutationRecord {
   readonly target: DomNode;
   readonly addedNodes: ArrayLike<DomNode>;
+}
+interface Fiber {
+  readonly type: unknown;
+  readonly memoizedProps?: { readonly agentId?: unknown; readonly agent?: { readonly id?: unknown } | null } | null;
+  readonly return?: Fiber | null;
 }
 type Listener = (event: DomEvent) => void;
 type ListenerOptions = boolean | { capture?: boolean; passive?: boolean };
@@ -73,8 +73,6 @@ declare const document: {
 };
 declare const window: {
   readonly innerWidth: number;
-  HTMLTextAreaElement: { prototype: object };
-  Event: new (type: string, init: { bubbles: boolean }) => unknown;
 };
 declare function getComputedStyle(element: DomElement): { readonly backgroundColor: string };
 declare function setTimeout(callback: () => void, ms: number): number;
@@ -177,23 +175,23 @@ const promptOf = (link: DomElement) => choicePrompt(link.getAttribute("href") ??
 const questionOf = (link: DomElement) =>
   link.closest("ul, ol") ?? link.closest("p, h1, h2, h3, h4, h5, h6, blockquote, td, th") ?? link.parentElement;
 
-/**
- * The chat's own message box: on the nearest ancestor of the chat that holds one, the box on
- * screen (a pane keeps hidden tabs mounted), preferring the one under the chat in a split.
- * Same rule as noice-chat-quote.
- */
-function composerOf(chat: DomElement): DomTextArea | null {
-  for (let element = chat.parentElement; element; element = element.parentElement) {
-    const inputs = Array.from(element.querySelectorAll(COMPOSER));
-    if (!inputs.length) continue;
-    const shown = inputs.filter((input) => input.getClientRects().length > 0);
-    const box = chat.getBoundingClientRect();
-    const middle = (box.left + box.right) / 2;
-    const under = shown.find((input) => {
-      const rect = input.getBoundingClientRect();
-      return rect.left <= middle && middle <= rect.right;
-    });
-    return (under ?? shown[0] ?? null) as DomTextArea | null;
+const FIBER_DEPTH = 50;
+const agentIds = new WeakMap<DomElement, string>();
+
+/** The agent id owning a chat or composer element, read once from its React fiber ancestors. */
+function agentIdOf(element: DomElement): string | null {
+  const cached = agentIds.get(element);
+  if (cached) return cached;
+  const key = Object.keys(element).find((name) => name.startsWith("__reactFiber$"));
+  let fiber: Fiber | null | undefined = key ? (element as unknown as Record<string, Fiber | undefined>)[key] : undefined;
+  for (let depth = 0; fiber && depth < FIBER_DEPTH; depth++, fiber = fiber.return) {
+    if (typeof fiber.type === "string") continue;
+    const props = fiber.memoizedProps;
+    const id = typeof props?.agentId === "string" ? props.agentId : typeof props?.agent?.id === "string" ? props.agent.id : null;
+    if (id) {
+      agentIds.set(element, id);
+      return id;
+    }
   }
   return null;
 }
@@ -236,53 +234,52 @@ function setVar(chat: DomElement, name: string, value: string | null) {
   if (value && chat.style.getPropertyValue(name) !== value) chat.style.setProperty(name, value);
 }
 
-/** Sets every choice's state attribute in one chat from its message box and later user messages; returns the chat's questions. */
-function refresh(chat: DomElement, knownBox?: DomTextArea | null, syncInk = false): PageQuestion[] {
-  const questions = questionsIn(chat);
-  if (!questions.length) return questions;
-  const users = Array.from(chat.querySelectorAll(USER)).map((node) => ({
-    node,
-    text: node.querySelector("[data-message-text]")?.textContent ?? "",
-  }));
-  const box = knownBox !== undefined ? knownBox : composerOf(chat);
-  const states = deriveStates(
-    questions.map((question) => ({
-      prompts: question.prompts,
-      laterMessages: users
-        .filter((user) => question.node.compareDocumentPosition(user.node) & DOCUMENT_POSITION_FOLLOWING)
-        .map((user) => user.text),
-    })),
-    box?.value ?? "",
-  );
-  questions.forEach((question, q) =>
-    question.links.forEach((link, c) => {
-      if (link.getAttribute(STATE) !== states[q][c]) link.setAttribute(STATE, states[q][c]);
-    }),
-  );
-  setVar(chat, "--noice-choice-accent", questions[0].links[0].style.color || null);
-  if (syncInk || !chat.style.getPropertyValue("--noice-choice-ink")) {
-    setVar(chat, "--noice-choice-ink", inkOf(chat));
-  }
-  return questions;
-}
-
-const refreshAll = (syncInk = false) => {
-  for (const chat of Array.from(document.querySelectorAll(CHAT))) refresh(chat, undefined, syncInk);
-};
-
-/** Puts `text` in the box the way typing would, so Paseo's draft follows, with the caret at the end. */
-function writeBox(box: DomTextArea, text: string) {
-  const setValue = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
-  if (!setValue) return;
-  setValue.call(box, text);
-  box.dispatchEvent(new window.Event("input", { bubbles: true }));
-  box.focus();
-  box.setSelectionRange(text.length, text.length);
-}
-
 /** Styles choice links in agent replies and makes a click fill the message box. Returns cleanup; a no-op off the web. */
-export function startChoices(): () => void {
+export function startChoices(client: PluginClientContext): () => void {
   if (Platform.OS !== "web" || typeof document === "undefined") return () => {};
+
+  const composerFor = (chat: DomElement, allowFocusedFallback: boolean): PluginComposer | null => {
+    const id = agentIdOf(chat);
+    if (id) return client.composers({ agentId: id })[0] ?? null;
+    return allowFocusedFallback ? (client.composers({ focused: true })[0] ?? null) : null;
+  };
+
+  /** Sets every choice's state attribute in one chat from its message box and later user messages; returns the chat's questions. */
+  const refresh = (chat: DomElement, boxText?: string, syncInk = false): PageQuestion[] => {
+    const questions = questionsIn(chat);
+    if (!questions.length) return questions;
+    const users = Array.from(chat.querySelectorAll(USER)).map((node) => ({
+      node,
+      text: node.querySelector("[data-message-text]")?.textContent ?? "",
+    }));
+    const text =
+      boxText !== undefined
+        ? boxText
+        : (composerFor(chat, document.querySelectorAll(CHAT).length === 1)?.prompt ?? "");
+    const states = deriveStates(
+      questions.map((question) => ({
+        prompts: question.prompts,
+        laterMessages: users
+          .filter((user) => question.node.compareDocumentPosition(user.node) & DOCUMENT_POSITION_FOLLOWING)
+          .map((user) => user.text),
+      })),
+      text,
+    );
+    questions.forEach((question, q) =>
+      question.links.forEach((link, c) => {
+        if (link.getAttribute(STATE) !== states[q][c]) link.setAttribute(STATE, states[q][c]);
+      }),
+    );
+    setVar(chat, "--noice-choice-accent", questions[0].links[0].style.color || null);
+    if (syncInk || !chat.style.getPropertyValue("--noice-choice-ink")) {
+      setVar(chat, "--noice-choice-ink", inkOf(chat));
+    }
+    return questions;
+  };
+
+  const refreshAll = (syncInk = false) => {
+    for (const chat of Array.from(document.querySelectorAll(CHAT))) refresh(chat, undefined, syncInk);
+  };
 
   const style = document.createElement("style");
   style.setAttribute("data-plugin", "noice-chat-choices");
@@ -326,14 +323,16 @@ export function startChoices(): () => void {
     event.stopImmediatePropagation();
     hideTip();
     const chat = link.closest(CHAT);
-    const box = chat ? composerOf(chat) : null;
-    if (!chat || !box) return;
-    const question = refresh(chat, box).find((candidate) => candidate.links.includes(link));
+    const composer = chat ? composerFor(chat, true) : null;
+    if (!chat || !composer) return;
+    const question = refresh(chat, composer.prompt).find((candidate) => candidate.links.includes(link));
     const prompt = promptOf(link);
     const prompts = question?.prompts ?? [prompt];
     const pickedIndex = question?.links.findIndex((other) => other.getAttribute(STATE) === "picked") ?? -1;
-    writeBox(box, fillChoiceText(box.value, prompt, prompts, pickedIndex === -1 ? undefined : prompts[pickedIndex]));
-    refresh(chat, box);
+    const next = fillChoiceText(composer.prompt, prompt, prompts, pickedIndex === -1 ? undefined : prompts[pickedIndex]);
+    composer.setPrompt(next);
+    void composer.focus({ selection: { start: next.length, end: next.length } }).catch(() => {});
+    refresh(chat, next);
   };
 
   // Middle and other non-primary clicks would open the href in a new browser tab.
@@ -344,12 +343,15 @@ export function startChoices(): () => void {
   // Typing changes which choices are picked; recompute only that box's chat, once per frame.
   let typingFrame = 0;
   const onInput: Listener = (event) => {
-    const box = elementOf(event.target) as DomTextArea | null;
-    if (!box?.closest(COMPOSER) || typingFrame || !document.querySelector(CHOICE)) return;
+    const box = elementOf(event.target)?.closest(COMPOSER);
+    if (!box || typingFrame || !document.querySelector(CHOICE)) return;
     typingFrame = requestAnimationFrame(() => {
       typingFrame = 0;
-      const chat = Array.from(document.querySelectorAll(CHAT)).find((candidate) => composerOf(candidate) === box);
-      if (chat) refresh(chat, box);
+      const id = agentIdOf(box);
+      const chats = Array.from(document.querySelectorAll(CHAT));
+      const matched = id ? chats.find((candidate) => agentIdOf(candidate) === id) : undefined;
+      if (matched) refresh(matched);
+      else for (const chat of chats) refresh(chat);
     });
   };
 
