@@ -132,10 +132,11 @@ The bubble shows the message as the agent received it. OMP sends a loaded skill 
 (`paseo agent send`) as your bubble with a muted "Sent by <agent>" above it, easy to mistake for
 your own. Here the bubble takes a tint of the theme accent (14% `--colors-accent-bright` over
 `--colors-surface1`) and "Sent by <agent>" moves inside it as an accent header with the agent's
-icon. Your own bubbles keep Paseo's colour. CSS only: the header is Paseo's own button, so clicking
+icon. Your own bubbles keep Paseo's colour. The header stays Paseo's own button, so clicking
 it still opens the sender's chat; time, copy and the long-message fade keep working (the fade takes
-the tint). It finds them by Paseo's markup: the sender button is the first child of the
-user-message column. An agent that sends without its ID (`env -u PASEO_AGENT_ID`) arrives as a
+the tint). It finds them by Paseo's markup (the sender button is the first child of the
+user-message column) and marks that column with `data-ump-agent` instead of CSS `:has()`. An agent
+that sends without its ID (`env -u PASEO_AGENT_ID`) arrives as a
 plain user message and stays untinted. Setting: **Mark messages from agents** (on by default).
 Checked live 2026-10-30 on Paseo 0.13.0, desktop and 390 px; the long-message fade was checked
 only by its computed colour, no long agent message was at hand.
