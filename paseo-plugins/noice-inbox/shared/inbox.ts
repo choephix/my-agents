@@ -1,4 +1,4 @@
-import { defineRpc } from "@getpaseo/plugin";
+import { defineRpc, defineSubscription } from "@getpaseo/plugin";
 import { z } from "zod";
 
 /** What an entry reports. An agent has at most one entry of each kind; a newer one replaces it. */
@@ -26,6 +26,8 @@ export const entryKey = (entry: EntryRef) => `${entry.agentId}:${entry.kind}`;
 const listSchema = z.object({ entries: z.array(entrySchema) });
 
 export const inboxList = defineRpc({ name: "inbox.list", input: z.object({}), output: listSchema });
+/** Pushes the full entry list on subscribe and after every change. */
+export const inboxWatch = defineSubscription({ name: "inbox.watch", input: z.object({}), event: listSchema });
 export const inboxMarkRead = defineRpc({
   name: "inbox.mark-read",
   input: z.object({ items: z.array(refSchema) }),

@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { inboxClear, inboxList, inboxMarkRead } from "./shared/inbox";
+import { inboxClear, inboxList, inboxMarkRead, inboxWatch } from "./shared/inbox";
 import { clip, finalReply } from "./server/reply";
 import { InboxStore } from "./server/store";
 
@@ -77,12 +77,35 @@ export default function contribute(server: PluginServerContext) {
   server.on("agent.permission_resolved", ({ agent }) => store.markRead([{ agentId: agent.id, kind: "permission" }]));
   server.on("agent.archived", ({ agent }) => store.retainAgents((agentId) => agentId !== agent.id));
 
-  server.handle(inboxList, async (_input, { paseo }) => {
+  const ensurePruned = (paseo: PaseoApi) => {
     pruned ??= dropGoneAgents(store, paseo).catch((error: unknown) => {
       console.error("[noice-inbox] couldn't list agents to drop gone ones", error);
       pruned = null;
     });
-    await pruned;
+    return pruned;
+  };
+
+  server.handle(inboxWatch, (_input, { paseo, push, signal }) => {
+    let chain = Promise.resolve();
+    const send = () => {
+      if (signal.aborted) return;
+      chain = chain
+        .then(async () => {
+          await ensurePruned(paseo);
+          if (signal.aborted) return;
+          await push({ entries: await store.list() });
+        })
+        .catch((error: unknown) => {
+          if (!signal.aborted) console.error("[noice-inbox] couldn't push the list", error);
+        });
+    };
+    const unsubscribe = store.onChange(send);
+    signal.addEventListener("abort", unsubscribe, { once: true });
+    send();
+  });
+
+  server.handle(inboxList, async (_input, { paseo }) => {
+    await ensurePruned(paseo);
     return { entries: await store.list() };
   });
   server.handle(inboxMarkRead, async ({ items }) => {

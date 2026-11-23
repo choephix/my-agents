@@ -43,9 +43,9 @@ holds at most 300 entries; the oldest go first.
 
 ## Limits
 
-- The sidebar count updates about 1.5 seconds after an agent changes state, because the client
-  reloads the list after an agent update rather than receiving it pushed. Paseo 0.14 has no plugin
-  push channel.
+- Updates are pushed live from the daemon through Paseo's plugin subscription channel (`inbox.watch`,
+  Paseo 0.17+), so the sidebar badge and open list update immediately across clients and after
+  reconnects.
 - An entry stores the agent's title when it is made, read from Paseo then: the hook's own copy of
   the agent carries only the title it was created with, which is empty for nearly every agent.
   Titles are shown live for the newest 200 agents, bot (background) workspaces included; older

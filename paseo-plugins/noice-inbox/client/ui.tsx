@@ -135,10 +135,7 @@ export function createInboxUi(inbox: Inbox) {
     const { entries, titles } = useInbox();
     const toast = useToast();
     const { colors } = theme;
-    // Fresh previews and times each time it opens; nothing ticks while it is open.
-    useEffect(() => {
-      inbox.refetch().catch((error: unknown) => console.error("[noice-inbox] loading the list failed", error));
-    }, []);
+    // Fresh relative times each time it opens; entries arrive pushed live via `inboxWatch`.
     const now = useMemo(() => Date.now(), [entries]);
     const fail = (error: unknown) => toast.error(`Couldn't update the list: ${error instanceof Error ? error.message : String(error)}`);
     return (

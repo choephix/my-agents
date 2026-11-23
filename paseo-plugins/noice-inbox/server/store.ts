@@ -12,6 +12,7 @@ const fileSchema = z.object({ entries: z.array(entrySchema) });
 export class InboxStore {
   readonly #file: string;
   readonly #entries = new Map<string, Entry>();
+  readonly #listeners = new Set<() => void>();
   readonly #loaded: Promise<void>;
   #saving: Promise<void> = Promise.resolve();
 
@@ -24,6 +25,12 @@ export class InboxStore {
       .catch((error: NodeJS.ErrnoException) => {
         if (error.code !== "ENOENT") console.error(`[noice-inbox] couldn't read ${file}; starting empty`, error);
       });
+  }
+
+  /** Runs `listener` whenever entries change. */
+  onChange(listener: () => void): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
   }
 
   async list(): Promise<Entry[]> {
@@ -57,9 +64,10 @@ export class InboxStore {
   /** Removes the given entries, or all of them. */
   async clear(refs?: readonly EntryRef[]): Promise<void> {
     await this.#loaded;
+    const before = this.#entries.size;
     if (refs) for (const ref of refs) this.#entries.delete(entryKey(ref));
     else this.#entries.clear();
-    this.#save();
+    if (this.#entries.size !== before) this.#save();
   }
 
   /** Keeps only the entries whose agent passes `keep`. */
@@ -71,6 +79,7 @@ export class InboxStore {
   }
 
   #save(): void {
+    for (const listener of this.#listeners) listener();
     const text = JSON.stringify({ entries: [...this.#entries.values()] });
     const temporary = `${this.#file}.tmp`;
     this.#saving = this.#saving
