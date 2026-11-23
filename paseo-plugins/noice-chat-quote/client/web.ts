@@ -1,13 +1,16 @@
+import type { PluginClientContext, PluginComposer } from "@getpaseo/plugin/client";
 import { Platform } from "react-native";
 import { appendQuote } from "./quote";
 
 // Web and desktop only. A text selection inside a chat ([data-testid="agent-chat-scroll"], Paseo
-// 0.13) gets a small Quote button above it, drawn in document.body so no React-owned node changes.
-// Pressing it writes into that chat's message box the way noice-commands-list does: the native textarea
-// value setter plus an `input` event, which Paseo's draft state follows. Nothing runs while no
-// text is selected: no observers or timers, and the scroll listener exists only while the button
-// is up. The quoted text is Paseo's own copy-as-Markdown for assistant replies (what Ctrl+C gives),
-// read from a copy event aimed at a throwaway clipboard; elsewhere it is the selection's plain text.
+// 0.13+) gets a small Quote button above it, drawn in document.body so no React-owned node changes.
+// Pressing it writes into that chat's message box through Paseo's official `client.composers` API
+// (resolved by the chat's agentId, falling back to `{ focused: true }`). Nothing runs while no
+// text is selected: no observers or timers, the scroll listener exists only while the button is
+// up, and the `::selection` stylesheet is attached only while selecting in a chat so scrolling an
+// unselected chat pays zero style cost. The quoted text is Paseo's own copy-as-Markdown for
+// assistant replies (what Ctrl+C gives), read from a copy event aimed at a throwaway clipboard;
+// elsewhere it is the selection's plain text.
 
 // The plugin typechecks without the DOM library; declare only what this module uses.
 interface Rect {
@@ -37,7 +40,6 @@ interface DomElement extends DomNode {
   querySelector(selector: string): DomElement | null;
   hasAttribute(name: string): boolean;
   contains(node: unknown): boolean;
-  querySelectorAll(selector: string): ArrayLike<DomElement>;
   getBoundingClientRect(): Rect;
   getClientRects(): ArrayLike<Rect>;
   setAttribute(name: string, value: string): void;
@@ -45,11 +47,6 @@ interface DomElement extends DomNode {
   remove(): void;
   addEventListener(type: string, listener: (event: DomEvent) => void): void;
   dispatchEvent(event: unknown): boolean;
-}
-interface DomTextArea extends DomElement {
-  readonly value: string;
-  focus(): void;
-  setSelectionRange(start: number, end: number): void;
 }
 interface DomRange {
   readonly commonAncestorContainer: DomNode;
@@ -70,6 +67,11 @@ interface DomEvent {
   preventDefault(): void;
   stopPropagation(): void;
 }
+interface Fiber {
+  readonly type: unknown;
+  readonly memoizedProps?: { readonly agentId?: unknown; readonly agent?: { readonly id?: unknown } | null } | null;
+  readonly return?: Fiber | null;
+}
 type Listener = (event: DomEvent) => void;
 type ListenerOptions = boolean | { capture?: boolean; passive?: boolean };
 declare const document: {
@@ -82,8 +84,6 @@ declare const document: {
   removeEventListener(type: string, listener: Listener, options?: ListenerOptions): void;
 };
 declare const window: {
-  HTMLTextAreaElement: { prototype: object };
-  Event: new (type: string, init: { bubbles: boolean }) => unknown;
   DataTransfer: new () => { getData(format: string): string };
   ClipboardEvent: new (type: string, init: { bubbles: boolean; cancelable: boolean; clipboardData: unknown }) => unknown;
   addEventListener(type: string, listener: Listener, options?: ListenerOptions): void;
@@ -99,10 +99,10 @@ declare class MutationObserver {
 }
 
 const CHAT = '[data-testid="agent-chat-scroll"]';
-const COMPOSER = "textarea[data-composer-input]";
 const EDITABLE = "input, textarea, [contenteditable='true'], [contenteditable='']";
 const PREFIX = "noice-chat-quote";
 const ELEMENT_NODE = 1;
+const FIBER_DEPTH = 50;
 /** Space between the button and the selected text. */
 const GAP = 8;
 /** Space between the button and the chat's edges. */
@@ -134,12 +134,14 @@ const CSS = `
 @keyframes qs-in { from { opacity: 0; transform: translateY(3px) scale(0.86); } to { opacity: 1; transform: none; } }
 @keyframes qs-out { to { opacity: 0; transform: translateY(2px) scale(0.86); } }
 @media (prefers-reduced-motion: reduce) { .qs-btn, .qs-btn.qs-out { animation: none; } }
-${CHAT} ::selection { background: color-mix(in srgb, var(--colors-accent) 35%, var(--colors-background));
-  color: var(--colors-foreground); }
 `;
 
+// Attached only while text is being selected inside a chat: keeping a descendant `::selection`
+// rule permanently in `<head>` adds ~13 ms/s of Chromium style work while scrolling long chats.
+const SELECTION_CSS = `${CHAT} ::selection { background: color-mix(in srgb, var(--colors-accent) 35%, var(--colors-background));
+  color: var(--colors-foreground); }`;
+
 interface Target {
-  composer: DomTextArea;
   chat: DomElement;
   range: DomRange;
   text: string;
@@ -150,28 +152,28 @@ const elementOf = (node: DomNode | null): DomElement | null =>
 
 const chatOf = (node: DomNode | null) => elementOf(node)?.closest(CHAT) ?? null;
 
-/**
- * The chat's own message box: on the nearest ancestor of the chat that holds one, the box on
- * screen (a pane keeps hidden tabs mounted), preferring the one under the chat in a split.
- */
-function composerOf(chat: DomElement): DomTextArea | null {
-  for (let element = chat.parentElement; element; element = element.parentElement) {
-    const inputs = Array.from(element.querySelectorAll(COMPOSER));
-    if (!inputs.length) continue;
-    const shown = inputs.filter((input) => input.getClientRects().length > 0);
-    const box = chat.getBoundingClientRect();
-    const middle = (box.left + box.right) / 2;
-    const under = shown.find((input) => {
-      const rect = input.getBoundingClientRect();
-      return rect.left <= middle && middle <= rect.right;
-    });
-    return (under ?? shown[0] ?? null) as DomTextArea | null;
+const agentIds = new WeakMap<DomElement, string>();
+
+/** The agent id owning a chat element, read once from its React fiber ancestors. */
+function agentIdOf(element: DomElement): string | null {
+  const cached = agentIds.get(element);
+  if (cached) return cached;
+  const key = Object.keys(element).find((name) => name.startsWith("__reactFiber$"));
+  let fiber: Fiber | null | undefined = key ? (element as unknown as Record<string, Fiber | undefined>)[key] : undefined;
+  for (let depth = 0; fiber && depth < FIBER_DEPTH; depth++, fiber = fiber.return) {
+    if (typeof fiber.type === "string") continue;
+    const props = fiber.memoizedProps;
+    const id = typeof props?.agentId === "string" ? props.agentId : typeof props?.agent?.id === "string" ? props.agent.id : null;
+    if (id) {
+      agentIds.set(element, id);
+      return id;
+    }
   }
   return null;
 }
 
-/** The selection, when it is non-blank text inside one chat that has a message box. */
-function readSelection(): Target | null {
+/** The selection, when it is non-blank text inside one chat that has a composer. */
+function readSelection(composerFor: (chat: DomElement) => PluginComposer | null): Target | null {
   const selection = document.getSelection();
   if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
   const chat = chatOf(selection.anchorNode);
@@ -180,8 +182,7 @@ function readSelection(): Target | null {
   if (elementOf(range.commonAncestorContainer)?.closest(EDITABLE)) return null;
   const text = selection.toString();
   if (!text.trim()) return null;
-  const composer = composerOf(chat);
-  return composer ? { composer, chat, range, text } : null;
+  return composerFor(chat) ? { chat, range, text } : null;
 }
 
 /**
@@ -198,13 +199,26 @@ function markdownOf(range: DomRange): string | null {
 }
 
 /** Shows the Quote button over text selected in a chat. Returns cleanup; a no-op off the web. */
-export function startSimpleQuote(): () => void {
+export function startSimpleQuote(client: PluginClientContext): () => void {
   if (Platform.OS !== "web" || typeof document === "undefined") return () => {};
+
+  const composerFor = (chat: DomElement): PluginComposer | null => {
+    const id = agentIdOf(chat);
+    return (id ? client.composers({ agentId: id })[0] : undefined) ?? client.composers({ focused: true })[0] ?? null;
+  };
 
   const style = document.createElement("style");
   style.setAttribute("data-plugin", PREFIX);
   style.textContent = CSS;
   document.head.append(style);
+
+  const selectionStyle = document.createElement("style");
+  selectionStyle.setAttribute("data-plugin", `${PREFIX}-selection`);
+  selectionStyle.textContent = SELECTION_CSS;
+  const setSelectionStyle = (on: boolean) => {
+    if (on && !selectionStyle.isConnected) document.head.append(selectionStyle);
+    else if (!on && selectionStyle.isConnected) selectionStyle.remove();
+  };
 
   const button = document.createElement("button");
   button.className = "qs-btn";
@@ -217,6 +231,7 @@ export function startSimpleQuote(): () => void {
 
   let target: Target | null = null;
   let dragging = false;
+  let draggingInChat = false;
   let frame = 0;
   let following = false;
   // The annotations toolbar opens, moves and closes on its own timers; follow it while it can collide.
@@ -282,9 +297,15 @@ export function startSimpleQuote(): () => void {
     button.style.top = `${Math.round(y)}px`;
   };
 
+  const hasChatSelection = () => {
+    const selection = document.getSelection();
+    return Boolean(selection && !selection.isCollapsed && selection.rangeCount && chatOf(selection.anchorNode));
+  };
+
   const update = () => {
     frame = 0;
-    target = dragging ? null : readSelection();
+    setSelectionStyle(draggingInChat || hasChatSelection());
+    target = dragging ? null : readSelection(composerFor);
     if (!target) return hide();
     follow(true);
     place(target);
@@ -295,17 +316,17 @@ export function startSimpleQuote(): () => void {
   }
 
   const quote = () => {
-    const current = readSelection();
+    const current = readSelection(composerFor);
     hide();
-    if (!current?.composer.isConnected) return;
-    const next = appendQuote(current.composer.value, markdownOf(current.range) ?? current.text);
-    const setValue = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
-    if (!next || !setValue) return;
-    setValue.call(current.composer, next.text);
-    current.composer.dispatchEvent(new window.Event("input", { bubbles: true }));
+    if (!current) return;
+    const composer = composerFor(current.chat);
+    if (!composer) return;
+    const next = appendQuote(composer.prompt, markdownOf(current.range) ?? current.text);
+    if (!next) return;
+    composer.setPrompt(next.text);
     document.getSelection()?.removeAllRanges();
-    current.composer.focus();
-    current.composer.setSelectionRange(next.caret, next.caret);
+    setSelectionStyle(false);
+    void composer.focus({ selection: { start: next.caret, end: next.caret } }).catch(() => {});
   };
 
   // Pressing the button must not move focus or drop the selection it is about to quote.
@@ -326,11 +347,14 @@ export function startSimpleQuote(): () => void {
       return;
     }
     dragging = true;
+    draggingInChat = Boolean(chatOf(event.target as DomNode | null));
+    if (draggingInChat) setSelectionStyle(true);
     hide();
   };
   const onPointerUp: Listener = () => {
     if (!dragging) return;
     dragging = false;
+    draggingInChat = false;
     schedule();
   };
 
@@ -347,6 +371,7 @@ export function startSimpleQuote(): () => void {
     window.removeEventListener("pointerup", onPointerUp, true);
     window.removeEventListener("pointercancel", onPointerUp, true);
     button.remove();
+    selectionStyle.remove();
     style.remove();
   };
 }

@@ -19,7 +19,7 @@ Select text anywhere in a chat (assistant replies, your own messages, tool outpu
 ## Limits
 
 - **Web and desktop app only.** Phones and the native apps get nothing: their text selection gives plugins no hook.
-- **Writing into the message box is a DOM trick, not an API.** Paseo 0.13.0 has no plugin call that writes into the composer, so the plugin sets the chat's `textarea[data-composer-input]` value and fires `input`, as `noice-commands-list` does. A composer refactor in Paseo can break it; the button then stops appearing.
+- **Requires Paseo 0.17+ (`client.composers`).** Writing into the message box uses Paseo's official composer API (matched to the chat's agent in split panes, falling back to `{ focused: true }`). The chat `::selection` stylesheet is attached only while selecting in a chat so scrolling unselected chats pays no style cost.
 - **The Markdown comes from Paseo's copy-as-Markdown, not a plugin API.** On Quote the plugin fires a copy event that carries its own scratch clipboard (your real clipboard is untouched) and quotes what Paseo's handler writes into it. If a Paseo update drops or moves that handler, quotes fall back to plain text.
 
 ## Development
