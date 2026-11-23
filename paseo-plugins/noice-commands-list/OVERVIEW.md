@@ -3,7 +3,7 @@ A `cmds` composer pill in every chat, any provider: label only on web/desktop; t
 ## What it does
 
 - **List.** Click `cmds`: a popover (desktop) or bottom sheet (phones) with the chat's commands, sorted by name. Each row is the name, then the description on the same line in Paseo's extra-muted grey, wrapping, at most two lines. Commands with `on-click: send` get a small ↑.
-- **Click inserts.** The file's text (frontmatter removed, as-is, `$ARGUMENTS` left alone) goes into the real message box at the cursor, keeping any draft around it. The popover closes and the message box gets focus with the cursor after the inserted text. Send as usual. Web and desktop app only (see Limits).
+- **Click inserts.** The file's text (frontmatter removed, as-is, `$ARGUMENTS` left alone) goes into the real message box at the cursor via Paseo's `composers` API, keeping any draft around it. The popover closes and the message box gets focus after the inserted text. Send as usual. On compact (phone) layouts, tapping opens the send view below.
 - **`on-click: send`** sends the text at once (placeholders become empty). While the agent is busy it never cancels the reply: OMP agents (and providers built on OMP, e.g. `omp-nilo`) get `/follow-up <text>`, queued after the running turn; other providers get the text steered into the running turn (Paseo falls back to interrupting where a provider cannot steer).
 - **Type to filter** (desktop). No search bar until you type; then a slim filter line appears, matches are underlined, ↑ ↓ move, ↵ picks, Esc clears the filter (a second Esc closes). Name and description both match.
 - **Phones** (compact layout, and native apps on any size): the sheet has a search field. Tapping a command opens a small send view: description, an optional Arguments field, a preview of the text to send, and Send ("Send as follow-up" while an OMP agent is busy). Arguments fill the placeholders the same way as the `/` menu below. Under 600 px the list opens from ⋯ (workspace menu) → **Commands** → the chat (the workspace's open chats, newest first; a workspace with one chat opens its list directly): Paseo lists plugin header buttons there on phones, and a header button doesn't know which tab is open.
@@ -43,9 +43,8 @@ Settings → Plugins → noice-commands-list (host settings, all off by default 
 
 ## Limits
 
-- **Insert is a web/desktop DOM trick, not an API.** Paseo 0.12.0 has no plugin call that writes into the message box. The plugin finds the chat's `<textarea data-composer-input>` next to its own pill, sets the value with the native setter and fires `input`, so React's draft state follows. A composer refactor in Paseo can break it; it then shows "Couldn't find this chat's message box."
-- **Phones and native apps can't insert**: they get the send view instead (own text field, no attachments, `@file` or voice).
-- Esc with a filter typed: Paseo closes its popovers on Esc before a plugin sees the key, so the plugin reopens the list unfiltered when that Esc is released (a brief flicker).
+- **Inserting requires Paseo 0.17+ (`client.composers`).** Compact (phone) layouts keep the send view (own text field with an Arguments box, no attachments, `@file` or voice).
+- Esc with a filter typed: Paseo closes its popovers on Esc before a plugin sees the key, so the plugin reopens the list unfiltered when that Esc is released (a brief flicker, web/desktop only).
 - One pill per chat, registered from the agent list: a new chat gets its pill after its first message. The pill's place in the pill row is Paseo's choice.
 - Settings changed on another client reach this client's pill and `/` menu after a reload or the next settings save here.
 - Native apps load plugin updates only after a refresh or reopen.

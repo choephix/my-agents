@@ -2,11 +2,11 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useAgent, type PluginButtonContentProps, type PluginClientContext } from "@getpaseo/plugin/client";
 import { Icon, TextInput, useToast, type ToastApi } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Platform, Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { expandCommand } from "../shared/commands";
 import { listCommands, sendCommand, type CommandListing as Listing, type CommandView } from "../shared/rpc";
 import { extraMuted } from "./colors";
-import { focusComposer, insertIntoComposer, isEditable, onWindowKey, pressPill, scrollIntoView } from "./web";
+import { isEditable, onWindowKey, pressPill, scrollIntoView } from "./web";
 
 const EMPTY = "No commands yet. Put .md files in .agents/commands/ in this project or in ~/.agents/commands/.";
 /** Popover width on wide layouts, as the mock: the host allows 280–420 and adds 12 px padding. */
@@ -278,7 +278,7 @@ export function createCommandsPopover(client: PluginClientContext, onListed: () 
       };
     }, [agentId]);
 
-    const sheet = layout.compact || Platform.OS !== "web";
+    const sheet = layout.compact;
     if (!listing) {
       return (
         <View style={sheet ? { marginHorizontal: -HOST_PADDING } : { width: WIDTH, margin: -HOST_PADDING, paddingVertical: 4 }}>
@@ -294,14 +294,15 @@ export function createCommandsPopover(client: PluginClientContext, onListed: () 
 
     const pick = (command: CommandView) => {
       if (command.onClick === "send") return sendNow(command, "");
-      const caret = insertIntoComposer(agentId, command.body);
-      if (caret === null) {
+      const composer = client.composers({ agentId })[0];
+      if (!composer) {
         toast.error("Couldn't find this chat's message box.");
         return;
       }
+      composer.insertText(command.body);
       close();
       // The closing popover hands focus back to the pill first; take it after that.
-      setTimeout(() => focusComposer(agentId, caret), 60);
+      setTimeout(() => void composer.focus().catch(() => {}), 60);
     };
     return <DesktopList agentId={agentId} listing={listing} theme={theme} onPick={pick} />;
   };

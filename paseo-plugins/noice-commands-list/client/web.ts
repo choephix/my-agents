@@ -5,19 +5,9 @@ interface DomElement {
   parentElement: DomElement | null;
   style: { display: string };
   isConnected: boolean;
-  querySelector(selector: string): DomElement | null;
-  getClientRects(): { length: number };
   closest(selector: string): DomElement | null;
   click(): void;
-  focus(): void;
   scrollIntoView(options: { block: "nearest" }): void;
-  dispatchEvent(event: unknown): boolean;
-}
-interface DomTextArea extends DomElement {
-  value: string;
-  selectionStart: number | null;
-  selectionEnd: number | null;
-  setSelectionRange(start: number, end: number): void;
 }
 export interface DomKeyEvent {
   key: string;
@@ -32,13 +22,11 @@ export interface DomKeyEvent {
 declare const window: {
   addEventListener(type: "keydown" | "keyup", listener: (event: DomKeyEvent) => void, capture: boolean): void;
   removeEventListener(type: "keydown" | "keyup", listener: (event: DomKeyEvent) => void, capture: boolean): void;
-  HTMLTextAreaElement: { prototype: object };
-  Event: new (type: string, init: { bubbles: boolean }) => unknown;
 };
 
 export const isWeb = Platform.OS === "web";
 
-/** Each chat's mounted `cmds` pill icons: the composer to write into sits next to one. */
+/** Each chat's mounted `cmds` pill icons, so Escape on a filtered list can reopen it. */
 const pillNodes = new Map<string, Set<DomElement>>();
 
 /** Web only: remembers a pill icon's DOM node for its chat until the icon unmounts. */
@@ -57,46 +45,6 @@ export function trackPill(agentId: string, node: unknown): () => void {
 export function hideIconSlot(node: unknown): void {
   const slot = isWeb ? (node as DomElement | null)?.parentElement : null;
   if (slot) slot.style.display = "none";
-}
-
-/** The chat's composer textarea: the nearest one above a visible `cmds` pill of that chat. */
-function findComposer(agentId: string): DomTextArea | null {
-  for (const node of pillNodes.get(agentId) ?? []) {
-    if (!node.isConnected) continue;
-    for (let element = node.parentElement; element; element = element.parentElement) {
-      const input = element.querySelector("textarea[data-composer-input]") as DomTextArea | null;
-      if (!input) continue;
-      if (input.getClientRects().length) return input;
-      break;
-    }
-  }
-  return null;
-}
-
-/**
- * Web only: writes `text` into the chat's real message box at the cursor (replacing a selection),
- * keeping the draft around it. The native value setter plus an `input` event is what React's
- * change tracking sees, so Paseo's draft state follows. Returns where the cursor belongs (after
- * the text) for `focusComposer`, which runs once the popover has handed focus back; null when the
- * message box isn't on screen.
- */
-export function insertIntoComposer(agentId: string, text: string): number | null {
-  const input = findComposer(agentId);
-  const setValue = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
-  if (!input || !setValue) return null;
-  const start = input.selectionStart ?? input.value.length;
-  const end = input.selectionEnd ?? start;
-  setValue.call(input, input.value.slice(0, start) + text + input.value.slice(end));
-  input.dispatchEvent(new window.Event("input", { bubbles: true }));
-  return start + text.length;
-}
-
-/** Focuses the chat's message box with the cursor at `caret`. */
-export function focusComposer(agentId: string, caret: number): void {
-  const input = findComposer(agentId);
-  if (!input) return;
-  input.focus();
-  input.setSelectionRange(caret, caret);
 }
 
 /** Opens the chat's `cmds` popover again by pressing its pill. */
