@@ -79,6 +79,9 @@ likely 2–4× faster):
   loader runs), even lines nobody can see. A block gets its colors back in the same frame a scroll
   or layout change brings it within that distance, well before it reaches the screen.
   Measured in a lab chat with both diff blocks 2300–3500 px up: 323 → 4 repaints a second.
+- While the window is unfocused, all blocks drop their highlight ranges (row bands and gutter bars
+  stay) and get them back on focus, so a streaming turn in a background window doesn't repaint
+  highlighted diffs every frame (lab measurement: renderer 570 → 73 ms/s, paints 5,080 → 4.4/s).
 
 Past 100,000 characters only rows, signs and changed words are colored, as Paseo itself stops syntax
 coloring there.

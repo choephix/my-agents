@@ -60,6 +60,7 @@ declare const document: {
   readonly documentElement: DomElement;
   readonly body: DomElement;
   readonly head: DomElement & { appendChild(node: StyleElement): void };
+  hasFocus(): boolean;
   querySelectorAll(selector: string): ArrayLike<DomElement>;
   createElement(tag: "style"): StyleElement;
   createRange(): DomRange;
@@ -69,8 +70,8 @@ declare const document: {
 };
 declare const window: {
   readonly innerHeight: number;
-  addEventListener(type: "focus" | "resize", listener: () => void): void;
-  removeEventListener(type: "focus" | "resize", listener: () => void): void;
+  addEventListener(type: "focus" | "blur" | "resize", listener: () => void): void;
+  removeEventListener(type: "focus" | "blur" | "resize", listener: () => void): void;
 };
 declare function matchMedia(query: string): {
   addEventListener(type: "change", listener: () => void): void;
@@ -223,8 +224,9 @@ export function startDiffHighlighting(): () => void {
     return true;
   };
 
+  let blurred = !document.hasFocus();
   const show = (block: Block) => {
-    if (block.shown) return;
+    if (block.shown || blurred) return;
     block.shown = true;
     for (const [name, range] of block.ranges) highlights.get(name)?.add(range);
   };
@@ -459,16 +461,29 @@ export function startDiffHighlighting(): () => void {
   themeClass.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style"] });
   const themeSheets = new MutationObserver(resyncIfSettingsChanged);
   themeSheets.observe(document.head, { childList: true, characterData: true, subtree: true });
+  // Dropping highlight ranges while the window is unfocused avoids Chromium repainting highlighted
+  // lines in background windows during streaming turns; focus restores near-screen blocks at once.
+  const onBlur = () => {
+    blurred = true;
+    for (const block of blocks.values()) hide(block);
+  };
+  const onFocus = () => {
+    blurred = false;
+    placeAll();
+    resync();
+  };
   const systemScheme = matchMedia("(prefers-color-scheme: dark)");
   systemScheme.addEventListener("change", resync);
-  window.addEventListener("focus", resync);
+  window.addEventListener("blur", onBlur);
+  window.addEventListener("focus", onFocus);
   const sweep = setInterval(resyncIfSettingsChanged, SETTINGS_SWEEP_MS);
 
   for (const pre of Array.from(document.querySelectorAll(PRE))) process(pre);
 
   return () => {
     clearInterval(sweep);
-    window.removeEventListener("focus", resync);
+    window.removeEventListener("blur", onBlur);
+    window.removeEventListener("focus", onFocus);
     window.removeEventListener("resize", placeAll);
     document.removeEventListener("scroll", placeAll, { capture: true });
     systemScheme.removeEventListener("change", resync);

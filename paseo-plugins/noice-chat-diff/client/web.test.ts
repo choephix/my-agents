@@ -267,4 +267,17 @@ describe("blocks far off screen", () => {
     scrollChat();
     expect(rangeCount()).toBe(ranges);
   });
+
+  test("blurring the window drops highlights and focusing restores them", () => {
+    const pre = addDiffBlock(DIFF);
+    moveTo(pre, 100);
+    stop = startDiffHighlighting();
+    const colored = sizes();
+    expect(rangeCount()).toBeGreaterThan(0);
+
+    window.dispatchEvent(new Event("blur"));
+    expect(rangeCount()).toBe(0);
+    window.dispatchEvent(new Event("focus"));
+    expect(sizes()).toEqual(colored);
+  });
 });
