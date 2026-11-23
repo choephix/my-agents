@@ -14,6 +14,8 @@ The syntax is the same as omp's md-embed extension (drawn in Tern by the `md-emb
 
 Markdown files (`.md`, `.markdown`) preview as formatted Markdown and may live in any folder. Every other file previews as monospace text and must be inside the chat's working directory or the vault folder: absolute and `~/` paths are accepted only when they resolve there, and a symlink inside either folder can't point outside it. A `.md` symlink may point anywhere, as long as its target is also Markdown.
 
+An embedded Markdown file whose front matter has a non-empty `settled:` field (a settled slip-box slip) starts folded to a muted one-line card showing its label, line range and a `▸ settled` tag. Clicking anywhere on the folded card opens it; clicking `▾ settled` folds it again.
+
 Embeds inside an embedded Markdown file show as cards inside its card, as in omp's md-embed: two files deep, after which embeds show as plain links. A file embedded inside itself, at any depth, shows "Already embedded above." instead of repeating. Wiki links inside an embedded file are linked too. Paths in an embedded file resolve the same way as in the reply, from the chat's working directory or the vault folder, not from the embedded file's own folder.
 
 The plugin is enabled by default, and one switch covers every embed kind below, colour swatches included. Use **⌘K → Toggle file embeds** (or Ctrl+K on Windows and Linux) for a quick switch. The same setting is available at **Settings → Plugins → noice-chat-embeds → File embeds**. Turning it off leaves native Paseo message rendering untouched. Opening Paseo tab links in place (last section) has its own switch next to it.

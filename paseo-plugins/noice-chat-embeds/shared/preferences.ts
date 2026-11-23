@@ -84,6 +84,8 @@ export const readEmbedFile = defineRpc({
       lineEnd: z.number().int().positive(),
       text: z.string(),
       truncated: z.boolean(),
+      /** Markdown file whose front matter carries a non-empty `settled:` field (a settled slip-box slip). */
+      settled: z.boolean().optional(),
     }),
     readError,
   ]),

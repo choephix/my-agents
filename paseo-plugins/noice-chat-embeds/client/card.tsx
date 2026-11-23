@@ -129,23 +129,43 @@ interface CardHeaderProps {
   detail: string | null;
   cardHovered: boolean;
   action?: ReactNode;
+  /** Makes the header row (except the side-open button) a click target, e.g. to open a folded settled slip. */
+  onPress?: () => void;
+  /** Label for screen readers when `onPress` is set. */
+  pressLabel?: string;
 }
 
 /** One row: the original `![[…]]` text, the detail, an optional action, the open-on-the-side button. */
-function CardHeader({ theme, original, href, detail, cardHovered, action }: CardHeaderProps) {
+function CardHeader({ theme, original, href, detail, cardHovered, action, onPress, pressLabel }: CardHeaderProps) {
   const [hovered, setHovered] = useState(false);
   // Paseo exposes no file-open API to plugins, so the button clicks a hidden Paseo Markdown file link.
   const linkHost = useRef<View>(null);
   const forwarding = useRef(false);
-  const faint = { color: theme.colors.foregroundMuted, fontFamily: MONO, fontSize: 9, lineHeight: 12 };
+  const faint = { color: theme.colors.foregroundMuted, fontFamily: MONO, fontSize: 9, lineHeight: 12, textAlign: "left" as const };
+  const main = (
+    <>
+      <Text numberOfLines={1} style={{ ...faint, flex: 1, opacity: cardHovered ? 0.85 : 0.5 }} selectable={!onPress}>
+        {original}
+      </Text>
+      {detail ? <Text numberOfLines={1} style={{ ...faint, opacity: cardHovered ? 0.7 : 0.3 }}>{detail}</Text> : null}
+      {action}
+    </>
+  );
   return (
-    <View style={{ paddingLeft: 9, paddingRight: 4, paddingTop: 3, paddingBottom: 2 }}>
+    <View style={{ paddingLeft: 9, paddingRight: 4, paddingTop: 3, paddingBottom: onPress ? 3 : 2 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 20 }}>
-        <Text numberOfLines={1} style={{ ...faint, flex: 1, opacity: cardHovered ? 0.85 : 0.5 }} selectable>
-          {original}
-        </Text>
-        {detail ? <Text numberOfLines={1} style={{ ...faint, opacity: cardHovered ? 0.7 : 0.3 }}>{detail}</Text> : null}
-        {action}
+        {onPress ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={pressLabel}
+            onPress={onPress}
+            style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8, minHeight: 20 }}
+          >
+            {main}
+          </Pressable>
+        ) : (
+          main
+        )}
         {href ? (
           <Pressable
             {...({ title: "Open on the side" } as { title: string })}
@@ -257,6 +277,7 @@ function EmbeddedMarkdown({ text, ...frame }: Omit<FrameProps, "data"> & { text:
 function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered, stateKey, stack }: BodyProps) {
   const read = useRpc(readEmbedFile);
   const [expanded, toggleExpanded] = useToggle(stateKey);
+  const [settledOpen, toggleSettled] = useToggle(`${stateKey}\nsettled`);
   const result = useRead(
     () => read({ agentId, path: data.path, lineStart: data.lineStart, lineEnd: data.lineEnd, heading: data.heading }),
     `text\n${agentId}\n${data.path}\n${data.lineStart}\n${data.lineEnd}\n${data.heading}`,
@@ -264,15 +285,33 @@ function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered, 
   const ok = result?.status === "ok" ? result : null;
   // A file inside itself, at any depth, is not drawn again.
   const loop = ok !== null && stack.includes(ok.path);
+  const settled = ok?.settled === true && !loop;
+  const foldedSettled = settled && !settledOpen;
   const detail = ok ? lineLabel(ok.lineStart, ok.lineEnd) : data.lineStart ? lineLabel(data.lineStart, data.lineEnd ?? data.lineStart) : null;
+  const settledTag = foldedSettled ? (
+    <Text style={{ color: theme.colors.foregroundMuted, fontFamily: MONO, fontSize: 10, lineHeight: 12, paddingHorizontal: 5, opacity: cardHovered ? 0.85 : 0.6 }}>
+      ▸ settled
+    </Text>
+  ) : settled ? (
+    <HeaderToggle theme={theme} label="▾ settled" onToggle={toggleSettled} />
+  ) : undefined;
   return (
-    <>
-      <CardHeader theme={theme} original={data.alias ?? data.original} href={ok ? fileHref(ok.path, ok.lineStart, ok.lineEnd) : null} detail={detail} cardHovered={cardHovered} />
+    <View style={foldedSettled ? { opacity: cardHovered ? 0.92 : 0.68 } : undefined}>
+      <CardHeader
+        theme={theme}
+        original={data.alias ?? data.original}
+        href={ok ? fileHref(ok.path, ok.lineStart, ok.lineEnd) : null}
+        detail={detail}
+        cardHovered={cardHovered}
+        action={settledTag}
+        onPress={foldedSettled ? toggleSettled : undefined}
+        pressLabel={foldedSettled ? "Open settled slip" : undefined}
+      />
       {result?.status === "error" ? (
         <Note theme={theme}>{result.message}</Note>
       ) : loop ? (
         <Note theme={theme}>Already embedded above.</Note>
-      ) : ok ? (
+      ) : foldedSettled ? null : ok ? (
         <Pressable accessibilityRole="button" accessibilityLabel={expanded ? "Collapse file preview" : "Expand file preview"} onPress={toggleExpanded}>
           <View style={{ position: "relative" }}>
             {/* On web the Pressable is a <button>, whose centred text the Markdown would inherit. */}
@@ -291,7 +330,7 @@ function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered, 
       ) : (
         <Note theme={theme}>Loading file…</Note>
       )}
-    </>
+    </View>
   );
 }
 
@@ -325,7 +364,7 @@ function ImageEmbed({ data, agentId, theme, bodyHeight, cardHovered, stateKey }:
 
   return (
     <>
-      <CardHeader theme={theme} original={data.original} href={ok ? fileHref(ok.path) : null} detail={detail} cardHovered={cardHovered} />
+      <CardHeader theme={theme} original={data.alias ?? data.original} href={ok ? fileHref(ok.path) : null} detail={detail} cardHovered={cardHovered} />
       {result?.status === "error" ? (
         <Note theme={theme}>{result.message}</Note>
       ) : natural === "failed" ? (
@@ -366,7 +405,7 @@ function HtmlEmbed({ data, agentId, theme, bodyHeight, cardHovered, stateKey }: 
     <>
       <CardHeader
         theme={theme}
-        original={data.original}
+        original={data.alias ?? data.original}
         href={ok ? fileHref(ok.path) : null}
         detail={null}
         cardHovered={cardHovered}
@@ -383,7 +422,7 @@ function HtmlEmbed({ data, agentId, theme, bodyHeight, cardHovered, stateKey }: 
               srcDoc: ok.body,
               sandbox: "allow-scripts",
               referrerPolicy: "no-referrer",
-              title: data.original,
+              title: data.alias ?? data.original,
               // Pages that set no background get white, so default black text stays readable.
               style: { display: "block", width: "100%", height: bodyHeight, border: 0, background: "#fff" },
             })

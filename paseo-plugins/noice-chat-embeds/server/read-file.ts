@@ -170,6 +170,18 @@ export async function readAsset(
 
 const FENCE = /^\s*(?:>\s?)*\s*(`{3,}|~{3,})/;
 const HEADING = /^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/;
+const SETTLED_FIELD = /^settled:[ \t]*[^\s#]/;
+
+/** Whether a Markdown file's front matter has a non-empty `settled:` field (a settled slip-box slip). */
+function isSettledFrontMatter(lines: readonly string[]): boolean {
+  if (lines[0] !== "---") return false;
+  let found = false;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i] === "---") return found;
+    if (SETTLED_FIELD.test(lines[i])) found = true;
+  }
+  return false;
+}
 
 /**
  * The section under a heading, as omp's md-embed reads it: the first heading outside fenced code
@@ -217,14 +229,15 @@ async function readSection(real: string, size: number, heading: string): Promise
   let from = headingLine;
   while (from < to && !lines[from].trim()) from++;
   while (to > from && !lines[to - 1].trim()) to--;
-  if (from === to) return { status: "ok", path: real, lineStart: headingLine, lineEnd: headingLine, text: "", truncated: false };
+  const settled = isMarkdownPath(real) && isSettledFrontMatter(lines) ? { settled: true } : {};
+  if (from === to) return { status: "ok", path: real, lineStart: headingLine, lineEnd: headingLine, text: "", truncated: false, ...settled };
   let last = from;
   let bytes = 0;
   while (last < to && bytes + lines[last].length <= MAX_BYTES) bytes += lines[last++].length + 1;
   // One endless first line: show its beginning.
   const text = last === from ? lines[from].slice(0, MAX_BYTES) : lines.slice(from, last).join("\n");
   last = Math.max(last, from + 1);
-  return { status: "ok", path: real, lineStart: from + 1, lineEnd: last, text, truncated: last < to };
+  return { status: "ok", path: real, lineStart: from + 1, lineEnd: last, text, truncated: last < to, ...settled };
 }
 
 export async function readFileWindow(
@@ -247,12 +260,25 @@ export async function readFileWindow(
   let pending = "";
   let truncated = false;
   let done = false;
+  const markdown = isMarkdownPath(real);
+  let frontMatter: "init" | "in" | "done" = markdown ? "init" : "done";
+  let fmSettled = false;
+  let fmClosed = false;
   const decoder = new StringDecoder("utf8");
 
   // Returns true once the window is complete.
   const take = (line: string): boolean => {
+    const text = line.endsWith("\r") ? line.slice(0, -1) : line;
+    if (frontMatter === "init") frontMatter = text === "---" ? "in" : "done";
+    else if (frontMatter === "in") {
+      if (text === "---") {
+        frontMatter = "done";
+        fmClosed = true;
+      } else if (SETTLED_FIELD.test(text)) {
+        fmSettled = true;
+      }
+    }
     if (lineNo >= start) {
-      const text = line.endsWith("\r") ? line.slice(0, -1) : line;
       if (bytes + text.length > MAX_BYTES) {
         truncated = true;
         return true;
@@ -301,11 +327,12 @@ export async function readFileWindow(
   }
   // A whole Markdown file drops its front matter and leading blank lines, as in omp's md-embed.
   let first = 0;
-  if (input.lineStart === undefined && isMarkdownPath(real)) {
+  if (input.lineStart === undefined && markdown) {
     const close = lines[0] === "---" ? lines.indexOf("---", 1) : -1;
     if (close > 0) first = close + 1;
     while (first < lines.length && !lines[first].trim()) first++;
     if (first === lines.length) first = 0;
   }
-  return { status: "ok", path: real, lineStart: start + first, lineEnd: start + lines.length - 1, text: lines.slice(first).join("\n"), truncated };
+  const settled = fmClosed && fmSettled ? { settled: true } : {};
+  return { status: "ok", path: real, lineStart: start + first, lineEnd: start + lines.length - 1, text: lines.slice(first).join("\n"), truncated, ...settled };
 }
