@@ -29,6 +29,7 @@ interface DomElement extends DomNode {
   hidden: boolean;
   textContent: string | null;
   className: string;
+  matches(selector: string): boolean;
   closest(selector: string): DomElement | null;
   querySelector(selector: string): DomElement | null;
   querySelectorAll(selector: string): ArrayLike<DomElement>;
@@ -54,9 +55,14 @@ interface DomEvent {
   preventDefault(): void;
   stopImmediatePropagation(): void;
 }
+interface DomMutationRecord {
+  readonly target: DomNode;
+  readonly addedNodes: ArrayLike<DomNode>;
+}
 type Listener = (event: DomEvent) => void;
 type ListenerOptions = boolean | { capture?: boolean; passive?: boolean };
 declare const document: {
+  readonly documentElement: DomElement;
   readonly head: DomElement;
   readonly body: DomElement;
   createElement(tag: string): DomElement;
@@ -74,9 +80,13 @@ declare function getComputedStyle(element: DomElement): { readonly backgroundCol
 declare function setTimeout(callback: () => void, ms: number): number;
 declare function clearTimeout(handle: number): void;
 declare function requestAnimationFrame(callback: () => void): number;
+declare function cancelAnimationFrame(handle: number): void;
 declare class MutationObserver {
-  constructor(callback: () => void);
-  observe(target: DomElement, options: { childList: boolean; subtree: boolean }): void;
+  constructor(callback: (records: readonly DomMutationRecord[]) => void);
+  observe(
+    target: DomElement,
+    options: { childList?: boolean; subtree?: boolean; attributes?: boolean; attributeFilter?: string[] },
+  ): void;
   disconnect(): void;
 }
 
@@ -227,13 +237,14 @@ function setVar(chat: DomElement, name: string, value: string | null) {
 }
 
 /** Sets every choice's state attribute in one chat from its message box and later user messages; returns the chat's questions. */
-function refresh(chat: DomElement): PageQuestion[] {
+function refresh(chat: DomElement, knownBox?: DomTextArea | null, syncInk = false): PageQuestion[] {
   const questions = questionsIn(chat);
   if (!questions.length) return questions;
   const users = Array.from(chat.querySelectorAll(USER)).map((node) => ({
     node,
     text: node.querySelector("[data-message-text]")?.textContent ?? "",
   }));
+  const box = knownBox !== undefined ? knownBox : composerOf(chat);
   const states = deriveStates(
     questions.map((question) => ({
       prompts: question.prompts,
@@ -241,7 +252,7 @@ function refresh(chat: DomElement): PageQuestion[] {
         .filter((user) => question.node.compareDocumentPosition(user.node) & DOCUMENT_POSITION_FOLLOWING)
         .map((user) => user.text),
     })),
-    composerOf(chat)?.value ?? "",
+    box?.value ?? "",
   );
   questions.forEach((question, q) =>
     question.links.forEach((link, c) => {
@@ -249,12 +260,14 @@ function refresh(chat: DomElement): PageQuestion[] {
     }),
   );
   setVar(chat, "--noice-choice-accent", questions[0].links[0].style.color || null);
-  setVar(chat, "--noice-choice-ink", inkOf(chat));
+  if (syncInk || !chat.style.getPropertyValue("--noice-choice-ink")) {
+    setVar(chat, "--noice-choice-ink", inkOf(chat));
+  }
   return questions;
 }
 
-const refreshAll = () => {
-  for (const chat of Array.from(document.querySelectorAll(CHAT))) refresh(chat);
+const refreshAll = (syncInk = false) => {
+  for (const chat of Array.from(document.querySelectorAll(CHAT))) refresh(chat, undefined, syncInk);
 };
 
 /** Puts `text` in the box the way typing would, so Paseo's draft follows, with the caret at the end. */
@@ -315,12 +328,12 @@ export function startChoices(): () => void {
     const chat = link.closest(CHAT);
     const box = chat ? composerOf(chat) : null;
     if (!chat || !box) return;
-    const question = refresh(chat).find((candidate) => candidate.links.includes(link));
+    const question = refresh(chat, box).find((candidate) => candidate.links.includes(link));
     const prompt = promptOf(link);
     const prompts = question?.prompts ?? [prompt];
     const pickedIndex = question?.links.findIndex((other) => other.getAttribute(STATE) === "picked") ?? -1;
     writeBox(box, fillChoiceText(box.value, prompt, prompts, pickedIndex === -1 ? undefined : prompts[pickedIndex]));
-    refresh(chat);
+    refresh(chat, box);
   };
 
   // Middle and other non-primary clicks would open the href in a new browser tab.
@@ -331,12 +344,12 @@ export function startChoices(): () => void {
   // Typing changes which choices are picked; recompute only that box's chat, once per frame.
   let typingFrame = 0;
   const onInput: Listener = (event) => {
-    const box = elementOf(event.target);
+    const box = elementOf(event.target) as DomTextArea | null;
     if (!box?.closest(COMPOSER) || typingFrame || !document.querySelector(CHOICE)) return;
     typingFrame = requestAnimationFrame(() => {
       typingFrame = 0;
       const chat = Array.from(document.querySelectorAll(CHAT)).find((candidate) => composerOf(candidate) === box);
-      if (chat) refresh(chat);
+      if (chat) refresh(chat, box);
     });
   };
 
@@ -353,16 +366,50 @@ export function startChoices(): () => void {
   };
 
   // New, streamed or remounted rows (a reply arriving, a sent message, a tab switch, Paseo setting a
-  // restored draft) change states without an input event. Coalesce: one pass at most every 120 ms.
+  // restored draft) change states without an input event. Ignore mutations outside chats unless a
+  // chat or composer itself mounted; coalesce to at most one pass per 120 ms.
+  const CHAT_OR_COMPOSER = `${CHAT}, ${COMPOSER}`;
   let passTimer = 0;
-  const observer = new MutationObserver(() => {
+  let dirtyAll = false;
+  const dirtyChats = new Set<DomElement>();
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      const chat = elementOf(record.target)?.closest(CHAT);
+      if (chat) {
+        dirtyChats.add(chat);
+        continue;
+      }
+      if (dirtyAll) continue;
+      for (const node of Array.from(record.addedNodes)) {
+        if (node.nodeType !== ELEMENT_NODE) continue;
+        const element = node as DomElement;
+        if (element.matches(CHAT_OR_COMPOSER) || element.querySelector(CHAT_OR_COMPOSER)) {
+          dirtyAll = true;
+          break;
+        }
+      }
+    }
+    if (!dirtyAll && !dirtyChats.size) return;
     if (passTimer) return;
     passTimer = setTimeout(() => {
       passTimer = 0;
-      refreshAll();
+      const all = dirtyAll;
+      dirtyAll = false;
+      if (all) {
+        dirtyChats.clear();
+        refreshAll();
+      } else {
+        const chats = [...dirtyChats];
+        dirtyChats.clear();
+        for (const chat of chats) if (chat.isConnected) refresh(chat);
+      }
     }, 120);
   });
   observer.observe(document.body, { childList: true, subtree: true });
+
+  // Theme switches swap a class/style on <html>; re-read the chat background only then.
+  const themeObserver = new MutationObserver(() => refreshAll(true));
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style"] });
 
   document.addEventListener("click", onClick, true);
   document.addEventListener("auxclick", onAuxClick, true);
@@ -370,11 +417,13 @@ export function startChoices(): () => void {
   document.addEventListener("mouseover", onOver, { capture: true, passive: true });
   document.addEventListener("mouseout", onOut, { capture: true, passive: true });
   document.addEventListener("scroll", hideTip, { capture: true, passive: true });
-  refreshAll();
+  refreshAll(true);
 
   return () => {
     observer.disconnect();
+    themeObserver.disconnect();
     clearTimeout(passTimer);
+    if (typingFrame) cancelAnimationFrame(typingFrame);
     hideTip();
     document.removeEventListener("click", onClick, true);
     document.removeEventListener("auxclick", onAuxClick, true);

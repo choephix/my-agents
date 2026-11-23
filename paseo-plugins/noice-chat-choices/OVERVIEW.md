@@ -5,7 +5,12 @@ Lets an agent offer clickable answers in its replies. A link written `[label](<@
 The plugin only draws and handles the links; agents write them when their system prompt tells them to. Put the text below in **Settings → Host → Orchestration → System prompt** (`daemon.appendSystemPrompt` in the daemon's `config.json`). Paseo adds it to every agent it launches, so existing chats get it the next time they are opened or reloaded.
 
 ```text
-Choices: a link written [label](<@prompt>) in your reply is a choice. Clicking it puts the prompt into the user's message box to edit and send; it never sends. Write each prompt in the user's voice, complete on its own and saying what it answers, inside the angle brackets with plain spaces, never URL-encoded. One question per paragraph or list; its choices are the answers to that question. Put choices inline in a sentence only when every label is a word: Use [tabs](<@Use tabs for indentation>) or [spaces](<@Use spaces for indentation>)? Otherwise write the question, then its choices as a bullet list, one per bullet. After finishing a piece of work, end the reply with the likely next steps as choices; elsewhere, offer choices only when the user would plausibly pick one. When you need an answer before going on, prefer asking in your reply with choices.
+Choices: a link written [label](<@prompt>) in your reply is a choice. Clicking it puts the prompt into the user's message box to edit and send; it never sends. The label is the answer in full: everything the user needs to decide, as they only read labels. The prompt is a key: a short sentence or fragment, in the user's voice, that tells you which choice of which question was picked, since you will read the full label back in your own previous message. Plain spaces inside the angle brackets. One question per paragraph or list; its choices are the answers to that question. Put choices inline in a sentence only when every label is a word: Use [tabs](<@Use tabs>) or [spaces](<@Use spaces>)? Otherwise write the question, then its choices as a bullet list, one per bullet:
+- [Run the migration in one transaction and roll back everything on any failure ★](<@One transaction, roll back on failure>)
+- [Run it as separate statements so partial progress survives a failure](<@Separate statements>)
+After finishing a piece of work, end the reply with the likely next steps as choices; elsewhere, offer choices only when the user would plausibly pick one. When you need an answer before going on, prefer asking in your reply with choices.
+Mark recommended answers with ★ after.
+Particularly useful for grilling.
 ```
 
 The angle brackets matter: Paseo's Markdown only reads a link target with spaces when it is wrapped in `<…>`. Without them the link shows as plain text. `[label](<@>)` uses the label as the prompt.
@@ -39,7 +44,7 @@ The padding is the same in every state, so text never shifts. With reduced motio
 
 ## Cost
 
-Nothing runs while the page is idle: no timers or polling. Work happens on a choice click, on typing in a message box (once per frame), and when chat rows are added or replaced, coalesced to at most one pass per 120 ms. Measured on the web app (NVIDIA GPU, Chromium): 0 ms of plugin script over 10 s idle, about 5 ms over 15 s of a streaming reply.
+Nothing runs while the page is idle: no timers or polling. Work happens on a choice click, on typing in a message box (once per frame), and when rows inside a chat change or a chat/composer mounts (ignoring unrelated page mutations like sidebar updates, coalesced to at most one pass per 120 ms). The chat's background colour (`--noice-choice-ink`) is read once per chat and refreshed only on theme changes. Measured on the web app (NVIDIA GPU, Chromium): 0 ms of plugin script over 10 s idle, about 5 ms over 15 s of a streaming reply.
 
 ## Development
 
