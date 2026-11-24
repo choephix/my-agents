@@ -2,6 +2,7 @@ import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { startButtons } from "./client/buttons";
 import { EffortsSidebarItem, GlobalScreen } from "./client/global-screen";
 import { EffortsPanel } from "./client/panel";
+import { EffortRowBadge } from "./client/row-badge";
 import { PANEL_ID, SCREEN_ID, setClient } from "./client/runtime";
 import { SettingsScreen } from "./client/settings-screen";
 import { startFocusModality } from "./client/web";
@@ -20,6 +21,7 @@ export default function contribute(client: PluginClientContext) {
     }),
     client.addScreen({ id: SCREEN_ID, title: "Efforts", Component: GlobalScreen }),
     client.addSidebarHeaderItem({ id: SCREEN_ID, title: "Efforts", Component: EffortsSidebarItem }),
+    client.addWorkspaceRowBadgeItem({ id: "effort", title: "Effort", icon: "Map", Component: EffortRowBadge }),
     client.addCommandCenterItem({
       id: "open-panel",
       title: "Efforts for this workspace",

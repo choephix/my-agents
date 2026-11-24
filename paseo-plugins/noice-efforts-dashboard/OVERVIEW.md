@@ -28,6 +28,10 @@ effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<s
   as a row of the workspace ⋯ menu, titled like its tooltip (`acme-task · 0/9 done`); it opens the
   whole effort as a sheet there: all rows, a row opens in place with its Question, status line,
   the chat button and Read.
+- **Workspace row badge** on every bound workspace in the sidebar (toggleable in the sidebar's
+  Show menu as **Effort**): `Map` icon + the effort's short name and `done/total` count when it has
+  tickets (`success` green once all tickets are done, `muted` otherwise). Unbound workspaces
+  (including suggestions) and "No effort" render nothing. Works on web, desktop, and phones.
 - **Sidebar row "Efforts"** → global screen (⌘K "All efforts"): search over efforts, tickets, docs
   and workspace names (results grouped, replacing the table while typing; `/` focuses), project
   chips, a muted warnings line under them only when the server noticed a problem (an Extra folder
@@ -143,7 +147,7 @@ effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<s
 
 ## Files
 `index.server.ts`, `server/` (scan, git, suggest, bindings, service), `shared/` (RPC contracts,
-parser, settings), `client/` (panel, effort view, unbound view, search results, marks, Markdown
+parser, settings), `client/` (panel, row-badge, effort view, unbound view, search results, marks, Markdown
 renderer copied from noice-omp-slash-aliases). Tests: `npx vitest run` (parser variants, symlinked
-roots, bindings store, uncommitted line counts, bind/poll races, ticket body, links). Screenshots:
+roots, bindings store, uncommitted line counts, bind/poll races, row badge, ticket body, links). Screenshots:
 `screenshots/`.
