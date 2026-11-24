@@ -32,6 +32,22 @@ export function setClient(next: PluginClientContext | null): void {
   if (!next) state = { desk: null, error: null, loading: false, at: 0 };
 }
 
+/** Inserts a reply pointer into an agent's composer and focuses it; returns how it landed. */
+export function insertIntoComposer(agentId: string, text: string): "inserted" | "present" | "unavailable" {
+  const composer = client?.composers({ agentId })[0];
+  if (!composer) return "unavailable";
+  const current = composer.prompt;
+  const needle = text.trim();
+  if (needle && current.includes(needle)) {
+    void composer.focus({ selection: { start: current.length, end: current.length } }).catch(() => {});
+    return "present";
+  }
+  const next = current.trim() ? `${current.replace(/\s+$/, "")}\n\n${text}` : text;
+  composer.setPrompt(next);
+  void composer.focus({ selection: { start: next.length, end: next.length } }).catch(() => {});
+  return "inserted";
+}
+
 function publish(next: DeskState): void {
   state = next;
   listeners.forEach((listener) => listener());

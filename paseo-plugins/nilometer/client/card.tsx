@@ -5,7 +5,7 @@ import { Pressable, Text, View } from "react-native";
 import type { Desk, DeskCard, DeskPerson, PrState } from "../shared/desk";
 import { Inline, prInfo, prsIn, prStyle, prUrl } from "./inline";
 import { type CardState, MONO, type Palette, TYPE } from "./palette";
-import { refresh, writeMemo } from "./store";
+import { insertIntoComposer, refresh, writeMemo } from "./store";
 
 export interface CardScene {
   desk: Desk;
@@ -87,7 +87,7 @@ function StatusDot({ status, c }: { status: string; c: Palette }) {
 }
 
 /** A session: opens its Paseo tab, or copies the command that revives it when the tab is gone. */
-/** What tapping an ask's asker puts on the clipboard: the composer can't be prefilled from a plugin. */
+/** What tapping an ask's asker puts into its composer (falling back to the clipboard). */
 function replyOf(card: DeskCard): string | undefined {
   if (card.kind !== "inbox") return undefined;
   return `Re: ${card.url}\n\n`;
@@ -109,9 +109,11 @@ function Person({ person, role, scene, wide, reply }: { person: DeskPerson; role
       : undefined
     : person.agentId && openAgent
       ? async () => {
-          const copied = reply ? await copyText(reply).then(() => true, () => false) : undefined;
+          const landed = reply ? insertIntoComposer(person.agentId!, reply) : undefined;
+          const copied = landed === "unavailable" ? await copyText(reply!).then(() => true, () => false) : undefined;
           openAgent(person.agentId!);
-          // Raised after opening the agent so it shows over the agent view while you paste.
+          // Raised after opening the agent so it shows over the agent view.
+          if (landed === "inserted") toast.show("Added Re: pointer to the prompt", { variant: "success", durationMs: 4000 });
           if (copied === true) toast.show("Copied a pointer to the ask. Paste it into the prompt to answer", { variant: "success", durationMs: 6000 });
           if (copied === false) toast.show(`Couldn't copy the pointer. The ask is ${reply!.slice(4).trim()}`, { variant: "error", durationMs: 8000 });
         }
