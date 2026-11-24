@@ -6,7 +6,7 @@ import type { PluginClientContext } from "@getpaseo/plugin/client";
  * agent list. `onChange` runs after every change; `onNew` for a chat that appears after the first
  * load (so not for a reconnect's snapshot).
  */
-export function startChats(client: PluginClientContext, listener: { onChange(): void; onNew(agent: PaseoAgent): void }): { chats: ReadonlyMap<string, PaseoAgent>; stop(): void } {
+export function startChats(client: PluginClientContext, listener: { onChange(): void; onNew?(agent: PaseoAgent): void }): { chats: ReadonlyMap<string, PaseoAgent>; stop(): void } {
   const chats = new Map<string, PaseoAgent>();
   const observe = (agent: PaseoAgent) => {
     if (!agent.workspaceId || agent.archivedAt || agent.internal) return void chats.delete(agent.id);
@@ -32,7 +32,7 @@ export function startChats(client: PluginClientContext, listener: { onChange(): 
             const isNew = !chats.has(message.payload.agent.id);
             observe(message.payload.agent);
             const agent = chats.get(message.payload.agent.id);
-            if (isNew && agent) listener.onNew(agent);
+            if (isNew && agent) listener.onNew?.(agent);
           }
           listener.onChange();
         },

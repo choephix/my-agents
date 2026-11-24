@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 // The writer is the OMP extension's own module: these tests pin the file contract between the two.
 import { BtwOutbox, type BtwRecord, writeProcessMarker } from "../../../.omp/extensions/headless-builtins/btw-outbox";
-import { dismissEntry, listEntries, markedPids, pruneOutbox, RETENTION_MS, STALE_RUNNING_MS, summarizeChats } from "./btw-outbox";
+import { BtwOutboxWatcher, dismissEntry, listAllChats, listEntries, markedPids, pruneOutbox, RETENTION_MS, STALE_RUNNING_MS, summarizeChats } from "./btw-outbox";
 
 const roots: string[] = [];
 const outboxes: BtwOutbox[] = [];
@@ -109,5 +109,32 @@ describe("btw outbox contract", () => {
     expect((await listEntries(root, "chat-a")).map(e => e.id)).toEqual(["new"]);
     expect([...(await markedPids(root, "chat-a"))]).toEqual([222]);
     expect(existsSync(join(root, "chat-gone"))).toBe(false);
+  });
+
+  it("watches new chat folders, streamed deltas, and dismissals", async () => {
+    const { root, outbox } = setup("chat-a");
+    const watcher = new BtwOutboxWatcher(root, { debounceMs: 10 });
+    let hits = 0;
+    const stop = watcher.onChange(() => {
+      hits++;
+    });
+    try {
+      outbox.record(record("r1"));
+      await vi.waitFor(() => expect(hits).toBeGreaterThanOrEqual(1));
+      expect((await listAllChats(root)).map(c => c.agentId)).toEqual(["chat-a"]);
+
+      const beforeDelta = hits;
+      outbox.delta("r1", "streamed");
+      await vi.waitFor(() => expect(hits).toBeGreaterThan(beforeDelta));
+      expect((await listEntries(root, "chat-a"))[0].answer).toBe("streamed");
+
+      const beforeDismiss = hits;
+      await dismissEntry(root, "chat-a", "r1");
+      await vi.waitFor(() => expect(hits).toBeGreaterThan(beforeDismiss));
+      expect(await listAllChats(root)).toEqual([]);
+    } finally {
+      stop();
+      watcher.close();
+    }
   });
 });

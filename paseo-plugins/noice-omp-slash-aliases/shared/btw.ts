@@ -1,4 +1,4 @@
-import { defineRpc } from "@getpaseo/plugin";
+import { defineRpc, defineSubscription } from "@getpaseo/plugin";
 import { z } from "zod";
 
 /**
@@ -39,6 +39,20 @@ export const BtwChatSchema = z.object({
   updatedAt: z.number(),
 });
 export type BtwChat = z.infer<typeof BtwChatSchema>;
+
+export const BtwChatSnapshotSchema = z.object({
+  agentId: z.string(),
+  workspaceId: z.string(),
+  entries: z.array(BtwEntrySchema),
+});
+export type BtwChatSnapshot = z.infer<typeof BtwChatSnapshotSchema>;
+
+/** Pushes every chat with undismissed /btw answers on subscribe and after every outbox change. */
+export const btwWatch = defineSubscription({
+  name: "btw.watch",
+  input: z.object({}),
+  event: z.object({ chats: z.array(BtwChatSnapshotSchema) }),
+});
 
 /** Every chat on this daemon that has undismissed /btw answers. */
 export const btwChats = defineRpc({

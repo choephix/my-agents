@@ -1,14 +1,14 @@
-import { resolve } from "node:path";
+import type { PaseoApi } from "@getpaseo/client";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { btwAsk, btwChats, btwDismiss, btwList } from "./shared/btw";
-import { nextChatArmed, nextChatGet, nextChatSet } from "./shared/next-chat";
+import { btwAsk, btwChats, btwDismiss, btwList, btwWatch } from "./shared/btw";
+import { nextChatLastUsed } from "./shared/next-chat";
 import { preferences } from "./shared/preferences";
 import { ompProviders } from "./shared/providers";
 import { tanStatus } from "./shared/tan";
-import { btwRoot, dismissEntry, listEntries, markedPids, pruneOutbox, summarizeChats } from "./server/btw-outbox";
-import { type Armed, nextChatFile, NextChatStore } from "./server/next-chat";
+import { BtwOutboxWatcher, btwRoot, dismissEntry, listAllChats, listEntries, markedPids, pruneOutbox, summarizeChats } from "./server/btw-outbox";
+import { appendSystemPrompt, extractInstructions, nextChatFile, NextChatStore } from "./server/next-chat";
 import { btwReady, isAlive, isOmpRpcHost, listProcesses, type ProcessInfo, processStartedAt } from "./server/omp-processes";
-import { readBaseProvider, readOmpProviders } from "./server/providers";
+import { readOmpProviders } from "./server/providers";
 import { deriveState, nearestTangent, TanSessions } from "./server/tan-sessions";
 
 const PRUNE_EVERY_MS = 60 * 60_000;
@@ -16,27 +16,60 @@ const PRUNE_EVERY_MS = 60 * 60_000;
 const PROCESS_CACHE_MS = 3_000;
 /** A tangent's process started before it; allow for clock rounding. */
 const START_SLACK_MS = 2_000;
-/** Built-in providers whose agents get Paseo's per-agent `systemPrompt` (Paseo 0.14 source). */
-const SYSTEM_PROMPT_PROVIDERS: Record<string, true> = { omp: true, claude: true, codex: true, opencode: true, pi: true };
-/** A created chat that never shows up (its provider failed to start) hands its text back after this. */
-const CREATE_TIMEOUT_MS = 2 * 60_000;
 
 export default function contribute(server: PluginServerContext) {
   server.registerSettings(preferences);
   const root = btwRoot();
+  const outboxWatcher = new BtwOutboxWatcher(root);
   // Chats keep their workspace; only found ones are cached, so a missing agent is retried.
   const workspaceIds = new Map<string, string>();
+
+  async function resolveWorkspace(paseo: PaseoApi, agentId: string): Promise<string | undefined> {
+    const cached = workspaceIds.get(agentId);
+    if (cached) return cached;
+    const found = await paseo.agents.ref(agentId).refresh().catch(() => undefined);
+    if (!found || found.agent.archivedAt || !found.agent.workspaceId) return undefined;
+    workspaceIds.set(agentId, found.agent.workspaceId);
+    return found.agent.workspaceId;
+  }
+
+  server.handle(btwWatch, (_input, { paseo, push, signal }) => {
+    let chain = Promise.resolve();
+    let lastSent: string | undefined;
+    const send = () => {
+      if (signal.aborted) return;
+      chain = chain
+        .then(async () => {
+          if (signal.aborted) return;
+          const chats = [];
+          const allEntries = [];
+          for (const chat of await listAllChats(root)) {
+            const workspaceId = await resolveWorkspace(paseo, chat.agentId);
+            if (!workspaceId) continue;
+            chats.push({ agentId: chat.agentId, workspaceId, entries: chat.entries });
+            allEntries.push(...chat.entries);
+          }
+          outboxWatcher.scheduleStaleCheck(allEntries);
+          if (signal.aborted) return;
+          const serialized = JSON.stringify(chats);
+          if (serialized === lastSent) return;
+          await push({ chats });
+          lastSent = serialized;
+        })
+        .catch((error: unknown) => {
+          if (!signal.aborted) console.error("[noice-omp-slash-aliases] /btw push failed", error);
+        });
+    };
+    const unsubscribe = outboxWatcher.onChange(send);
+    signal.addEventListener("abort", unsubscribe, { once: true });
+    send();
+  });
 
   server.handle(btwChats, async (_input, { paseo }) => {
     const chats = [];
     for (const summary of await summarizeChats(root)) {
-      let workspaceId = workspaceIds.get(summary.agentId);
-      if (!workspaceId) {
-        const found = await paseo.agents.ref(summary.agentId).refresh().catch(() => undefined);
-        if (!found || found.agent.archivedAt || !found.agent.workspaceId) continue;
-        workspaceId = found.agent.workspaceId;
-        workspaceIds.set(summary.agentId, workspaceId);
-      }
+      const workspaceId = await resolveWorkspace(paseo, summary.agentId);
+      if (!workspaceId) continue;
       chats.push({ ...summary, workspaceId });
     }
     return { chats };
@@ -60,62 +93,30 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(btwDismiss, async ({ agentId, id }) => {
     await dismissEntry(root, agentId, id);
+    outboxWatcher.notify();
     return {};
   });
 
-  // Instructions for a workspace's next chat: armed from the header button, put into the new
-  // chat's own system prompt (Paseo's `systemPrompt`, saved with the agent and given on every resume).
+  // Per-chat system instructions set in a draft or New workspace composer via `composer.setMetadata`.
+  // Applied to the new chat's saved `systemPrompt` so it persists across resumes and reloads.
   const nextChat = new NextChatStore(nextChatFile());
-  server.handle(nextChatArmed, async () => ({ armed: await nextChat.armed() }));
-  server.handle(nextChatGet, async ({ workspaceId }, { paseo }) => {
-    const { armed, lastUsed } = await nextChat.get(workspaceId);
-    const title = lastUsed ? ((await paseo.agents.ref(lastUsed.agentId).refresh().catch(() => undefined))?.agent.title ?? null) : null;
-    return { armed: armed && { text: armed.text, expiresAt: armed.expiresAt }, lastUsed: lastUsed && { ...lastUsed, title } };
+  server.handle(nextChatLastUsed, async (_input, { paseo }) => {
+    const lastUsed = await nextChat.lastUsed();
+    if (!lastUsed) return { lastUsed: null };
+    const title = (await paseo.agents.ref(lastUsed.agentId).refresh().catch(() => undefined))?.agent.title ?? null;
+    return { lastUsed: { ...lastUsed, title } };
   });
-  server.handle(nextChatSet, async ({ workspaceId, text }, { paseo }) => {
-    const cwd = text.trim() ? (await paseo.workspaces.ref(workspaceId).refresh())?.workspaceDirectory : "";
-    if (cwd === undefined) throw new Error("This workspace has no directory.");
-    return { expiresAt: await nextChat.set(workspaceId, cwd, text) };
-  });
-  /** Taken texts until their chat's `agent.created` arrives, by directory and provider. */
-  const taken = new Map<string, { workspaceId: string; armed: Armed; timer: ReturnType<typeof setTimeout> }>();
-  const giveBack = (key: string, why: string) => {
-    const entry = taken.get(key);
-    if (!entry) return;
-    taken.delete(key);
-    clearTimeout(entry.timer);
-    console.warn(`[noice-omp-slash-aliases] next-chat instructions re-armed: ${why}`);
-    void nextChat.restore(entry.workspaceId, entry.armed);
-  };
-  // Paseo shows this hook only the session config. Chats Stefan starts from the app carry no
-  // title there; agents made by agents (MCP create_agent requires one), the side-agent plugin,
-  // schedules and `paseo run --title` do. `agent.created` then checks the parent label too.
   const offCreate = server.addHook("agent.create.before", async ({ request }) => {
-    const { config } = request;
-    if (config.title?.trim()) return;
-    try {
-      if (!SYSTEM_PROMPT_PROVIDERS[await readBaseProvider(config.provider)]) return;
-      const found = await nextChat.take(config.cwd);
-      if (!found) return;
-      const key = `${found.armed.cwd}\n${config.provider}`;
-      clearTimeout(taken.get(key)?.timer);
-      taken.set(key, { ...found, timer: setTimeout(() => giveBack(key, "the chat was never created"), CREATE_TIMEOUT_MS) });
-      const systemPrompt = config.systemPrompt?.trim() ? `${config.systemPrompt}\n\n${found.armed.text}` : found.armed.text;
-      return { ...request, config: { ...config, systemPrompt } };
-    } catch (error) {
-      console.error("[noice-omp-slash-aliases] next-chat instructions failed", error);
-    }
+    const instructions = extractInstructions(request.metadata);
+    if (!instructions) return;
+    const systemPrompt = appendSystemPrompt(request.config.systemPrompt, instructions);
+    return { ...request, config: { ...request.config, systemPrompt } };
   });
   const offCreated = server.addHook("agent.create.after", async ({ agent }) => {
-    const key = `${resolve(agent.cwd)}\n${agent.provider}`;
-    const entry = taken.get(key);
-    if (!entry) return;
-    if (agent.parentAgentId || agent.title) return giveBack(key, `agent ${agent.id} was not started by hand`);
-    taken.delete(key);
-    clearTimeout(entry.timer);
-    await nextChat.used(entry.workspaceId, agent.id, entry.armed.text);
+    const instructions = extractInstructions(agent.metadata);
+    if (!instructions) return;
+    await nextChat.recordUsed(agent.id, instructions);
   });
-  const offArchived = server.addHook("workspace.archive.after", async ({ workspace }) => { await nextChat.forget(workspace.id); });
 
   const sessions = new TanSessions();
   let processes: { at: number; list: Promise<ProcessInfo[]> } | undefined;
@@ -144,14 +145,16 @@ export default function contribute(server: PluginServerContext) {
     return { state: deriveState(id, transcript, delivered, alive) };
   });
 
-  const prune = () => void pruneOutbox(root, isAlive).catch(error => console.error("/btw outbox prune failed", error));
+  const prune = () =>
+    void pruneOutbox(root, isAlive)
+      .then(() => outboxWatcher.notify())
+      .catch(error => console.error("/btw outbox prune failed", error));
   prune();
   const timer = setInterval(prune, PRUNE_EVERY_MS);
   return () => {
     clearInterval(timer);
+    outboxWatcher.close();
     offCreate();
     offCreated();
-    offArchived();
-    taken.forEach(entry => clearTimeout(entry.timer));
   };
 }

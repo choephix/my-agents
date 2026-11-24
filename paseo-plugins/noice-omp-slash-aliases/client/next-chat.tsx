@@ -1,21 +1,45 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { PluginButtonContentProps, PluginButtonIconProps, PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
-import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { AppState, Platform, Pressable, Text, View } from "react-native";
-import { nextChatArmed, nextChatGet, nextChatSet } from "../shared/next-chat";
-import { startDraftButtons } from "./draft-button";
+import {
+  type PluginComposer,
+  type PluginComposerItemProps,
+  type PluginIconProps,
+  useComposer,
+  useRpc,
+} from "@getpaseo/plugin/client";
+import { Action, Icon, Modal, TextInput } from "@getpaseo/plugin/client/ui";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Pressable, Text, View } from "react-native";
+import { INSTRUCTIONS_METADATA_KEY, nextChatLastUsed, SYSTEM_PROMPT_PROVIDERS } from "../shared/next-chat";
 import { BODY } from "./markdown-view";
+import type { OmpProviders } from "./omp-providers";
 import { tabTitle } from "./phone-menu";
 
-const TITLE = "Instructions for the next chat";
+const TITLE = "Instructions for this chat";
 const SMALL = { fontSize: 12, lineHeight: 16 };
+const BUILTIN_SYSTEM_PROMPT_PROVIDERS = new Set<string>(SYSTEM_PROMPT_PROVIDERS);
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-type Loaded = { armed: { text: string; expiresAt: number } | null; lastUsed: { title: string | null; text: string; at: number } | null };
+interface LastUsed {
+  agentId: string;
+  title: string | null;
+  text: string;
+  at: number;
+}
 
-function Button({ theme, label, primary, disabled, onPress }: { theme: PluginTheme; label: string; primary?: boolean; disabled?: boolean; onPress(): void }) {
+function Button({
+  theme,
+  label,
+  primary,
+  disabled,
+  onPress,
+}: {
+  theme: PluginTheme;
+  label: string;
+  primary?: boolean;
+  disabled?: boolean;
+  onPress(): void;
+}) {
   const { colors } = theme;
   return (
     <Pressable
@@ -37,203 +61,172 @@ function Button({ theme, label, primary, disabled, onPress }: { theme: PluginThe
   );
 }
 
-/**
- * Text armed per workspace goes into the system prompt of the next chat started there, once,
- * within 30 minutes. The daemon side keeps the text and puts it in (`agent.create` hook); this side
- * shows which workspaces are armed: read at start, when the app returns to the foreground, after a
- * chat appears in an armed workspace, and on each open of an editor. Expiry is timed locally.
- *
- * Web: an `Instructions` pill beside each draft composer (`draft-button.ts`); the workspace header
- * button only with Settings → "Instructions header button" (off by default). Native apps have no
- * draft pill, so they always get the header button (on phones a row of the workspace ⋯ menu).
- */
-export function startNextChat(client: PluginClientContext): { chatCreated(workspaceId: string): void; setHeaderButton(show: boolean): void; stop(): void } {
-  const expiries = new Map<string, number>();
-  const buttons = new Map<string, { registration: PluginButtonRegistration; armed: boolean }>();
-  const listeners = new Set<() => void>();
-  const subscribe = (listener: () => void) => {
-    listeners.add(listener);
-    return () => void listeners.delete(listener);
-  };
-  // Web: hidden until the setting is read, so a switched-off button never flashes.
-  let headerVisible = Platform.OS !== "web";
-  let expiryTimer: ReturnType<typeof setTimeout> | undefined;
-  const apply = () => {
-    const now = Date.now();
-    for (const [workspaceId, expiresAt] of expiries) if (expiresAt <= now) expiries.delete(workspaceId);
-    for (const [workspaceId, button] of buttons) {
-      const armed = expiries.has(workspaceId);
-      if (armed === button.armed) continue;
-      button.armed = armed;
-      button.registration.update(armed ? { title: `${TITLE} · armed`, label: "Instructions ✓" } : { title: TITLE, label: undefined });
-    }
-    listeners.forEach(listener => listener());
-    drafts?.relabel();
-    clearTimeout(expiryTimer);
-    const next = Math.min(...expiries.values());
-    if (Number.isFinite(next)) expiryTimer = setTimeout(apply, next - now + 500);
-  };
-  const setArmed = (workspaceId: string, expiresAt: number | null) => {
-    if (expiresAt === null) expiries.delete(workspaceId);
-    else expiries.set(workspaceId, expiresAt);
-    apply();
-  };
-  const refresh = () =>
-    client.rpc(nextChatArmed, {}).then(
-      ({ armed }) => {
-        expiries.clear();
-        for (const { workspaceId, expiresAt } of armed) expiries.set(workspaceId, expiresAt);
-        apply();
-      },
-      (error: unknown) => console.warn("[noice-omp-slash-aliases] reading armed instructions failed", error),
-    );
+function DraftInstructionsControl({
+  composer,
+  theme,
+  providers,
+}: {
+  composer: PluginComposer;
+  theme: PluginTheme;
+  providers: OmpProviders;
+}) {
+  const { colors } = theme;
+  const fetchLastUsed = useRpc(nextChatLastUsed);
+  const raw = composer.agent.metadata[INSTRUCTIONS_METADATA_KEY];
+  const saved = typeof raw === "string" ? raw : "";
+  const hasInstructions = saved.trim().length > 0;
 
-  function Editor({ workspaceId, theme, compact, close }: { workspaceId: string; theme: PluginTheme; compact: boolean; close(): void }) {
-    const { colors } = theme;
-    const [loaded, setLoaded] = useState<Loaded>();
-    const [draft, setDraft] = useState<string>();
-    const [error, setError] = useState<string>();
-    const [busy, setBusy] = useState(false);
-    useEffect(() => {
-      client.rpc(nextChatGet, { workspaceId }).then(
-        result => {
-          setLoaded(result);
-          setDraft(current => current ?? result.armed?.text ?? "");
-          setArmed(workspaceId, result.armed?.expiresAt ?? null);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(saved);
+  const [lastUsed, setLastUsed] = useState<LastUsed | null>(null);
+  const [providerSupported, setProviderSupported] = useState(true);
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+
+  const provider = composer.agent.provider;
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void fetchLastUsed({}).then(
+      result => {
+        if (!cancelled) setLastUsed(result.lastUsed);
+      },
+      () => {},
+    );
+    if (!provider || BUILTIN_SYSTEM_PROMPT_PROVIDERS.has(provider)) {
+      setProviderSupported(true);
+    } else {
+      void providers.isOmp(provider).then(
+        supported => {
+          if (!cancelled) setProviderSupported(supported);
         },
-        error => setError(errorText(error)),
+        () => {
+          if (!cancelled) setProviderSupported(true);
+        },
       );
-    }, [workspaceId]);
-    const commit = (text: string) => {
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [open, provider, fetchLastUsed, providers]);
+
+  const handleOpen = useCallback(() => {
+    setDraft(saved);
+    setError(undefined);
+    setOpen(true);
+  }, [saved]);
+
+  const commit = useCallback(
+    (value: string | null) => {
       setBusy(true);
       setError(undefined);
-      client.rpc(nextChatSet, { workspaceId, text }).then(
-        ({ expiresAt }) => {
-          setArmed(workspaceId, expiresAt);
-          close();
+      composer.setMetadata({ [INSTRUCTIONS_METADATA_KEY]: value }).then(
+        () => {
+          setBusy(false);
+          setOpen(false);
         },
-        error => {
-          setError(errorText(error));
+        reason => {
+          setError(errorText(reason));
           setBusy(false);
         },
       );
-    };
-    const armed = loaded?.armed;
-    const lastUsed = loaded?.lastUsed;
-    return (
-      <View style={{ width: compact ? undefined : 396, gap: 8 }}>
-        <TextInput
-          multiline
-          autoFocus
-          editable={loaded !== undefined && !busy}
-          value={draft ?? ""}
-          onChangeText={setDraft}
-          placeholder={loaded || error ? "A role or brief for the next chat" : "Loading…"}
-          placeholderTextColor={colors.foregroundMuted}
-          style={[BODY, { minHeight: 140, maxHeight: 320, padding: 8, borderWidth: 1, borderRadius: 6, borderColor: colors.border, color: colors.foreground, backgroundColor: colors.surface0, textAlignVertical: "top" }]}
-        />
-        <Text style={[SMALL, { color: colors.foregroundMuted }]}>
-          {armed
-            ? `Armed until ${clock(armed.expiresAt)}. The next chat you start in this workspace gets it in its system prompt, for good.`
-            : "Arm it, then start a new chat in this workspace within 30 minutes: that chat gets it in its system prompt, for good. Chats started by agents don't take it; nor do Copilot, Cursor, Grok or Antigravity chats."}
-        </Text>
-        {lastUsed ? (
-          <Pressable accessibilityRole="button" disabled={busy} onPress={() => setDraft(lastUsed.text)}>
-            <Text style={[SMALL, { color: colors.foregroundMuted }]} numberOfLines={1}>
-              Last used by “{tabTitle(lastUsed.title)}” at {clock(lastUsed.at)} · <Text style={{ color: colors.accent }}>Copy into the box</Text>
-            </Text>
-          </Pressable>
-        ) : null}
-        {error ? <Text style={[SMALL, { color: colors.statusDanger }]}>{error}</Text> : null}
-        <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
-          <Button theme={theme} label="Clear" disabled={busy || !armed} onPress={() => commit("")} />
-          <Button theme={theme} label="Arm" primary disabled={!loaded || busy || !draft?.trim() || draft === armed?.text} onPress={() => commit(draft ?? "")} />
-        </View>
-      </View>
-    );
-  }
-  function Popover({ workspaceId, theme, layout, close }: PluginButtonContentProps) {
-    return <Editor workspaceId={workspaceId} theme={theme} compact={layout.compact} close={close} />;
-  }
-  function HeaderIcon({ workspaceId, theme, size, color }: PluginButtonIconProps) {
-    const armed = useSyncExternalStore(subscribe, () => expiries.has(workspaceId));
-    return <Icon name="ScrollText" size={size} color={armed ? theme.colors.accent : color} />;
-  }
+    },
+    [composer],
+  );
 
-  const drafts = Platform.OS === "web"
-    ? startDraftButtons({
-        armed: workspaceId => expiries.has(workspaceId),
-        load: workspaceId => client.rpc(nextChatGet, { workspaceId }),
-        save: async (workspaceId, text) => setArmed(workspaceId, (await client.rpc(nextChatSet, { workspaceId, text })).expiresAt),
-      })
-    : undefined;
-
-  const add = (workspaceId: string) => {
-    if (buttons.has(workspaceId)) return;
-    try {
-      const registration = client.addHeaderButton({ id: "next-chat", workspaceId, button: { title: TITLE, icon: HeaderIcon, visible: headerVisible, behavior: { kind: "popover", Content: Popover } } });
-      buttons.set(workspaceId, { registration, armed: false });
-    } catch (error) {
-      console.warn("[noice-omp-slash-aliases] header button failed", error);
-    }
-  };
-  const remove = (workspaceId: string) => {
-    buttons.get(workspaceId)?.registration.remove();
-    buttons.delete(workspaceId);
-  };
-  const replace = (ids: ReadonlySet<string>) => {
-    for (const id of [...buttons.keys()]) if (!ids.has(id)) remove(id);
-    for (const id of ids) add(id);
-    apply();
-  };
-
-  // One button per workspace, following Paseo's workspace directory (it pages at 200).
-  const lifetime = new AbortController();
-  const load = async () => {
-    const first = await client.paseo.workspaces.list({ subscribe: {} });
-    const ids = new Set(first.entries.map(workspace => workspace.id));
-    let pageInfo = first.pageInfo;
-    while (pageInfo.hasMore && pageInfo.nextCursor && !lifetime.signal.aborted) {
-      const page = await client.paseo.workspaces.list({ page: { limit: 200, cursor: pageInfo.nextCursor } });
-      for (const workspace of page.entries) ids.add(workspace.id);
-      pageInfo = page.pageInfo;
-    }
-    if (lifetime.signal.aborted) return void first.subscription.release();
-    replace(ids);
-    first.subscription.subscribe({
-      snapshot: snapshot => replace(new Set(snapshot.entries.map(workspace => workspace.id))),
-      update: message => {
-        if (message.type !== "workspace_update") return;
-        if (message.payload.kind === "upsert") {
-          add(message.payload.workspace.id);
-          apply();
-        } else remove(message.payload.id);
+  const ArmedIcon = useMemo(
+    () =>
+      function ArmedInstructionsIcon({ size }: PluginIconProps) {
+        return <Icon name="ScrollText" size={size} color={colors.accent} />;
       },
-    });
-    lifetime.signal.addEventListener("abort", () => void first.subscription.release());
-  };
-  void load().catch((error: unknown) => {
-    if (!lifetime.signal.aborted) console.warn("[noice-omp-slash-aliases] workspace subscription failed", error);
-  });
-  void refresh();
-  const appState = AppState.addEventListener("change", state => state === "active" && void refresh());
+    [colors.accent],
+  );
+  const modalIcon = useMemo(() => <Icon name="ScrollText" size={18} color={colors.foreground} />, [colors.foreground]);
 
-  return {
-    chatCreated(workspaceId) {
-      if (expiries.has(workspaceId)) void refresh();
-    },
-    setHeaderButton(show) {
-      const visible = Platform.OS !== "web" || show;
-      if (visible === headerVisible) return;
-      headerVisible = visible;
-      for (const { registration } of buttons.values()) registration.update({ visible });
-    },
-    stop() {
-      lifetime.abort();
-      appState.remove();
-      clearTimeout(expiryTimer);
-      for (const id of [...buttons.keys()]) remove(id);
-      drafts?.stop();
-    },
+  return (
+    <>
+      <Action
+        title={hasInstructions ? "Instructions ✓" : "Instructions"}
+        icon={hasInstructions ? ArmedIcon : "ScrollText"}
+        onPress={handleOpen}
+      />
+      <Modal title={TITLE} icon={modalIcon} open={open} onOpenChange={setOpen}>
+        <Modal.Content>
+          <View style={{ gap: 10 }}>
+            <TextInput
+              multiline
+              autoFocus
+              editable={!busy}
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="A role or brief for this chat"
+              placeholderTextColor={colors.foregroundMuted}
+              style={[
+                BODY,
+                {
+                  minHeight: 140,
+                  maxHeight: 320,
+                  padding: 8,
+                  borderWidth: 1,
+                  borderRadius: 6,
+                  borderColor: colors.border,
+                  color: colors.foreground,
+                  backgroundColor: colors.surface0,
+                  textAlignVertical: "top",
+                },
+              ]}
+            />
+            <Text style={[SMALL, { color: colors.foregroundMuted }]}>
+              {hasInstructions
+                ? "Included in this chat's system prompt for good (survives compaction). Sent with your first message."
+                : "Added to this chat's system prompt for good (survives compaction). Applies only to this draft."}
+            </Text>
+            {provider && !providerSupported ? (
+              <Text style={[SMALL, { color: colors.statusWarning }]}>
+                {`Note: ${provider} ignores Paseo's system prompt (OMP, Claude Code, Codex, OpenCode and Pi use it).`}
+              </Text>
+            ) : null}
+            {lastUsed ? (
+              <Pressable accessibilityRole="button" disabled={busy} onPress={() => setDraft(lastUsed.text)}>
+                <Text style={[SMALL, { color: colors.foregroundMuted }]} numberOfLines={1}>
+                  Last used by “{tabTitle(lastUsed.title)}” at {clock(lastUsed.at)} ·{" "}
+                  <Text style={{ color: colors.accent }}>Copy into the box</Text>
+                </Text>
+              </Pressable>
+            ) : null}
+            {error ? <Text style={[SMALL, { color: colors.statusDanger }]}>{error}</Text> : null}
+            <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+              <Button
+                theme={theme}
+                label="Clear"
+                disabled={busy || (!hasInstructions && !draft.trim())}
+                onPress={() => (hasInstructions ? commit(null) : setDraft(""))}
+              />
+              <Button
+                theme={theme}
+                label="Save"
+                primary
+                disabled={busy || !draft.trim() || draft === saved}
+                onPress={() => commit(draft)}
+              />
+            </View>
+          </View>
+        </Modal.Content>
+      </Modal>
+    </>
+  );
+}
+
+/**
+ * Composer item for draft and New workspace composers: attaches per-chat system instructions to
+ * agent metadata so `agent.create.before` appends them to that exact chat's `systemPrompt`.
+ * Renders nothing on running agents, so it takes no toolbar room there.
+ */
+export function createNextChatComposerItem(providers: OmpProviders) {
+  return function NextChatComposerItem({ theme }: PluginComposerItemProps) {
+    const composer = useComposer();
+    if (composer.context === "agent") return null;
+    return <DraftInstructionsControl composer={composer} theme={theme} providers={providers} />;
   };
 }

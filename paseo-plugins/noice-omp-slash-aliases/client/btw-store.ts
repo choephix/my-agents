@@ -1,8 +1,8 @@
-import type { BtwChat, BtwEntry } from "../shared/btw";
+import type { BtwChatSnapshot, BtwEntry } from "../shared/btw";
 
-/** How the store reaches the plugin's daemon side (the plugin RPCs in production). */
+/** How the store reaches the plugin's daemon side (plugin subscription + RPCs in production). */
 export interface BtwTransport {
-  chats(): Promise<BtwChat[]>;
+  watch(onSnapshot: (chats: readonly BtwChatSnapshot[]) => void): () => void;
   list(agentId: string): Promise<BtwEntry[]>;
   ask(agentId: string, question: string): Promise<void>;
   dismiss(agentId: string, id: string): Promise<void>;
@@ -25,8 +25,6 @@ export interface ChatState {
   workspaceId: string;
   entries: readonly BtwEntry[];
   pending: readonly PendingAsk[];
-  /** Server summary: newest updatedAt, so unchanged chats are not refetched. */
-  updatedAt: number;
 }
 
 export interface BtwSnapshot {
@@ -37,8 +35,6 @@ export interface BtwSnapshot {
 
 /** A sent question whose record has not appeared after this long is reported as failed. */
 export const ASK_TIMEOUT_MS = 30_000;
-const FAST_POLL_MS = 600;
-const SLOW_POLL_MS = 4_000;
 
 /**
  * Settles pending asks against a chat's current records. Each new record
@@ -92,16 +88,15 @@ export class BtwStore {
   #snapshot: BtwSnapshot = { chats: new Map(), openAgentId: null };
   readonly #listeners = new Set<() => void>();
   readonly #hosts = new Map<string, symbol[]>();
-  /** Bumped by each poll and schedule; a scheduled poll only runs if still current. */
-  #ticket = 0;
-  #polling: Promise<void> | undefined;
-  #pollAgain = false;
+  #unwatch: (() => void) | undefined;
+  #timeoutTimer: ReturnType<typeof setTimeout> | undefined;
   #disposed = false;
   #nextKey = 0;
 
   constructor(transport: BtwTransport, now: () => number = Date.now) {
     this.#transport = transport;
     this.#now = now;
+    this.#unwatch = this.#transport.watch(chats => this.#apply(chats));
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -113,6 +108,12 @@ export class BtwStore {
 
   dispose(): void {
     this.#disposed = true;
+    this.#unwatch?.();
+    this.#unwatch = undefined;
+    if (this.#timeoutTimer) {
+      clearTimeout(this.#timeoutTimer);
+      this.#timeoutTimer = undefined;
+    }
     this.#listeners.clear();
   }
 
@@ -128,14 +129,19 @@ export class BtwStore {
     } catch (error) {
       patch = { error: error instanceof Error ? error.message : String(error) };
     }
-    this.#update(agentId, chat => chat && { ...chat, pending: chat.pending.map(p => (p.key === ask.key ? { ...p, ...patch } : p)) });
-    void this.refresh();
+    if (this.#disposed) return;
+    this.#update(agentId, chat => {
+      if (!chat) return chat;
+      const pending = chat.pending.map(p => (p.key === ask.key ? { ...p, ...patch } : p));
+      // A push with the new record may have arrived while `ask` was awaiting its RPC response.
+      return { ...chat, pending: settlePending(pending, chat.entries, this.#now()) };
+    });
+    this.#schedulePendingTimeout();
   }
 
   open(agentId: string): void {
     this.#openAgentId = agentId;
     this.#emit();
-    void this.refresh();
   }
 
   close(): void {
@@ -148,10 +154,21 @@ export class BtwStore {
     const chat = this.#chats.get(agentId);
     if (!chat) return;
     if (chat.pending.some(ask => ask.key === id)) {
-      this.#update(agentId, current => current && { ...current, pending: current.pending.filter(ask => ask.key !== id) });
+      this.#update(agentId, current => {
+        if (!current) return current;
+        const pending = current.pending.filter(ask => ask.key !== id);
+        return current.entries.length || pending.length ? { ...current, pending } : undefined;
+      });
+      this.#closeIfEmpty(agentId);
+      this.#schedulePendingTimeout();
       return;
     }
-    this.#update(agentId, current => current && { ...current, entries: current.entries.filter(entry => entry.id !== id) });
+    this.#update(agentId, current => {
+      if (!current) return current;
+      const entries = current.entries.filter(entry => entry.id !== id);
+      return entries.length || current.pending.length ? { ...current, entries } : undefined;
+    });
+    this.#closeIfEmpty(agentId);
     await this.#transport.dismiss(agentId, id);
   }
 
@@ -171,64 +188,63 @@ export class BtwStore {
     return this.#hosts.get(agentId)?.[0] === token;
   }
 
-  /**
-   * Polls now: chat summaries, then the records of chats someone is waiting on.
-   * Calls during a poll share it and add one more round, so there is one loop
-   * and the returned promise covers the state at the time of the call.
-   */
-  refresh(): Promise<void> {
-    if (this.#disposed) return Promise.resolve();
-    this.#pollAgain = true;
-    this.#polling ??= (async () => {
-      this.#ticket++;
-      while (this.#pollAgain) {
-        this.#pollAgain = false;
-        try {
-          await this.#poll();
-        } catch {
-          // Host offline or plugin reloading: keep what is shown and try again.
-        }
-      }
-      this.#polling = undefined;
-      this.#schedule();
-    })();
-    return this.#polling;
-  }
-
-  async #poll(): Promise<void> {
-    const summaries = new Map((await this.#transport.chats()).map(chat => [chat.agentId, chat]));
-    const toFetch = [...summaries.values()]
-      .filter(summary => {
-        const chat = this.#chats.get(summary.agentId);
-        const watched = summary.agentId === this.#openAgentId || summary.running || !!chat?.pending.length;
-        return watched || chat?.updatedAt !== summary.updatedAt;
-      })
-      .map(summary => summary.agentId);
-    const lists = new Map(
-      await Promise.all(toFetch.map(async agentId => [agentId, await this.#transport.list(agentId)] as const)),
-    );
-    // Build from the current state, not the one before the awaits: asks may have changed meanwhile.
+  #apply(snapshots: readonly BtwChatSnapshot[]): void {
+    if (this.#disposed) return;
+    const byAgent = new Map(snapshots.map(chat => [chat.agentId, chat]));
     const now = this.#now();
     const next = new Map<string, ChatState>();
-    for (const agentId of new Set([...summaries.keys(), ...this.#chats.keys()])) {
-      const summary = summaries.get(agentId);
-      const chat = this.#chats.get(agentId) ?? emptyChat(summary!.workspaceId);
-      // Not in the summary: every answer was dismissed.
-      const entries = summary ? (lists.get(agentId) ?? chat.entries) : [];
-      const pending = settlePending(chat.pending, entries, now);
-      if (!summary && !pending.length) continue;
-      next.set(agentId, { ...chat, entries, pending, updatedAt: summary?.updatedAt ?? -1 });
+    for (const agentId of new Set([...byAgent.keys(), ...this.#chats.keys()])) {
+      const incoming = byAgent.get(agentId);
+      const existing = this.#chats.get(agentId);
+      const workspaceId = incoming?.workspaceId ?? existing!.workspaceId;
+      // Absent from the server snapshot: every answer was dismissed.
+      const entries = incoming ? incoming.entries : [];
+      const pending = settlePending(existing?.pending ?? [], entries, now);
+      if (!incoming && !pending.length) continue;
+      next.set(agentId, { workspaceId, entries, pending });
     }
     this.#chats = next;
     if (this.#openAgentId && !next.has(this.#openAgentId)) this.#openAgentId = null;
+    this.#schedulePendingTimeout();
     this.#emit();
   }
 
-  #schedule(): void {
+  #schedulePendingTimeout(): void {
+    if (this.#timeoutTimer) {
+      clearTimeout(this.#timeoutTimer);
+      this.#timeoutTimer = undefined;
+    }
     if (this.#disposed) return;
-    const fast = this.#openAgentId !== null || [...this.#chats.values()].some(isBusy);
-    const ticket = ++this.#ticket;
-    setTimeout(() => ticket === this.#ticket && void this.refresh(), fast ? FAST_POLL_MS : SLOW_POLL_MS);
+    let nextAt = Infinity;
+    for (const chat of this.#chats.values()) {
+      for (const ask of chat.pending) {
+        if (!ask.error && ask.knownIds) nextAt = Math.min(nextAt, ask.sentAt + ASK_TIMEOUT_MS + 1);
+      }
+    }
+    if (!Number.isFinite(nextAt)) return;
+    this.#timeoutTimer = setTimeout(() => {
+      this.#timeoutTimer = undefined;
+      if (this.#disposed) return;
+      const now = this.#now();
+      let changed = false;
+      for (const [agentId, chat] of this.#chats) {
+        if (!chat.pending.length) continue;
+        const pending = settlePending(chat.pending, chat.entries, now);
+        if (pending.length !== chat.pending.length || pending.some((p, i) => p !== chat.pending[i])) {
+          this.#chats.set(agentId, { ...chat, pending });
+          changed = true;
+        }
+      }
+      this.#schedulePendingTimeout();
+      if (changed) this.#emit();
+    }, Math.max(0, nextAt - this.#now()));
+  }
+
+  #closeIfEmpty(agentId: string): void {
+    if (this.#openAgentId === agentId && !this.#chats.has(agentId)) {
+      this.#openAgentId = null;
+      this.#emit();
+    }
   }
 
   #update(agentId: string, change: (chat: ChatState | undefined) => ChatState | undefined): void {
@@ -245,5 +261,5 @@ export class BtwStore {
 }
 
 function emptyChat(workspaceId: string): ChatState {
-  return { workspaceId, entries: [], pending: [], updatedAt: -1 };
+  return { workspaceId, entries: [], pending: [] };
 }

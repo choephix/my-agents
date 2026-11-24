@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { type FSWatcher, mkdirSync, readdirSync, readFileSync, statSync, watch } from "node:fs";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -21,10 +21,7 @@ export function btwRoot(env: NodeJS.ProcessEnv = process.env): string {
   return join(env.PASEO_HOME || join(homedir(), ".paseo"), "omp-btw");
 }
 
-/**
- * Synchronous on purpose: every Paseo client polls `btw.chats` (every 4 s; 600 ms while a sheet is
- * open or an answer runs), and one scan of ~50 answer files took 3.8 ms with promises, 0.3 ms sync.
- */
+/** Synchronous on purpose: scanning ~50 answer files takes ~0.3 ms sync vs ~3.8 ms with promises. */
 function readDir(dir: string): string[] {
   try {
     return readdirSync(dir);
@@ -61,6 +58,23 @@ export async function listEntries(root: string, agentId: string, now = Date.now(
   return entries.sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id));
 }
 
+export interface ChatEntries {
+  agentId: string;
+  entries: BtwEntry[];
+}
+
+/** Chats with at least one undismissed answer and their entries, sorted by agentId for stable snapshots. */
+export async function listAllChats(root: string, now = Date.now()): Promise<ChatEntries[]> {
+  const chats: ChatEntries[] = [];
+  for (const agentId of readDir(root).sort()) {
+    if (!SafeIdSchema.safeParse(agentId).success) continue;
+    const entries = await listEntries(root, agentId, now);
+    if (entries.length === 0) continue;
+    chats.push({ agentId, entries });
+  }
+  return chats;
+}
+
 export interface ChatSummary {
   agentId: string;
   count: number;
@@ -70,19 +84,12 @@ export interface ChatSummary {
 
 /** Chats with at least one undismissed answer. */
 export async function summarizeChats(root: string, now = Date.now()): Promise<ChatSummary[]> {
-  const summaries: ChatSummary[] = [];
-  for (const agentId of readDir(root)) {
-    if (!SafeIdSchema.safeParse(agentId).success) continue;
-    const entries = await listEntries(root, agentId, now);
-    if (entries.length === 0) continue;
-    summaries.push({
-      agentId,
-      count: entries.length,
-      running: entries.some(entry => entry.status === "running"),
-      updatedAt: Math.max(...entries.map(entry => entry.updatedAt)),
-    });
-  }
-  return summaries;
+  return (await listAllChats(root, now)).map(({ agentId, entries }) => ({
+    agentId,
+    count: entries.length,
+    running: entries.some(entry => entry.status === "running"),
+    updatedAt: Math.max(...entries.map(entry => entry.updatedAt)),
+  }));
 }
 
 /**
@@ -119,5 +126,147 @@ export async function pruneOutbox(root: string, isAlive: (pid: number) => boolea
       if (info && now - info.mtimeMs > RETENTION_MS) await rm(file, { force: true });
     }
     if (readDir(dir).length === 0) await rm(dir, { recursive: true, force: true });
+  }
+}
+
+const isRelevantOutboxFile = (name: string) => name.endsWith(".json") || name.endsWith(".dismissed");
+
+/**
+ * Watches `$PASEO_HOME/omp-btw` and each chat subfolder while at least one client is subscribed.
+ * Ignores `.tmp` writes and `.process-<pid>` markers, debounces bursts, and arms a single timer
+ * when any answer is still running so a dead OMP process still flips to `interrupted` after
+ * `STALE_RUNNING_MS` with zero polling while idle.
+ */
+export class BtwOutboxWatcher {
+  readonly #root: string;
+  readonly #debounceMs: number;
+  readonly #listeners = new Set<() => void>();
+  #rootWatcher: FSWatcher | undefined;
+  readonly #chatWatchers = new Map<string, FSWatcher>();
+  #debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  #staleTimer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(root: string, options: { debounceMs?: number } = {}) {
+    this.#root = root;
+    this.#debounceMs = options.debounceMs ?? 50;
+  }
+
+  onChange(listener: () => void): () => void {
+    this.#listeners.add(listener);
+    if (this.#listeners.size === 1) this.#startWatching();
+    return () => {
+      this.#listeners.delete(listener);
+      if (this.#listeners.size === 0) this.#stopWatching();
+    };
+  }
+
+  /** Notifies active listeners immediately (e.g. after a dismissal or prune). */
+  notify(): void {
+    if (this.#listeners.size === 0) return;
+    if (this.#debounceTimer) {
+      clearTimeout(this.#debounceTimer);
+      this.#debounceTimer = undefined;
+    }
+    for (const listener of this.#listeners) listener();
+  }
+
+  /** Arms a one-shot timer for the earliest running entry's stale deadline, or clears it when idle. */
+  scheduleStaleCheck(entries: readonly BtwEntry[], now = Date.now()): void {
+    if (this.#staleTimer) {
+      clearTimeout(this.#staleTimer);
+      this.#staleTimer = undefined;
+    }
+    if (this.#listeners.size === 0) return;
+    let earliest = Infinity;
+    for (const entry of entries) {
+      if (entry.status === "running") earliest = Math.min(earliest, entry.updatedAt + STALE_RUNNING_MS);
+    }
+    if (!Number.isFinite(earliest)) return;
+    this.#staleTimer = setTimeout(() => {
+      this.#staleTimer = undefined;
+      this.notify();
+    }, Math.max(50, earliest - now + 50));
+  }
+
+  close(): void {
+    this.#listeners.clear();
+    this.#stopWatching();
+  }
+
+  #startWatching(): void {
+    try {
+      mkdirSync(this.#root, { recursive: true });
+      this.#rootWatcher = watch(this.#root, (_event, filename) => {
+        const name = filename?.toString();
+        if (name && !SafeIdSchema.safeParse(name).success) return;
+        this.#syncChatWatchers();
+        this.#scheduleEmit();
+      });
+      this.#rootWatcher.on("error", () => {
+        this.#rootWatcher?.close();
+        this.#rootWatcher = undefined;
+      });
+      this.#syncChatWatchers();
+    } catch {
+      this.#stopWatching();
+    }
+  }
+
+  #syncChatWatchers(): void {
+    if (!this.#rootWatcher) return;
+    const present = new Set<string>();
+    for (const name of readDir(this.#root)) {
+      if (!SafeIdSchema.safeParse(name).success) continue;
+      const dir = join(this.#root, name);
+      try {
+        if (!statSync(dir).isDirectory()) continue;
+      } catch {
+        continue;
+      }
+      present.add(name);
+      if (this.#chatWatchers.has(name)) continue;
+      try {
+        const watcher = watch(dir, (_event, filename) => {
+          const file = filename?.toString();
+          if (file && !isRelevantOutboxFile(file)) return;
+          this.#scheduleEmit();
+        });
+        watcher.on("error", () => {
+          watcher.close();
+          this.#chatWatchers.delete(name);
+        });
+        this.#chatWatchers.set(name, watcher);
+      } catch {
+        // Folder vanished before we could attach; root watcher already triggered a scan.
+      }
+    }
+    for (const [agentId, watcher] of this.#chatWatchers) {
+      if (present.has(agentId)) continue;
+      watcher.close();
+      this.#chatWatchers.delete(agentId);
+    }
+  }
+
+  #scheduleEmit(): void {
+    if (this.#listeners.size === 0 || this.#debounceTimer) return;
+    this.#debounceTimer = setTimeout(() => {
+      this.#debounceTimer = undefined;
+      for (const listener of this.#listeners) listener();
+    }, this.#debounceMs);
+  }
+
+  #stopWatching(): void {
+    if (this.#debounceTimer) {
+      clearTimeout(this.#debounceTimer);
+      this.#debounceTimer = undefined;
+    }
+    if (this.#staleTimer) {
+      clearTimeout(this.#staleTimer);
+      this.#staleTimer = undefined;
+    }
+    this.#rootWatcher?.close();
+    this.#rootWatcher = undefined;
+    for (const watcher of this.#chatWatchers.values()) watcher.close();
+    this.#chatWatchers.clear();
   }
 }

@@ -3,11 +3,11 @@ import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/pl
 import { BTW_ICON, createBtwPopover, createPillIcon } from "./client/btw-sheet";
 import { BtwStore, formatElapsed, isBusy } from "./client/btw-store";
 import { startChats } from "./client/chats";
-import { startNextChat } from "./client/next-chat";
+import { createNextChatComposerItem } from "./client/next-chat";
 import { OmpProviders } from "./client/omp-providers";
 import { createSettingsScreen } from "./client/settings";
 import { createTanRow, TanRowData, type TanRpc } from "./client/tan-row";
-import { btwAsk, btwChats, btwDismiss, btwList } from "./shared/btw";
+import { btwAsk, btwDismiss, btwList, btwWatch } from "./shared/btw";
 import { popoverFor, startPhoneMenu, tabTitle } from "./client/phone-menu";
 import { DEFAULTS, preferences, type Preferences } from "./shared/preferences";
 import { ompProviders } from "./shared/providers";
@@ -38,7 +38,23 @@ const TAN_DISPATCH_RECORD = "background-tan-dispatch";
 
 export default function contribute(client: PluginClientContext) {
   const store = new BtwStore({
-    chats: async () => (await client.rpc(btwChats, {})).chats,
+    watch: onSnapshot => {
+      let active = true;
+      const unsub = client.subscribe(
+        btwWatch,
+        {},
+        ({ chats }) => onSnapshot(chats),
+        {
+          onClosed: ({ error }) => {
+            if (error && active) console.warn("[noice-omp-slash-aliases] /btw subscription closed", error);
+          },
+        },
+      );
+      return () => {
+        active = false;
+        unsub();
+      };
+    },
     list: async agentId => (await client.rpc(btwList, { agentId })).entries,
     ask: async (agentId, question) => void (await client.rpc(btwAsk, { agentId, question })),
     dismiss: async (agentId, id) => void (await client.rpc(btwDismiss, { agentId, id })),
@@ -49,12 +65,12 @@ export default function contribute(client: PluginClientContext) {
   };
   // `omp` and custom providers built on it (e.g. `omp-nilo`), from Paseo's config.
   const providers = new OmpProviders(async () => (await client.rpc(ompProviders, {})).providers);
-  const nextChat = startNextChat(client);
 
   // One composer pill per chat with /btw answers; its icon hosts the answer sheet. Phone layouts:
   // ⋯ (workspace menu) → btw → the workspace's chats with answers shows them in the menu's sheet;
   // there a chat's pill exists only while it hosts the sheet /btw opened, behind it.
   const pills = new Map<string, { registration: PluginButtonRegistration; label: string }>();
+  let pillTimer: ReturnType<typeof setInterval> | undefined;
   const BtwPopover = createBtwPopover(store);
   const menu = startPhoneMenu(client, { id: "btw", title: "By the way (/btw)", icon: BTW_ICON }, () => syncPills());
   function syncPills() {
@@ -72,6 +88,7 @@ export default function contribute(client: PluginClientContext) {
       const state = isBusy(chat) ? "answering…" : count > 1 ? `${count} answers` : "1 answer";
       return [{ agentId, workspaceId: chat.workspaceId, title: `${tabTitle(agent.title)} · ${state}`, createdAt: agent.createdAt, behavior: popoverFor(BtwPopover, agentId, chat.workspaceId) }];
     }));
+    let anyRunning = false;
     for (const [agentId, chat] of chats) {
       if (!shown(agentId)) continue;
       const count = chat.entries.length + chat.pending.length;
@@ -79,6 +96,7 @@ export default function contribute(client: PluginClientContext) {
         ...chat.pending.filter(ask => !ask.error).map(ask => ask.sentAt),
         ...chat.entries.filter(entry => entry.status === "running").map(entry => entry.createdAt),
       );
+      if (Number.isFinite(runningSince)) anyRunning = true;
       const label = Number.isFinite(runningSince)
         ? `btw ${formatElapsed(Date.now() - runningSince)}`
         : count > 1
@@ -103,10 +121,15 @@ export default function contribute(client: PluginClientContext) {
       });
       pills.set(agentId, { registration, label });
     }
+    if (anyRunning && !pillTimer) pillTimer = setInterval(syncPills, 1000);
+    else if (!anyRunning && pillTimer) {
+      clearInterval(pillTimer);
+      pillTimer = undefined;
+    }
   }
-  const openChats = startChats(client, { onChange: syncPills, onNew: agent => nextChat.chatCreated(agent.workspaceId!) });
+  const openChats = startChats(client, { onChange: syncPills });
   const unsubscribe = store.subscribe(syncPills);
-  void store.refresh();
+  syncPills();
 
   const addAlias = (alias: Alias) =>
     client.addSlashCommand({
@@ -125,7 +148,6 @@ export default function contribute(client: PluginClientContext) {
   // `/tan` follows the host setting; nothing is registered until it is read, so a switched-off alias never flashes.
   let removeTan: (() => void) | undefined;
   const applySettings = (values: Preferences) => {
-    nextChat.setHeaderButton(values.nextChatHeaderButton);
     if (values.tan && !removeTan) removeTan = addAlias(TAN_ALIAS);
     else if (!values.tan && removeTan) {
       removeTan();
@@ -169,7 +191,7 @@ export default function contribute(client: PluginClientContext) {
       },
     }),
     () => openChats.stop(),
-    () => nextChat.stop(),
+    client.addComposerItem({ id: "next-chat-instructions", Component: createNextChatComposerItem(providers) }),
     client.addTimelineRenderer({ kind: "tan-row", version: 1, schema: TanRowData, Component: createTanRow(tanRpc, providers) }),
     // The /btw send is plumbing, not a conversation turn: keep it out of the timeline.
     // A /tan send becomes the tangent's row (live chats).
@@ -207,6 +229,7 @@ export default function contribute(client: PluginClientContext) {
     removeTan?.();
     cleanups.forEach(cleanup => cleanup());
     unsubscribe();
+    if (pillTimer) clearInterval(pillTimer);
     store.dispose();
     menu.stop();
     pills.forEach(pill => pill.registration.remove());
