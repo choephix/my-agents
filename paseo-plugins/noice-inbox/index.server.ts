@@ -46,7 +46,7 @@ export default function contribute(server: PluginServerContext) {
   let pruned: Promise<void> | null = null;
 
   // Sub-agents are skipped: Paseo doesn't notify for them either; they report to their parent.
-  server.on("agent.turn_ended", async ({ agent, outcome }, { paseo }) => {
+  const offTurn = server.addHook("agent.turn.after", async ({ agent, outcome }, { paseo }) => {
     if (agent.parentAgentId || outcome.kind === "canceled") return;
     const live = await liveAgent(paseo, agent.id);
     // An archived agent can't be opened: Paseo would show its workspace instead (a bot thread asleep).
@@ -67,15 +67,19 @@ export default function contribute(server: PluginServerContext) {
       read: false,
     });
   });
-  server.on("agent.permission_requested", async ({ agent, request }, { paseo }) => {
+  const offPermReq = server.addHook("agent.permission.before", async ({ agent, request }, { paseo }) => {
     if (agent.parentAgentId) return;
     const live = await liveAgent(paseo, agent.id);
     if (live && isBotHub(live.labels)) return;
     const what = [request.title || request.name, request.description].filter(Boolean).join(": ");
     await store.put({ agentId: agent.id, kind: "permission", title: live?.title ?? agent.title ?? "", preview: clip(what), at: Date.now(), read: false });
   });
-  server.on("agent.permission_resolved", ({ agent }) => store.markRead([{ agentId: agent.id, kind: "permission" }]));
-  server.on("agent.archived", ({ agent }) => store.retainAgents((agentId) => agentId !== agent.id));
+  const offPermRes = server.addHook("agent.permission.after", async ({ agent }) => {
+    await store.markRead([{ agentId: agent.id, kind: "permission" }]);
+  });
+  const offArchive = server.addHook("agent.archive.after", async ({ agent }) => {
+    await store.retainAgents((agentId) => agentId !== agent.id);
+  });
 
   const ensurePruned = (paseo: PaseoApi) => {
     pruned ??= dropGoneAgents(store, paseo).catch((error: unknown) => {
@@ -116,5 +120,10 @@ export default function contribute(server: PluginServerContext) {
     await store.clear(items);
     return { entries: await store.list() };
   });
-  return () => {};
+  return () => {
+    offTurn();
+    offPermReq();
+    offPermRes();
+    offArchive();
+  };
 }
