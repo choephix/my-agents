@@ -1,6 +1,6 @@
 import type { PluginClientContext, PluginComposer } from "@getpaseo/plugin/client";
 import { Platform } from "react-native";
-import { choicePrompt, deriveStates, fillChoiceText } from "./choices";
+import { choicePrompt, deriveStates, toggleChoiceText } from "./choices";
 
 // Web and desktop only. Paseo renders `[label](<@prompt>)` in an agent reply as an ordinary link with
 // the href `@prompt`. This module styles those links as choices, catches their clicks before Paseo
@@ -139,13 +139,12 @@ ${CHOICE}[${STATE}="picked"] {
 ${CHOICE}[${STATE}="picked"]:hover {
   background-image: linear-gradient(color-mix(in srgb, var(--noice-choice-c) 85%, var(--noice-choice-ink, #fff)), color-mix(in srgb, var(--noice-choice-c) 85%, var(--noice-choice-ink, #fff)));
 }
-${CHOICE}:is([${STATE}="passed-over"], [${STATE}="stale"], [${STATE}="accepted"]) {
+${CHOICE}:is([${STATE}="stale"], [${STATE}="accepted"]) {
   color: inherit !important;
   --noice-choice-code-bg: transparent;
 }
-${CHOICE}[${STATE}="passed-over"] { background-color: color-mix(in srgb, currentColor 9%, transparent); }
 ${CHOICE}[${STATE}="stale"] { background-color: transparent; }
-${CHOICE}:is([${STATE}="passed-over"], [${STATE}="stale"]):hover { background-color: color-mix(in srgb, currentColor 13%, transparent); }
+${CHOICE}[${STATE}="stale"]:hover { background-color: color-mix(in srgb, currentColor 13%, transparent); }
 ${CHOICE}[${STATE}="accepted"] {
   background-color: transparent;
   background-image: linear-gradient(color-mix(in srgb, var(--noice-choice-c) 32%, transparent), color-mix(in srgb, var(--noice-choice-c) 32%, transparent));
@@ -183,10 +182,6 @@ const choiceAt = (target: unknown) => elementOf(target)?.closest(CHOICE) ?? null
 
 const promptOf = (link: DomElement) => choicePrompt(link.getAttribute("href") ?? "@", link.textContent ?? "");
 
-/** A question is one list, else one paragraph (or heading, quote, cell), else the link's own block. */
-const questionOf = (link: DomElement) =>
-  link.closest("ul, ol") ?? link.closest("p, h1, h2, h3, h4, h5, h6, blockquote, td, th") ?? link.parentElement;
-
 const FIBER_DEPTH = 50;
 const agentIds = new WeakMap<DomElement, string>();
 
@@ -217,31 +212,6 @@ function inkOf(chat: DomElement): string | null {
   return null;
 }
 
-interface PageQuestion {
-  readonly node: DomElement;
-  readonly links: DomElement[];
-  readonly prompts: string[];
-}
-
-/** The chat's questions in page order, each with its links and their prompts. */
-function questionsIn(chat: DomElement): PageQuestion[] {
-  const questions: PageQuestion[] = [];
-  const byNode = new Map<DomElement, PageQuestion>();
-  for (const link of Array.from(chat.querySelectorAll(CHOICE))) {
-    const node = questionOf(link);
-    if (!node) continue;
-    let question = byNode.get(node);
-    if (!question) {
-      question = { node, links: [], prompts: [] };
-      byNode.set(node, question);
-      questions.push(question);
-    }
-    question.links.push(link);
-    question.prompts.push(promptOf(link));
-  }
-  return questions;
-}
-
 function setVar(chat: DomElement, name: string, value: string | null) {
   if (value && chat.style.getPropertyValue(name) !== value) chat.style.setProperty(name, value);
 }
@@ -256,10 +226,10 @@ export function startChoices(client: PluginClientContext): () => void {
     return allowFocusedFallback ? (client.composers({ focused: true })[0] ?? null) : null;
   };
 
-  /** Sets every choice's state attribute in one chat from its message box and later user messages; returns the chat's questions. */
-  const refresh = (chat: DomElement, boxText?: string, syncInk = false): PageQuestion[] => {
-    const questions = questionsIn(chat);
-    if (!questions.length) return questions;
+  /** Sets every choice's state attribute in one chat from its message box and later user messages. */
+  const refresh = (chat: DomElement, boxText?: string, syncInk = false): void => {
+    const links = Array.from(chat.querySelectorAll(CHOICE));
+    if (!links.length) return;
     const users = Array.from(chat.querySelectorAll(USER)).map((node) => ({
       node,
       text: node.querySelector("[data-message-text]")?.textContent ?? "",
@@ -269,24 +239,21 @@ export function startChoices(client: PluginClientContext): () => void {
         ? boxText
         : (composerFor(chat, document.querySelectorAll(CHAT).length === 1)?.prompt ?? "");
     const states = deriveStates(
-      questions.map((question) => ({
-        prompts: question.prompts,
+      links.map((link) => ({
+        prompt: promptOf(link),
         laterMessages: users
-          .filter((user) => question.node.compareDocumentPosition(user.node) & DOCUMENT_POSITION_FOLLOWING)
+          .filter((user) => link.compareDocumentPosition(user.node) & DOCUMENT_POSITION_FOLLOWING)
           .map((user) => user.text),
       })),
       text,
     );
-    questions.forEach((question, q) =>
-      question.links.forEach((link, c) => {
-        if (link.getAttribute(STATE) !== states[q][c]) link.setAttribute(STATE, states[q][c]);
-      }),
-    );
-    setVar(chat, "--noice-choice-accent", questions[0].links[0].style.color || null);
+    links.forEach((link, i) => {
+      if (link.getAttribute(STATE) !== states[i]) link.setAttribute(STATE, states[i]);
+    });
+    setVar(chat, "--noice-choice-accent", links[0].style.color || null);
     if (syncInk || !chat.style.getPropertyValue("--noice-choice-ink")) {
       setVar(chat, "--noice-choice-ink", inkOf(chat));
     }
-    return questions;
   };
 
   const refreshAll = (syncInk = false) => {
@@ -337,11 +304,7 @@ export function startChoices(client: PluginClientContext): () => void {
     const chat = link.closest(CHAT);
     const composer = chat ? composerFor(chat, true) : null;
     if (!chat || !composer) return;
-    const question = refresh(chat, composer.prompt).find((candidate) => candidate.links.includes(link));
-    const prompt = promptOf(link);
-    const prompts = question?.prompts ?? [prompt];
-    const pickedIndex = question?.links.findIndex((other) => other.getAttribute(STATE) === "picked") ?? -1;
-    const next = fillChoiceText(composer.prompt, prompt, prompts, pickedIndex === -1 ? undefined : prompts[pickedIndex]);
+    const next = toggleChoiceText(composer.prompt, promptOf(link));
     composer.setPrompt(next);
     void composer.focus({ selection: { start: next.length, end: next.length } }).catch(() => {});
     refresh(chat, next);

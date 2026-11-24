@@ -1,11 +1,11 @@
-// Pure rules for choice links: what a link's prompt is, how a pick changes the message box, and
-// which state each choice is in. No DOM here; web.ts reads the page and applies the result.
+// Pure rules for choice links: what a link's prompt is, how a click toggles it in the message box,
+// and which state each choice is in. No DOM here; web.ts reads the page and applies the result.
 
-export type ChoiceState = "open" | "picked" | "passed-over" | "accepted" | "stale";
+export type ChoiceState = "open" | "picked" | "accepted" | "stale";
 
-/** One question: the choices of one paragraph or one list in a reply, and the user messages sent after that reply. */
-export interface Question {
-  readonly prompts: readonly string[];
+/** One choice in a reply, with the user messages sent after it. */
+export interface ChoiceOffer {
+  readonly prompt: string;
   readonly laterMessages: readonly string[];
 }
 
@@ -26,61 +26,43 @@ export function choicePrompt(href: string, label: string): string {
 
 const sameLine = (line: string, prompt: string) => line.trim() === prompt.trim();
 
-export const hasWholeLine = (text: string, prompt: string) => text.split(/\r?\n/).some((line) => sameLine(line, prompt));
+export const hasWholeLine = (text: string, prompt: string) =>
+  Boolean(prompt.trim()) && text.split(/\r?\n/).some((line) => sameLine(line, prompt));
 
 /**
- * The message box after a pick. A first pick from a question goes on its own line at the end. While
- * that line is still in the box unedited, a pick of another choice from the same question replaces
- * it in place, and a second pick of the same choice takes it out again. Text the user typed stays.
+ * The message box after a click. If the prompt is not yet a whole line in the box, append it on
+ * its own line at the end. If it is already there unedited, remove that line. Other text stays.
  */
-export function fillChoiceText(text: string, prompt: string, questionPrompts: readonly string[], pickedPrompt?: string): string {
-  const append = () => (text.trim() ? `${text.replace(/\s+$/, "")}\n${prompt}` : prompt);
-  if (pickedPrompt === undefined) return append();
-  const lines = text.split("\n");
-  const index = lines.findIndex((line) => sameLine(line, pickedPrompt));
-  if (index === -1 || !questionPrompts.some((choice) => sameLine(lines[index], choice))) return append();
-  if (sameLine(prompt, pickedPrompt)) {
+export function toggleChoiceText(text: string, prompt: string): string {
+  if (!prompt.trim()) return text;
+  const lines = text.split(/\r?\n/);
+  const index = lines.findIndex((line) => sameLine(line, prompt));
+  if (index !== -1) {
     lines.splice(index, 1);
     return lines.join("\n").replace(/\n+$/, "");
   }
-  lines[index] = prompt;
-  return lines.join("\n");
+  return text.trim() ? `${text.replace(/\s+$/, "")}\n${prompt}` : prompt;
 }
 
 /**
- * Every choice's state, per question in page order. A choice is picked while its prompt is a whole
- * line of the message box; when the same prompt is offered more than once, the newest offer owns
- * the line. A question with a pick shows its other choices as passed over. Once any user message
- * follows the reply, the question is settled: the choice that message carried (as a whole line) is
- * accepted, the rest are stale.
+ * Every choice's state in page order. A choice is picked while its prompt is a whole line of the
+ * message box; when the same prompt is offered more than once, the newest offer owns the line.
+ * Once any user message follows the choice, it is settled: accepted if a later message carried its
+ * prompt as a whole line, stale otherwise.
  */
-export function deriveStates(questions: readonly Question[], boxText: string): ChoiceState[][] {
-  const states = questions.map((question) => question.prompts.map((): ChoiceState => "open"));
+export function deriveStates(offers: readonly ChoiceOffer[], boxText: string): ChoiceState[] {
+  const states: ChoiceState[] = offers.map(() => "open");
   const owned = new Set<string>();
-  const picked = new Map<number, number>();
-  for (let q = questions.length - 1; q >= 0; q -= 1) {
-    const prompts = questions[q].prompts;
-    for (let c = prompts.length - 1; c >= 0; c -= 1) {
-      const prompt = prompts[c].trim();
-      if (owned.has(prompt) || !hasWholeLine(boxText, prompt)) continue;
-      owned.add(prompt);
-      picked.set(q, c);
-      states[q][c] = "picked";
-      break;
-    }
+  for (let i = offers.length - 1; i >= 0; i -= 1) {
+    const prompt = offers[i].prompt.trim();
+    if (!prompt || owned.has(prompt) || !hasWholeLine(boxText, prompt)) continue;
+    owned.add(prompt);
+    states[i] = "picked";
   }
-  questions.forEach((question, q) => {
-    const pick = picked.get(q);
-    const settled = question.laterMessages.length > 0;
-    const accepted = settled
-      ? question.prompts.findIndex((prompt) => question.laterMessages.some((message) => hasWholeLine(message, prompt)))
-      : -1;
-    question.prompts.forEach((_, c) => {
-      if (c === pick) return;
-      if (c === accepted) states[q][c] = "accepted";
-      else if (pick !== undefined) states[q][c] = "passed-over";
-      else if (settled) states[q][c] = "stale";
-    });
+  offers.forEach((offer, i) => {
+    if (states[i] === "picked" || offer.laterMessages.length === 0) return;
+    const accepted = offer.laterMessages.some((message) => hasWholeLine(message, offer.prompt));
+    states[i] = accepted ? "accepted" : "stale";
   });
   return states;
 }

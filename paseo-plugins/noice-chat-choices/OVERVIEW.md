@@ -5,7 +5,7 @@ Lets an agent offer clickable answers in its replies. A link written `[label](<@
 The plugin only draws and handles the links; agents write them when their system prompt tells them to. Put the text below in **Settings → Host → Orchestration → System prompt** (`daemon.appendSystemPrompt` in the daemon's `config.json`). Paseo adds it to every agent it launches, so existing chats get it the next time they are opened or reloaded.
 
 ```text
-Choices: a link written [label](<@prompt>) in your reply is a choice. Clicking it puts the prompt into the user's message box to edit and send; it never sends. The label is the answer in full: everything the user needs to decide, as they only read labels. The prompt is a key: a short sentence or fragment, in the user's voice, that tells you which choice of which question was picked, since you will read the full label back in your own previous message. Plain spaces inside the angle brackets. One question per paragraph or list; its choices are the answers to that question. Put choices inline in a sentence only when every label is a word: Use [tabs](<@Use tabs>) or [spaces](<@Use spaces>)? Otherwise write the question, then its choices as a bullet list, one per bullet:
+Choices: a link written [label](<@prompt>) in your reply is a choice. Clicking it toggles its prompt as a line in the user's message box to edit and send (multiple choices can be picked); it never sends. The label is the answer in full: everything the user needs to decide, as they only read labels. The prompt is a key: a short sentence or fragment, in the user's voice, that tells you which choice of which question was picked, since you will read the full label back in your own previous message. Plain spaces inside the angle brackets. Put choices inline in a sentence only when every label is a word: Use [tabs](<@Use tabs>) or [spaces](<@Use spaces>)? Otherwise write the question, then its choices as a bullet list, one per bullet:
 - [Run the migration in one transaction and roll back everything on any failure ★](<@One transaction, roll back on failure>)
 - [Run it as separate statements so partial progress survives a failure](<@Separate statements>)
 After finishing a piece of work, end the reply with the likely next steps as choices; elsewhere, offer choices only when the user would plausibly pick one. When you need an answer before going on, prefer asking in your reply with choices.
@@ -17,10 +17,9 @@ The angle brackets matter: Paseo's Markdown only reads a link target with spaces
 
 ## What a click does
 
-- **First pick** from a question puts its prompt on its own line at the end of the message box, after anything you already typed, and moves the cursor there.
-- **Another choice from the same question** replaces that line in place, as long as you haven't edited it.
-- **The same choice again** takes its line out.
-- A question is one paragraph or one bullet list. Picks from different questions stack as separate lines.
+- **Picking a choice** puts its prompt on its own line at the end of the message box, after anything you already typed, and moves the cursor there.
+- **Picking more choices** stacks each one on its own line: choices are always independent toggles, with no grouping or auto-replacing.
+- **Clicking a picked choice again** takes its line out, as long as you haven't edited it.
 - Choices in older replies stay clickable. Ctrl, Cmd and middle clicks never open a browser tab.
 - Hovering a choice whose prompt says more than its label shows the full prompt.
 
@@ -30,8 +29,7 @@ Colours follow the theme: the accent is Paseo's own link colour, so they adapt t
 
 - **Open:** bold accent text on a light accent tint.
 - **Picked** (its prompt is a whole line in the message box): a solid accent marker sweeps in behind it, text in the background colour. Editing the line, or deleting it, unpicks it.
-- **Passed over** (another choice of the question is picked): normal text colour on a faint neutral tint.
-- **Settled** (you sent a message after the reply): the choice your message carried, as a whole line, keeps a faint accent marker; the rest drop their tint and stay bold. Nothing is stored: states are read from the message box and the chat each time.
+- **Settled** (you sent a message after the reply): every choice your later messages carried, as a whole line, keeps a faint accent marker; the rest drop their tint and stay bold. Nothing is stored: states are read from the message box and the chat each time.
 
 The padding is the same in every state, so text never shifts. Inline `` `code` `` inside a choice label inherits the choice's colour on a subtle accent chip without Paseo's gray code border, and clears the chip once picked or settled. With reduced motion on, nothing animates.
 
@@ -40,7 +38,7 @@ The padding is the same in every state, so text never shifts. Inline `` `code` `
 - **Web and desktop app only.** The iOS and Android apps show choices as ordinary links, and tapping one does nothing useful: plugins can't reach link taps there.
 - **Requires Paseo 0.17+ (`client.composers`).** Reading and writing the message box uses Paseo's official composer API (matched to the chat's agent in split panes, falling back to `{ focused: true }`), with no DOM layout reads or textarea setter hacks.
 - **Settling only sees what's on screen.** A long chat may not keep every message in the page; a reply whose later messages aren't loaded shows as open until they are.
-- **Choices in embedded memos.** `noice-chat-embeds` draws a reply's `![[note.md]]` as a card with the file's Markdown; choices in that card, and in a memo embedded inside it, work as in the reply itself: each paragraph or list in the memo is its own question, and picked, passed-over and settled states follow the same rules. A folded card hides the choices below its fold until you click the card to expand it; clicking a choice never folds or expands the card. Checked 2026-11-19 in the web app (Chromium and WebKit) with picks from two questions in one memo, one in a nested memo, and a sent message settling them.
+- **Choices in embedded memos.** `noice-chat-embeds` draws a reply's `![[note.md]]` as a card with the file's Markdown; choices in that card, and in a memo embedded inside it, work as in the reply itself, with the same picked and settled states. A folded card hides the choices below its fold until you click the card to expand it; clicking a choice never folds or expands the card. Checked 2026-11-19 in the web app (Chromium and WebKit) with picks from two questions in one memo, one in a nested memo, and a sent message settling them.
 
 ## Cost
 
