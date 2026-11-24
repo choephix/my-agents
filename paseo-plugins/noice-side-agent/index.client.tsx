@@ -54,16 +54,24 @@ export default function contribute(client: PluginClientContext) {
     slash = client.addSlashCommand({ ...command, name: "side" });
   }
   // Stays in the background: no pane, no navigation. The child shows in the sub-agents strip.
+  const runTangent = (name: string) => async ({ args, agent, rpc }: PluginAgentCommandContext & { args: string }) => {
+    const task = args.trim();
+    if (!task) throw new Error(`/${name} needs a task: /${name} <task>`);
+    await rpc(createTangent, { parentId: agent.id, task });
+  };
   const tangent = client.addSlashCommand({
     name: "tangent",
     description: "Background subagent with this chat's memory; its final reply comes back here",
     argumentHint: "<task>",
     context: "agent",
-    async onSubmit({ args, agent, rpc }) {
-      const task = args.trim();
-      if (!task) throw new Error("/tangent needs a task: /tangent <task>");
-      await rpc(createTangent, { parentId: agent.id, task });
-    },
+    onSubmit: runTangent("tangent"),
+  });
+  const tan = client.addSlashCommand({
+    name: "tan",
+    description: "Alias for /tangent: background subagent that reports back here",
+    argumentHint: "<task>",
+    context: "agent",
+    onSubmit: runTangent("tan"),
   });
   // Paseo echoes the `/follow-up <report>` send the moment it is queued, mid-reply. OMP records
   // the report again when it actually delivers it after the reply; show only that one.
@@ -94,5 +102,5 @@ export default function contribute(client: PluginClientContext) {
       openScreen({ screenId: "move", params: { agentId: agent.id, cwd: agent.cwd, title: agent.title ?? "", provider: agent.provider } });
     },
   });
-  return () => { moveItem(); moveScreen(); tangentRow(); reportRow(); reports(); tangent(); slash(); settings(); screen(); };
+  return () => { moveItem(); moveScreen(); tangentRow(); reportRow(); reports(); tan(); tangent(); slash(); settings(); screen(); };
 }

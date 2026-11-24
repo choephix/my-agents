@@ -120,13 +120,14 @@ Only that specific registration error enables the fallback `name: "side"`.
 Thus `/side` is the working command; `//side` is not intercepted or rewritten.
 The autocomplete description is “Side agent with parent context · --fork / --full”,
 so both flags are visible in the list row as well as the argument hint.
-The separate `noice-omp-slash-aliases` plugin is untouched; `/tan`, `/omfg`, and `/queue`
-remain independent. There are no global composer hooks.
+The separate `noice-omp-slash-aliases` plugin is untouched; `/omfg` and `/queue`
+remain independent (its optional `/tan` toggle is off by default). There are no global composer hooks.
 
-## `/tangent`: background subagent that reports back
+## `/tangent` (and `/tan`): background subagent that reports back
 
 ```text
 /tangent <task>
+/tan <task>
 ```
 
 Creates a child the same way `/side` does, but always picks the mode itself:
@@ -272,9 +273,10 @@ ends.
 OMP parents on custom OMP-based providers (any provider ID other than `omp`) are
 treated like other providers: Fork context and held delivery.
 
-`/tangent` is separate from OMP's own `/tan` (routed by the `noice-omp-slash-aliases`
-plugin, where it is now off by default). OMP's live command list has no `tangent`
-command for this one to shadow.
+`/tan` is registered as a short alias for `/tangent` so OMP muscle memory launches a Paseo
+tangent on every provider. It is separate from OMP's own `/tan` (routed by the
+`noice-omp-slash-aliases` plugin, where it is off by default). OMP's live command list has
+no `tangent` command for this one to shadow.
 
 ## Move tab to a new workspace (Command Center)
 
