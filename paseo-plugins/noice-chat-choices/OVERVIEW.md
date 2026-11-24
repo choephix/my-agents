@@ -33,7 +33,7 @@ Colours follow the theme: the accent is Paseo's own link colour, so they adapt t
 - **Passed over** (another choice of the question is picked): normal text colour on a faint neutral tint.
 - **Settled** (you sent a message after the reply): the choice your message carried, as a whole line, keeps a faint accent marker; the rest drop their tint and stay bold. Nothing is stored: states are read from the message box and the chat each time.
 
-The padding is the same in every state, so text never shifts. With reduced motion on, nothing animates.
+The padding is the same in every state, so text never shifts. Inline `` `code` `` inside a choice label inherits the choice's colour on a subtle accent chip without Paseo's gray code border, and clears the chip once picked or settled. With reduced motion on, nothing animates.
 
 ## Limits
 

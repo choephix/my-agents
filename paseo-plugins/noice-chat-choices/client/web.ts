@@ -123,14 +123,26 @@ ${CHOICE} {
 }
 ${CHOICE}:hover { background-color: color-mix(in srgb, var(--noice-choice-c) 30%, transparent); }
 ${CHOICE}:focus-visible { outline: 2px solid var(--noice-choice-c); outline-offset: 1px; }
+${CHOICE} code {
+  color: inherit !important;
+  background-color: var(--noice-choice-code-bg, color-mix(in srgb, var(--noice-choice-c) 14%, transparent)) !important;
+  border: 0 !important;
+  border-radius: 3px !important;
+  padding: 0 3px !important;
+  transition: background-color .18s;
+}
 ${CHOICE}[${STATE}="picked"] {
   color: var(--noice-choice-ink, #fff) !important;
   background-size: 100% 100%;
+  --noice-choice-code-bg: transparent;
 }
 ${CHOICE}[${STATE}="picked"]:hover {
   background-image: linear-gradient(color-mix(in srgb, var(--noice-choice-c) 85%, var(--noice-choice-ink, #fff)), color-mix(in srgb, var(--noice-choice-c) 85%, var(--noice-choice-ink, #fff)));
 }
-${CHOICE}:is([${STATE}="passed-over"], [${STATE}="stale"], [${STATE}="accepted"]) { color: inherit !important; }
+${CHOICE}:is([${STATE}="passed-over"], [${STATE}="stale"], [${STATE}="accepted"]) {
+  color: inherit !important;
+  --noice-choice-code-bg: transparent;
+}
 ${CHOICE}[${STATE}="passed-over"] { background-color: color-mix(in srgb, currentColor 9%, transparent); }
 ${CHOICE}[${STATE}="stale"] { background-color: transparent; }
 ${CHOICE}:is([${STATE}="passed-over"], [${STATE}="stale"]):hover { background-color: color-mix(in srgb, currentColor 13%, transparent); }
@@ -156,7 +168,7 @@ ${CHOICE}[${STATE}="accepted"] {
 }
 @keyframes noice-choice-tip-in { from { opacity: 0; transform: translateY(2px); } }
 @media (prefers-reduced-motion: reduce) {
-  ${CHOICE} { transition: none; }
+  ${CHOICE}, ${CHOICE} code { transition: none; }
   .noice-choice-tip { animation: none; }
 }
 `;
