@@ -54,11 +54,12 @@ interface RowProps {
   active: boolean;
   large: boolean;
   onPress(): void;
+  onLongPress?(): void;
   onHover?(): void;
 }
 
 /** Name, then the extra-muted description on the same line, wrapping, two lines at most. */
-function Row({ command, theme, query, active, large, onPress, onHover }: RowProps) {
+function Row({ command, theme, query, active, large, onPress, onLongPress, onHover }: RowProps) {
   const { colors } = theme;
   const faint = extraMuted(theme);
   const ref = useRef<View>(null);
@@ -73,6 +74,7 @@ function Row({ command, theme, query, active, large, onPress, onHover }: RowProp
       accessibilityRole="button"
       accessibilityLabel={command.onClick === "send" ? `${command.name}, sends at once` : command.name}
       onPress={onPress}
+      onLongPress={onLongPress}
       onHoverIn={onHover}
       style={{
         flexDirection: "row",
@@ -107,7 +109,17 @@ function Row({ command, theme, query, active, large, onPress, onHover }: RowProp
   );
 }
 
-function Rows(props: { rows: CommandView[]; groups: boolean; theme: PluginTheme; query: string; active: number; large: boolean; onPick(command: CommandView): void; onHover?(index: number): void }) {
+function Rows(props: {
+  rows: CommandView[];
+  groups: boolean;
+  theme: PluginTheme;
+  query: string;
+  active: number;
+  large: boolean;
+  onPick(command: CommandView): void;
+  onLongPick?(command: CommandView): void;
+  onHover?(index: number): void;
+}) {
   const faint = extraMuted(props.theme);
   return <>
     {props.rows.map((command, index) => {
@@ -119,8 +131,16 @@ function Rows(props: { rows: CommandView[]; groups: boolean; theme: PluginTheme;
               {command.scope === "project" ? "Project" : "User"}
             </Text>
           ) : null}
-          <Row command={command} theme={props.theme} query={props.query} active={index === props.active} large={props.large}
-            onPress={() => props.onPick(command)} onHover={props.onHover ? () => props.onHover?.(index) : undefined} />
+          <Row
+            command={command}
+            theme={props.theme}
+            query={props.query}
+            active={index === props.active}
+            large={props.large}
+            onPress={() => props.onPick(command)}
+            onLongPress={props.onLongPick ? () => props.onLongPick?.(command) : undefined}
+            onHover={props.onHover ? () => props.onHover?.(index) : undefined}
+          />
         </View>
       );
     })}
@@ -185,8 +205,27 @@ function DesktopList({ agentId, listing, theme, onPick }: { agentId: string; lis
   );
 }
 
-/** Phones (and native apps): search field, list; a tap opens a small send sheet for the command. */
-function SheetFlow({ listing, theme, busy, onSend }: { listing: Listing; theme: PluginTheme; busy: boolean; onSend(command: CommandView, args: string): void }) {
+/**
+ * Phones (compact layouts): search field and list. Tapping inserts directly into the chat's
+ * composer via `client.composers` (or sends at once for `on-click: send`). Long-pressing a row
+ * (or tapping when no composer is available) opens the Arguments/Preview sheet, which can either
+ * insert the expanded text into the composer or send it directly.
+ */
+function SheetFlow({
+  listing,
+  theme,
+  busy,
+  canInsert,
+  onInsert,
+  onSend,
+}: {
+  listing: Listing;
+  theme: PluginTheme;
+  busy: boolean;
+  canInsert: boolean;
+  onInsert(text: string): boolean;
+  onSend(command: CommandView, args: string): void;
+}) {
   const { colors } = theme;
   const faint = extraMuted(theme);
   const [query, setQuery] = useState("");
@@ -196,6 +235,7 @@ function SheetFlow({ listing, theme, busy, onSend }: { listing: Listing; theme: 
 
   if (picked) {
     const label = { fontSize: 12, color: faint, marginTop: 4 } as const;
+    const expanded = expandCommand(picked.body, args);
     return (
       <View style={{ gap: 6 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 }}>
@@ -211,13 +251,29 @@ function SheetFlow({ listing, theme, busy, onSend }: { listing: Listing; theme: 
           style={{ ...field, height: 44, paddingHorizontal: 12 }} />
         <Text style={label}>Preview</Text>
         <ScrollView style={{ maxHeight: 200, borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface0 }} contentContainerStyle={{ paddingVertical: 10, paddingHorizontal: 12 }}>
-          <Text style={{ fontSize: 14, lineHeight: 20, color: colors.foregroundMuted }}>{expandCommand(picked.body, args)}</Text>
+          <Text style={{ fontSize: 14, lineHeight: 20, color: colors.foregroundMuted }}>{expanded}</Text>
         </ScrollView>
-        <Pressable accessibilityRole="button" onPress={() => onSend(picked, args)}
-          style={{ marginTop: 10, height: 44, borderRadius: 10, backgroundColor: colors.foreground, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
-          <Icon name="ArrowUp" size={16} color={colors.surface0} />
-          <Text style={{ fontSize: 15, fontWeight: "500", color: colors.surface0 }}>{busy ? (listing.queues ? "Send as follow-up" : "Send into the running reply") : "Send"}</Text>
-        </Pressable>
+        <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+          {canInsert ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                if (!onInsert(expanded)) onSend(picked, args);
+              }}
+              style={{ flex: 1, height: 44, borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface2, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}
+            >
+              <Text style={{ fontSize: 15, fontWeight: "500", color: colors.foreground }}>Insert</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => onSend(picked, args)}
+            style={{ flex: 1, height: 44, borderRadius: 10, backgroundColor: colors.foreground, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}
+          >
+            <Icon name="ArrowUp" size={16} color={colors.surface0} />
+            <Text style={{ fontSize: 15, fontWeight: "500", color: colors.surface0 }}>{busy ? (listing.queues ? "Follow-up" : "Send now") : "Send"}</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -233,8 +289,19 @@ function SheetFlow({ listing, theme, busy, onSend }: { listing: Listing; theme: 
         </View>
       ) : null}
       {rows.length ? (
-        <Rows rows={rows} groups={listing.groups} theme={theme} query={query} active={-1} large
-          onPick={(command) => (command.onClick === "send" ? onSend(command, "") : setPicked(command))} />
+        <Rows
+          rows={rows}
+          groups={listing.groups}
+          theme={theme}
+          query={query}
+          active={-1}
+          large
+          onPick={(command) => {
+            if (command.onClick === "send") return onSend(command, "");
+            if (!onInsert(command.body)) setPicked(command);
+          }}
+          onLongPick={(command) => setPicked(command)}
+        />
       ) : (
         <Note theme={theme} large>{listing.commands.length ? `No command matches “${query}”.` : EMPTY}</Note>
       )}
@@ -290,19 +357,31 @@ export function createCommandsPopover(client: PluginClientContext, onListed: () 
       close();
       void send(client, toast, agentId, command, args);
     };
-    if (sheet) return <SheetFlow listing={listing} theme={theme} busy={busy} onSend={sendNow} />;
+    const insertIntoComposer = (text: string) => {
+      const composer = client.composers({ agentId })[0];
+      if (!composer) return false;
+      composer.insertText(text);
+      close();
+      // The closing popover or bottom sheet hands focus back first; take it after that.
+      setTimeout(() => void composer.focus().catch(() => {}), sheet ? 150 : 60);
+      return true;
+    };
+    if (sheet) {
+      return (
+        <SheetFlow
+          listing={listing}
+          theme={theme}
+          busy={busy}
+          canInsert={client.composers({ agentId }).length > 0}
+          onInsert={insertIntoComposer}
+          onSend={sendNow}
+        />
+      );
+    }
 
     const pick = (command: CommandView) => {
       if (command.onClick === "send") return sendNow(command, "");
-      const composer = client.composers({ agentId })[0];
-      if (!composer) {
-        toast.error("Couldn't find this chat's message box.");
-        return;
-      }
-      composer.insertText(command.body);
-      close();
-      // The closing popover hands focus back to the pill first; take it after that.
-      setTimeout(() => void composer.focus().catch(() => {}), 60);
+      if (!insertIntoComposer(command.body)) toast.error("Couldn't find this chat's message box.");
     };
     return <DesktopList agentId={agentId} listing={listing} theme={theme} onPick={pick} />;
   };

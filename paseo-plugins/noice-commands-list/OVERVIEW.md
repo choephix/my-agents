@@ -3,10 +3,10 @@ A `cmds` composer pill in every chat, any provider: label only on web/desktop; t
 ## What it does
 
 - **List.** Click `cmds`: a popover (desktop) or bottom sheet (phones) with the chat's commands, sorted by name. Each row is the name, then the description on the same line in Paseo's extra-muted grey, wrapping, at most two lines. Commands with `on-click: send` get a small ↑.
-- **Click inserts.** The file's text (frontmatter removed, as-is, `$ARGUMENTS` left alone) goes into the real message box at the cursor via Paseo's `composers` API, keeping any draft around it. The popover closes and the message box gets focus after the inserted text. Send as usual. On compact (phone) layouts, tapping opens the send view below.
+- **Click inserts.** The file's text (frontmatter removed, as-is, `$ARGUMENTS` left alone) goes into the real message box at the cursor via Paseo's `composers` API, keeping any draft around it. The popover or sheet closes and the message box gets focus after the inserted text (opening the chat's tab if needed). Send as usual.
 - **`on-click: send`** sends the text at once (placeholders become empty). While the agent is busy it never cancels the reply: OMP agents (and providers built on OMP, e.g. `omp-nilo`) get `/follow-up <text>`, queued after the running turn; other providers get the text steered into the running turn (Paseo falls back to interrupting where a provider cannot steer).
 - **Type to filter** (desktop). No search bar until you type; then a slim filter line appears, matches are underlined, ↑ ↓ move, ↵ picks, Esc clears the filter (a second Esc closes). Name and description both match.
-- **Phones** (compact layout, and native apps on any size): the sheet has a search field. Tapping a command opens a small send view: description, an optional Arguments field, a preview of the text to send, and Send ("Send as follow-up" while an OMP agent is busy). Arguments fill the placeholders the same way as the `/` menu below. Under 600 px the list opens from ⋯ (workspace menu) → **Commands** → the chat (the workspace's open chats, newest first; a workspace with one chat opens its list directly): Paseo lists plugin header buttons there on phones, and a header button doesn't know which tab is open.
+- **Phones** (compact layout, and native apps on any size): the sheet has a search field. Tapping a command inserts its text directly into the chat's composer via `client.composers` (or sends at once for `on-click: send`). Long-pressing a row (or tapping when no composer is available) opens the small Arguments/Preview sheet, where you can fill placeholders and either **Insert** into the composer or **Send** ("Follow-up" while an OMP agent is busy). Under 600 px the list opens from ⋯ (workspace menu) → **Commands** → the chat (the workspace's open chats, newest first; a workspace with one chat opens its list directly): Paseo lists plugin header buttons there on phones, and a header button doesn't know which tab is open.
 - **Shadowing.** The first file of a name wins and the others are hidden, silently: a project `commit.md` hides your `~/.agents/commands/commit.md`.
 - **Empty state.** "No commands yet. Put .md files in .agents/commands/ in this project or in ~/.agents/commands/."
 
@@ -43,7 +43,7 @@ Settings → Plugins → noice-commands-list (host settings, all off by default 
 
 ## Limits
 
-- **Inserting requires Paseo 0.17+ (`client.composers`).** Compact (phone) layouts keep the send view (own text field with an Arguments box, no attachments, `@file` or voice).
+- **Requires Paseo 0.17+ (`client.composers`)** for direct composer insertion on desktop, web, and mobile.
 - Esc with a filter typed: Paseo closes its popovers on Esc before a plugin sees the key, so the plugin reopens the list unfiltered when that Esc is released (a brief flicker, web/desktop only).
 - One pill per chat, registered from the agent list: a new chat gets its pill after its first message. The pill's place in the pill row is Paseo's choice.
 - Settings changed on another client reach this client's pill and `/` menu after a reload or the next settings save here.
