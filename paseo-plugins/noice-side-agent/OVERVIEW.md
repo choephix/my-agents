@@ -210,7 +210,7 @@ client transformer; the parent model still receives the plain report text.
 
 ### Tangent tools: `report_to_parent` and `tangent_progress`
 
-The plugin gives these two tools to tangents only: a `before("agent.session_open")`
+The plugin gives these two tools to tangents only: an `addHook("agent.open.before")`
 hook attaches them to any agent whose `side-agent.tangent` label is `pending`
 (Paseo 0.14 plugin agent tools; they run in this plugin's server process).
 OMP sees them as `report_to_parent` / `tangent_progress`, Codex as
@@ -324,8 +324,8 @@ later streamed normally.
   deleting all test-created full-memory copies and sidecar directories.
 - The server part registers settings, the `/side`, `/tangent` and move-tab RPC
   handlers, two lifecycle listeners
-  (`agent.turn_ended`, `agent.archived`) that watch tangents, and the
-  `agent.session_open` hook that gives tangents their tools. It uses
+  (`agent.turn.after`, `agent.archive.after`) that watch tangents, and the
+  `agent.open.before` hook that gives tangents their tools. It uses
   short-lived installed SDK connections for native
   fork/import/config/label/timeline RPCs, authenticated to the published
   **loopback TCP** daemon under `PASEO_HOME` (or `~/.paseo`). Socket-only or
@@ -336,7 +336,7 @@ later streamed normally.
   from plugin sessions.
 - **Reloading or enabling this plugin reopens every open agent's session** the
   next time it is prompted while idle (all agents, not just tangents): Paseo
-  marks all sessions stale whenever a plugin with an `agent.session_open` hook
+  marks all sessions stale whenever a plugin with an `agent.open.before` hook
   starts. Seen live: unrelated OMP agents logged `refresh`/`resume` opens after a reload.
   An agent being created in the same instant as a reload failed once with
   "Session … not found" (OMP resumed a session file not yet written).

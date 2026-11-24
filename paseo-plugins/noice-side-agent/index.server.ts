@@ -80,17 +80,17 @@ export default function contribute(server: PluginServerContext) {
       return tangents.progress(agent.id, note) ? { text: "Shown." } : { isError: true, text: "This tangent has already reported." };
     },
   });
-  server.before("agent.session_open", ({ request }) => {
+  const offOpen = server.addHook("agent.open.before", async ({ request }) => {
     if (request.labels[TANGENT_LABEL] !== "pending") return;
     return { ...request, tools: [...request.tools, reportToParent, tangentProgress] };
   });
 
-  const offTurn = server.on("agent.turn_ended", async ({ agent, outcome }, { paseo }) => {
+  const offTurn = server.addHook("agent.turn.after", async ({ agent, outcome }, { paseo }) => {
     use(paseo);
     await tangents.turnEnded(agent.id, outcome.kind === "failed" ? { kind: "failed", message: outcome.error.message } : { kind: outcome.kind })
       .catch(report(`tangent report for ${agent.id}`));
   });
-  const offArchive = server.on("agent.archived", async ({ agent }, { paseo }) => {
+  const offArchive = server.addHook("agent.archive.after", async ({ agent }, { paseo }) => {
     use(paseo);
     await tangents.archived(agent.id).catch(report(`tangent archive handling for ${agent.id}`));
   });
@@ -105,5 +105,5 @@ export default function contribute(server: PluginServerContext) {
       }
     }
   })();
-  return () => { stopped = true; offTurn(); offArchive(); };
+  return () => { stopped = true; offOpen(); offTurn(); offArchive(); };
 }
