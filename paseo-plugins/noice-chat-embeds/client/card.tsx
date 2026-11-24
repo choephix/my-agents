@@ -226,17 +226,21 @@ function HeaderToggle({ theme, label, onToggle }: { theme: PluginTheme; label: s
   );
 }
 
-/** Eight stepped strips of the card background: a fade that needs no gradient library. */
-function Fade({ background }: { background: string }) {
-  return (
-    <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 32 }}>
-      {Array.from({ length: 8 }, (_, index) => (
-        <View
-          key={index}
-          style={{ position: "absolute", left: 0, right: 0, bottom: index * 4, height: 5, backgroundColor: background, opacity: 1 - index / 8 }}
-        />
-      ))}
-    </View>
+/** Eight stepped strips of the card background: a fade that needs no gradient library. With `onPress`, tapping it expands the preview. */
+function Fade({ background, onPress }: { background: string; onPress?: () => void }) {
+  const strips = Array.from({ length: 8 }, (_, index) => (
+    <View
+      key={index}
+      style={{ position: "absolute", left: 0, right: 0, bottom: index * 4, height: 5, backgroundColor: background, opacity: 1 - index / 8 }}
+    />
+  ));
+  const style = { position: "absolute" as const, left: 0, right: 0, bottom: 0, height: 32 };
+  return onPress ? (
+    <Pressable accessibilityRole="button" accessibilityLabel="Expand file preview" onPress={onPress} style={style}>
+      {strips}
+    </Pressable>
+  ) : (
+    <View pointerEvents="none" style={style}>{strips}</View>
   );
 }
 
@@ -288,13 +292,21 @@ function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered, 
   const settled = ok?.settled === true && !loop;
   const foldedSettled = settled && !settledOpen;
   const detail = ok ? lineLabel(ok.lineStart, ok.lineEnd) : data.lineStart ? lineLabel(data.lineStart, data.lineEnd ?? data.lineStart) : null;
-  const settledTag = foldedSettled ? (
-    <Text style={{ color: theme.colors.foregroundMuted, fontFamily: MONO, fontSize: 10, lineHeight: 12, paddingHorizontal: 5, opacity: cardHovered ? 0.85 : 0.6 }}>
-      ▸ settled
-    </Text>
-  ) : settled ? (
-    <HeaderToggle theme={theme} label="▾ settled" onToggle={toggleSettled} />
-  ) : undefined;
+  // Measured, so a file that fits the folded height gets no toggle and no fade.
+  const [contentHeight, setContentHeight] = useState(0);
+  const foldable = ok !== null && !loop && !foldedSettled && contentHeight > FOLDED_TEXT_HEIGHT;
+  const actions = (
+    <>
+      {foldedSettled ? (
+        <Text style={{ color: theme.colors.foregroundMuted, fontFamily: MONO, fontSize: 10, lineHeight: 12, paddingHorizontal: 5, opacity: cardHovered ? 0.85 : 0.6 }}>
+          ▸ settled
+        </Text>
+      ) : settled ? (
+        <HeaderToggle theme={theme} label="▾ settled" onToggle={toggleSettled} />
+      ) : null}
+      {foldable ? <HeaderToggle theme={theme} label={expanded ? "▴ Less" : "▾ More"} onToggle={toggleExpanded} /> : null}
+    </>
+  );
   return (
     <View style={foldedSettled ? { opacity: cardHovered ? 0.92 : 0.68 } : undefined}>
       <CardHeader
@@ -303,7 +315,7 @@ function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered, 
         href={ok ? fileHref(ok.path, ok.lineStart, ok.lineEnd) : null}
         detail={detail}
         cardHovered={cardHovered}
-        action={settledTag}
+        action={actions}
         onPress={foldedSettled ? toggleSettled : undefined}
         pressLabel={foldedSettled ? "Open settled slip" : undefined}
       />
@@ -312,21 +324,24 @@ function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered, 
       ) : loop ? (
         <Note theme={theme}>Already embedded above.</Note>
       ) : foldedSettled ? null : ok ? (
-        <Pressable accessibilityRole="button" accessibilityLabel={expanded ? "Collapse file preview" : "Expand file preview"} onPress={toggleExpanded}>
-          <View style={{ position: "relative" }}>
-            {/* On web the Pressable is a <button>, whose centred text the Markdown would inherit. */}
-            <ScrollView scrollEnabled={expanded} style={{ maxHeight: expanded ? bodyHeight : FOLDED_TEXT_HEIGHT }} contentContainerStyle={{ paddingHorizontal: 9, paddingBottom: 8, ...({ textAlign: "left" } as object) }}>
-              {isMarkdownPath(data.path) || isMarkdownPath(ok.path) ? (
-                <EmbeddedMarkdown text={ok.text} agentId={agentId} theme={theme} bodyHeight={bodyHeight} stack={[...stack, ok.path]} />
-              ) : (
-                <Text selectable style={{ color: theme.colors.foreground, fontFamily: MONO, fontSize: CODE_SIZE, lineHeight: 17 }}>
-                  {ok.text}
-                </Text>
-              )}
-            </ScrollView>
-            {!expanded && ok.text.includes("\n") ? <Fade background={background} /> : null}
-          </View>
-        </Pressable>
+        // Not a Pressable: a press target around the text blocks selecting it (web and native).
+        <View style={{ position: "relative" }}>
+          <ScrollView
+            scrollEnabled={expanded}
+            onContentSizeChange={(_, height) => setContentHeight(height)}
+            style={{ maxHeight: expanded ? bodyHeight : FOLDED_TEXT_HEIGHT }}
+            contentContainerStyle={{ paddingHorizontal: 9, paddingBottom: 8 }}
+          >
+            {isMarkdownPath(data.path) || isMarkdownPath(ok.path) ? (
+              <EmbeddedMarkdown text={ok.text} agentId={agentId} theme={theme} bodyHeight={bodyHeight} stack={[...stack, ok.path]} />
+            ) : (
+              <Text selectable style={{ color: theme.colors.foreground, fontFamily: MONO, fontSize: CODE_SIZE, lineHeight: 17 }}>
+                {ok.text}
+              </Text>
+            )}
+          </ScrollView>
+          {foldable && !expanded ? <Fade background={background} onPress={toggleExpanded} /> : null}
+        </View>
       ) : (
         <Note theme={theme}>Loading file…</Note>
       )}
