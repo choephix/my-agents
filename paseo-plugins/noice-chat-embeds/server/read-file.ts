@@ -37,20 +37,72 @@ function isInside(target: string, root: string): boolean {
   return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
 
-/** The vault folder setting as an absolute path; null when empty or not absolute. */
-export function vaultRoot(setting: string): string | null {
-  const value = setting.trim().replace(/^~(?=$|[\\/])/, homedir());
-  return value && path.isAbsolute(value) ? path.resolve(value) : null;
+/** The slip-box desk's config file; its `boxes[].path` entries are the slip boxes. */
+export const DESK_SETTINGS = path.join(homedir(), ".config", "slipbox-desk", "settings.json");
+
+/** The last parse of a config file, reused while its mtime is unchanged. */
+let listed: { file: string; mtimeMs: number; paths: string[] } | null = null;
+
+/** `boxes[].path` of the config file, `~` expanded and resolved; none when the file can't be read or parsed. */
+async function listedPaths(file: string): Promise<string[]> {
+  let mtimeMs: number;
+  try {
+    mtimeMs = (await stat(file)).mtimeMs;
+  } catch {
+    return [];
+  }
+  if (listed?.file === file && listed.mtimeMs === mtimeMs) return listed.paths;
+  let paths: string[] = [];
+  try {
+    const boxes = (JSON.parse(await readFile(file, "utf8")) as { boxes?: unknown } | null)?.boxes;
+    if (Array.isArray(boxes)) {
+      paths = boxes.flatMap((box: { path?: unknown } | null) =>
+        typeof box?.path === "string" && box.path.trim() ? [path.resolve(box.path.trim().replace(/^~(?=$|[\\/])/, homedir()))] : [],
+      );
+    }
+  } catch {
+    paths = [];
+  }
+  listed = { file, mtimeMs, paths };
+  return paths;
+}
+
+/** The listed boxes that exist as folders, as real paths; a listed folder that doesn't exist is left out. */
+export async function listedBoxes(file = DESK_SETTINGS): Promise<string[]> {
+  const boxes = await Promise.all((await listedPaths(file)).map(async (box) => {
+    try {
+      const real = await realpath(box);
+      return (await stat(real)).isDirectory() ? real : null;
+    } catch {
+      return null;
+    }
+  }));
+  return [...new Set(boxes.filter((box): box is string => box !== null))];
+}
+
+/** The box holding `target`: the deepest listed box it is inside; null when none. */
+function boxOf(target: string, boxes: readonly string[]): string | null {
+  let found: string | null = null;
+  for (const box of boxes) {
+    if (isInside(target, box) && (found === null || box.length > found.length)) found = box;
+  }
+  return found;
+}
+
+/** `~/…` for paths under the home folder. */
+function shortPath(full: string): string {
+  const home = homedir();
+  return isInside(full, home) ? `~/${path.relative(home, full)}` : full;
 }
 
 /**
- * Every file under the vault folder, by file name. Walked afresh on each lookup, with no cache and
+ * Every file under a box folder, by file name. Walked afresh on each request, with no cache and
  * no watcher, so a new or moved file resolves at once and nothing runs while idle. Dot-folders
  * (`.git`, `.obsidian`) and `node_modules` are skipped; symlinked folders are not followed.
  */
-async function vaultFiles(vault: string): Promise<Map<string, string[]>> {
+async function boxFiles(box: string): Promise<Map<string, string[]>> {
   const files = new Map<string, string[]>();
-  const folders = [vault];
+  const folders = [box];
   for (let folder = folders.pop(); folder !== undefined; folder = folders.pop()) {
     let entries: Dirent[];
     try {
@@ -72,71 +124,115 @@ async function vaultFiles(vault: string): Promise<Map<string, string[]>> {
   return files;
 }
 
+/** The boxes to search and the walks done so far, shared by the lookups of one request. */
+interface Lookup {
+  boxes: readonly string[];
+  walks: Map<string, Promise<Map<string, string[]>>>;
+}
+
 /**
- * The vault files a vault name names: those whose vault-relative path is `vaultFileName(name)` or
+ * The files of `box` a box name names: those whose box-relative path is `vaultFileName(name)` or
  * ends with `/` + it, so `a/map` finds `efforts/a/map.md` but `map` never finds `roadmap.md`. Only
- * the files sharing its file name are compared.
+ * the files sharing its file name are compared; files inside a box nested in `box` are left out.
  */
-function vaultMatches(files: Map<string, string[]>, vault: string, name: string): string[] {
+async function boxMatches(lookup: Lookup, box: string, name: string): Promise<string[]> {
+  let walk = lookup.walks.get(box);
+  if (!walk) {
+    walk = boxFiles(box);
+    lookup.walks.set(box, walk);
+  }
   const want = vaultFileName(name);
-  return (files.get(path.basename(want)) ?? []).filter((full) => {
-    const relative = path.relative(vault, full);
-    return relative === want || relative.endsWith(`/${want}`);
+  return ((await walk).get(path.basename(want)) ?? []).filter((full) => {
+    const relative = path.relative(box, full);
+    return (relative === want || relative.endsWith(`/${want}`)) && boxOf(full, lookup.boxes) === box;
   });
 }
 
+/**
+ * Looks a box name up in steps: the box holding each of `near` in turn (the embedding file, then
+ * the chat's folder), then every listed box. The first step with any match answers with its
+ * matches; `searched` is that step's boxes. No match anywhere: `matches` is empty.
+ */
+async function lookUp(lookup: Lookup, name: string, near: readonly (string | null)[]): Promise<{ matches: string[]; searched: readonly string[] }> {
+  const steps: (readonly string[])[] = [];
+  for (const place of near) {
+    const box = place === null ? null : boxOf(place, lookup.boxes);
+    if (box !== null && !steps.some((step) => step[0] === box)) steps.push([box]);
+  }
+  steps.push(lookup.boxes);
+  for (const searched of steps) {
+    const matches = (await Promise.all(searched.map((box) => boxMatches(lookup, box, name)))).flat();
+    if (matches.length) return { matches, searched };
+  }
+  return { matches: [], searched: lookup.boxes };
+}
+
+/** The chat's working folder as given and as a real path; null when the chat is gone. */
+async function chatFolder(agentId: string, { paseo }: PluginHandlerContext): Promise<{ cwd: string; real: string } | null> {
+  const agent = await paseo.agents.ref(agentId).refresh();
+  if (!agent) return null;
+  const cwd = path.resolve(agent.agent.cwd);
+  return { cwd, real: await realpath(cwd).catch(() => cwd) };
+}
+
 export async function resolveNames(
-  { names }: RpcInput<typeof resolveVaultNames>,
-  vault: string | null,
+  { names, agentId, from }: RpcInput<typeof resolveVaultNames>,
+  context: PluginHandlerContext,
+  boxes: readonly string[],
 ): Promise<RpcOutput<typeof resolveVaultNames>> {
   const paths: Record<string, string> = {};
   const wanted = names.filter(isVaultName);
-  if (!vault || !wanted.length) return { paths };
-  const files = await vaultFiles(vault);
+  if (!boxes.length || !wanted.length) return { paths };
+  const chat = await chatFolder(agentId, context);
+  const lookup: Lookup = { boxes, walks: new Map() };
   for (const name of wanted) {
-    const matches = vaultMatches(files, vault, name);
+    const { matches } = await lookUp(lookup, name, [from ?? null, chat?.real ?? null]);
     if (matches.length === 1) paths[name] = matches[0];
   }
   return { paths };
 }
 
 /**
- * Resolves an embed path. A path that is not absolute and not `~/` is first looked up in the vault
- * folder by `vaultMatches`: one match is that file; several are an error naming them; with none it
- * resolves as before. Other paths resolve against the chat's folder. Markdown files resolve from
- * anywhere, as in omp's md-embed extension; every other file only inside the chat's folder or the
- * vault folder.
+ * Resolves an embed path. A path that is not absolute and not `~/` is first looked up in the slip
+ * boxes by `lookUp`, starting with the box of `from` (the embedding file) and then the box of the
+ * chat's folder: one match is that file; several are an error naming them; with none it resolves
+ * as before. Other paths resolve against the chat's folder. Markdown files resolve from anywhere,
+ * as in omp's md-embed extension; every other file only inside the chat's folder or a listed box.
  */
 async function resolveEmbedPath(
   agentId: string,
   requestedPath: string,
-  { paseo }: PluginHandlerContext,
-  vault: string | null,
+  from: string | undefined,
+  context: PluginHandlerContext,
+  boxes: readonly string[],
 ): Promise<{ real: string; size: number } | ReadError> {
-  const agent = await paseo.agents.ref(agentId).refresh();
-  if (!agent) return error("disallowed", "This chat is no longer available.");
+  const chat = await chatFolder(agentId, context);
+  if (!chat) return error("disallowed", "This chat is no longer available.");
 
-  const cwd = path.resolve(agent.agent.cwd);
+  const { cwd } = chat;
   let requested: string | undefined;
-  if (vault && isVaultName(requestedPath)) {
-    const matches = vaultMatches(await vaultFiles(vault), vault, requestedPath);
+  if (boxes.length && isVaultName(requestedPath)) {
+    const { matches, searched } = await lookUp({ boxes, walks: new Map() }, requestedPath, [from ?? null, chat.real]);
     if (matches.length > 1) {
-      const names = matches.map((match) => path.relative(vault, match)).sort();
-      return error("ambiguous", `Several files in the vault folder have this name: ${names.join(", ")}.`);
+      if (searched.length === 1) {
+        const names = matches.map((match) => path.relative(searched[0], match)).sort();
+        return error("ambiguous", `Several files in ${shortPath(searched[0])} have this name: ${names.join(", ")}.`);
+      }
+      return error("ambiguous", `Several files in the slip boxes have this name: ${matches.map(shortPath).sort().join(", ")}.`);
     }
     requested = matches[0];
   }
   requested ??= path.resolve(cwd, requestedPath.replace(/^~(?=$|[\\/])/, homedir()));
   const markdown = isMarkdownPath(requested);
-  const where = vault ? "the chat's working directory and the vault folder" : "the chat's working directory";
+  const where = boxes.length ? "the chat's working directory and the slip boxes" : "the chat's working directory";
   // Checked before touching the disk so "not found" never reveals other files outside the trusted folders.
-  if (!markdown && !isInside(requested, cwd) && !(vault && isInside(requested, vault))) return error("disallowed", `That file is outside ${where}.`);
+  if (!markdown && !isInside(requested, cwd) && !boxes.some((box) => isInside(requested, box))) return error("disallowed", `That file is outside ${where}.`);
 
   try {
-    // Symlinks are resolved on both sides, so a link inside a trusted folder cannot point outside it,
-    // and a Markdown name cannot point at another kind of file outside it.
-    const [realRoot, realVault, real] = await Promise.all([realpath(cwd), vault ? realpath(vault).catch(() => null) : null, realpath(requested)]);
-    const trusted = isInside(real, realRoot) || (realVault !== null && isInside(real, realVault));
+    // Symlinks are resolved on both sides (box paths are real already), so a link inside a trusted
+    // folder cannot point outside it, and a Markdown name cannot point at another kind of file outside it.
+    const [realRoot, real] = await Promise.all([realpath(cwd), realpath(requested)]);
+    const trusted = isInside(real, realRoot) || boxes.some((box) => isInside(real, box));
     if (!trusted && !(markdown && isMarkdownPath(real))) return error("disallowed", `That file links outside ${where}.`);
     // FIFOs, devices and directories would block or never end; only regular files are read.
     const info = await stat(real);
@@ -151,11 +247,11 @@ async function resolveEmbedPath(
 export async function readAsset(
   input: RpcInput<typeof readEmbedAsset>,
   context: PluginHandlerContext,
-  vault: string | null,
+  boxes: readonly string[],
 ): Promise<RpcOutput<typeof readEmbedAsset>> {
   const kind = embedKind(input.path);
   if (kind === "text") return error("unsupported", "Only images and HTML pages load this way.");
-  const file = await resolveEmbedPath(input.agentId, input.path, context, vault);
+  const file = await resolveEmbedPath(input.agentId, input.path, input.from, context, boxes);
   if ("status" in file) return file;
   if (file.size > MAX_ASSET_BYTES) return error("too-large", `Larger than ${MAX_ASSET_BYTES / 1024 / 1024} MB; open it on the side instead.`);
   try {
@@ -243,12 +339,12 @@ async function readSection(real: string, size: number, heading: string): Promise
 export async function readFileWindow(
   input: RpcInput<typeof readEmbedFile>,
   context: PluginHandlerContext,
-  vault: string | null,
+  boxes: readonly string[],
 ): Promise<Output> {
   const start = input.lineStart ?? 1;
   const end = input.lineEnd;
   if (end !== undefined && end < start) return error("invalid-range", "The requested line range is invalid.");
-  const file = await resolveEmbedPath(input.agentId, input.path, context, vault);
+  const file = await resolveEmbedPath(input.agentId, input.path, input.from, context, boxes);
   if ("status" in file) return file;
   const { real } = file;
   if (input.heading) return readSection(real, file.size, input.heading);

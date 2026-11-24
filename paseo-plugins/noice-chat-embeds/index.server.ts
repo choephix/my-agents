@@ -1,21 +1,17 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { readAsset, readFileWindow, resolveNames, vaultRoot } from "./server/read-file";
+import { listedBoxes, readAsset, readFileWindow, resolveNames } from "./server/read-file";
 import { preferences, readChatRepo, readEmbedAsset, readEmbedFile, resolveVaultNames } from "./shared/preferences";
 
 const run = promisify(execFile);
 
 export default function contribute(server: PluginServerContext) {
-  const settings = server.registerSettings(preferences);
-  // Read per request: no copy to keep in sync, and nothing runs while idle.
-  const vault = async () => {
-    const state = await settings.read();
-    return state.status === "ready" ? vaultRoot(state.values.vaultFolder) : null;
-  };
-  server.handle(readEmbedFile, async (input, context) => readFileWindow(input, context, await vault()));
-  server.handle(readEmbedAsset, async (input, context) => readAsset(input, context, await vault()));
-  server.handle(resolveVaultNames, async (input) => resolveNames(input, await vault()));
+  server.registerSettings(preferences);
+  // The slip boxes come from the desk's config, read per request (its parse is reused while the file's mtime is unchanged).
+  server.handle(readEmbedFile, async (input, context) => readFileWindow(input, context, await listedBoxes()));
+  server.handle(readEmbedAsset, async (input, context) => readAsset(input, context, await listedBoxes()));
+  server.handle(resolveVaultNames, async (input, context) => resolveNames(input, context, await listedBoxes()));
   server.handle(readChatRepo, async ({ agentId }, { paseo }) => {
     const agent = await paseo.agents.ref(agentId).refresh();
     if (!agent) return { url: null };

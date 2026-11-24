@@ -244,9 +244,9 @@ function Fade({ background, onPress }: { background: string; onPress?: () => voi
   );
 }
 
-/** Markdown with its wiki links linked, vault names through the vault folder. */
-function LinkedMarkdown({ text }: { text: string }) {
-  return <Markdown>{useWikiLinks(text, true)}</Markdown>;
+/** Markdown with its wiki links linked, box names through the slip boxes, starting with the box of `from`. */
+function LinkedMarkdown({ text, agentId, from }: { text: string; agentId: string; from?: string }) {
+  return <Markdown>{useWikiLinks(text, true, agentId, from)}</Markdown>;
 }
 
 interface FrameProps {
@@ -265,14 +265,15 @@ function EmbeddedMarkdown({ text, ...frame }: Omit<FrameProps, "data"> & { text:
   const deep = frame.stack.length >= MAX_DEPTH;
   const segments = useMemo(() => (deep ? null : parseMessage(text)), [text, deep]);
   const flat = useMemo(() => (deep ? embedsAsLinks(text) : ""), [text, deep]);
-  if (!segments) return <LinkedMarkdown text={flat} />;
+  const from = frame.stack.at(-1);
+  if (!segments) return <LinkedMarkdown text={flat} agentId={frame.agentId} from={from} />;
   return (
     <>
       {segments.map((segment, index) =>
         segment.kind === "embed" ? (
           <EmbedFrame key={index} {...frame} data={{ ...segment.embed, phase: "complete" }} />
         ) : (
-          <LinkedMarkdown key={index} text={segment.kind === "markdown" ? segment.text : segment.kind === "agent" ? segment.url : segment.source} />
+          <LinkedMarkdown key={index} agentId={frame.agentId} from={from} text={segment.kind === "markdown" ? segment.text : segment.kind === "agent" ? segment.url : segment.source} />
         ))}
     </>
   );
@@ -282,9 +283,11 @@ function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered, 
   const read = useRpc(readEmbedFile);
   const [expanded, toggleExpanded] = useToggle(stateKey);
   const [settledOpen, toggleSettled] = useToggle(`${stateKey}\nsettled`);
+  // The embedding file, when nested: a box name is looked up in its box first.
+  const from = stack.at(-1);
   const result = useRead(
-    () => read({ agentId, path: data.path, lineStart: data.lineStart, lineEnd: data.lineEnd, heading: data.heading }),
-    `text\n${agentId}\n${data.path}\n${data.lineStart}\n${data.lineEnd}\n${data.heading}`,
+    () => read({ agentId, path: data.path, lineStart: data.lineStart, lineEnd: data.lineEnd, heading: data.heading, from }),
+    `text\n${agentId}\n${from}\n${data.path}\n${data.lineStart}\n${data.lineEnd}\n${data.heading}`,
   );
   const ok = result?.status === "ok" ? result : null;
   // A file inside itself, at any depth, is not drawn again.
@@ -349,10 +352,11 @@ function TextEmbed({ data, agentId, theme, background, bodyHeight, cardHovered, 
   );
 }
 
-function ImageEmbed({ data, agentId, theme, bodyHeight, cardHovered, stateKey }: BodyProps) {
+function ImageEmbed({ data, agentId, theme, bodyHeight, cardHovered, stateKey, stack }: BodyProps) {
   const read = useRpc(readEmbedAsset);
-  const assetKey = `asset\n${agentId}\n${data.path}`;
-  const result = useRead(() => read({ agentId, path: data.path }), assetKey);
+  const from = stack.at(-1);
+  const assetKey = `asset\n${agentId}\n${from}\n${data.path}`;
+  const result = useRead(() => read({ agentId, path: data.path, from }), assetKey);
   const ok = result?.status === "ok" ? result : null;
   const [natural, setNatural] = useState(() => imageSizes.get(assetKey) ?? null);
   const [expanded, toggleExpanded] = useToggle(stateKey);
@@ -409,10 +413,11 @@ function ImageEmbed({ data, agentId, theme, bodyHeight, cardHovered, stateKey }:
  * Paseo, its storage or its session. It loads only while open; closing unloads it, so pages
  * with animations cost nothing while folded.
  */
-function HtmlEmbed({ data, agentId, theme, bodyHeight, cardHovered, stateKey }: BodyProps) {
+function HtmlEmbed({ data, agentId, theme, bodyHeight, cardHovered, stateKey, stack }: BodyProps) {
   const read = useRpc(readEmbedAsset);
   const [open, toggleOpen] = useToggle(stateKey);
-  const result = useRead(open ? () => read({ agentId, path: data.path }) : null, `asset\n${agentId}\n${data.path}`);
+  const from = stack.at(-1);
+  const result = useRead(open ? () => read({ agentId, path: data.path, from }) : null, `asset\n${agentId}\n${from}\n${data.path}`);
   const ok = result?.status === "ok" ? result : null;
   const web = Platform.OS === "web";
 

@@ -127,9 +127,9 @@ export function linkIssueRefs(text: string, link: (number: string) => string): s
 const WIKILINK = /(?<![![])\[\[([^[\]\n]+?)\]\](?!\])/g;
 
 export interface WikiLinkOptions {
-  /** Leave vault names (not `/` or `~/`) as written, for a later pass that knows the vault. */
+  /** Leave box names (not `/` or `~/`) as written, for a later pass that looks them up in the slip boxes. */
   skipVaultNames?: boolean;
-  /** Vault names found in the vault folder, to their absolute paths. */
+  /** Box names found in the slip boxes, to their absolute paths. */
   vaultPaths?: ReadonlyMap<string, string>;
 }
 
@@ -148,7 +148,7 @@ function mapWikiLinks(text: string, visit: (whole: string, target: { path: strin
 /**
  * Rewrites plain `[[path#fragment|Label]]` wiki links outside code and Markdown links as Markdown
  * links, which Paseo opens in its file panel. Only targets that look like files are rewritten: a
- * `/` or `~/` path, a path with an extension, or a vault name found in the vault folder. The label
+ * `/` or `~/` path, a path with an extension, or a box name found in the slip boxes. The label
  * is the alias, else the file name with its fragment; a line range also goes on the link.
  */
 export function linkWikiLinks(text: string, options: WikiLinkOptions = {}): string {
@@ -166,7 +166,7 @@ export function linkWikiLinks(text: string, options: WikiLinkOptions = {}): stri
   });
 }
 
-/** The vault names of the wiki links `linkWikiLinks` would look up in the vault folder, sorted, once each. */
+/** The box names of the wiki links `linkWikiLinks` would look up in the slip boxes, sorted, once each. */
 export function vaultWikiNames(text: string): string[] {
   if (!text.includes("[[")) return [];
   const names = new Set<string>();

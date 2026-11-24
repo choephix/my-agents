@@ -1,7 +1,7 @@
 import { type PluginTimelineItem, settingsRpc } from "@getpaseo/plugin";
 import type { PluginClientContext, PluginScreenProps } from "@getpaseo/plugin/client";
-import { SettingsAction, SettingsCard, SettingsInput, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
-import { useEffect, useState } from "react";
+import { SettingsCard, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
+import { useEffect } from "react";
 import { Platform, Text } from "react-native";
 import { useSettings } from "@getpaseo/plugin/client";
 import { AGENT_CARD_KIND, agentCardSchema, createAgentCard } from "./client/agent-card";
@@ -38,7 +38,6 @@ function apply(values: Preferences): void {
 
 function Settings() {
   const settings = useSettings(preferences);
-  const [vault, setVault] = useState<string | null>(null);
   useEffect(() => {
     if (settings.status === "ready") apply(settings.values);
   }, [settings]);
@@ -81,28 +80,6 @@ function Settings() {
             void settings.save(next, settings.revision);
           }}
         />
-        <SettingsInput
-          label="Vault folder"
-          hint="Absolute path of a notes folder, as in Obsidian. A path that doesn't start with / or ~/, such as ![[2026-11-18-note]], ![[shot.png]] or ![[efforts/slip-box/map]], finds the one file in it whose path ends that way, and any file inside it embeds from every chat. Empty: off."
-          initialValue={settings.values.vaultFolder}
-          placeholder="/home/me/notes"
-          error={vault !== null && vault.trim() && !/^~?\//.test(vault.trim()) ? "Use an absolute path." : null}
-          onChangeText={setVault}
-          disabled={settings.saving}
-        />
-        {vault !== null && vault.trim() !== settings.values.vaultFolder && (!vault.trim() || /^~?\//.test(vault.trim())) ? (
-          <SettingsAction
-            label={vault.trim() ? `Use ${vault.trim()}` : "Turn the vault folder off"}
-            actionLabel="Save"
-            disabled={settings.saving}
-            onPress={() => {
-              const next = { ...settings.values, vaultFolder: vault.trim() };
-              apply(next);
-              void settings.save(next, settings.revision);
-              setVault(null);
-            }}
-          />
-        ) : null}
       </SettingsCard>
     </SettingsSection>
   );
@@ -172,10 +149,9 @@ export default function contribute(client: PluginClientContext) {
       const svg = current.svgBlocks && phase === "complete" && Platform.OS === "web";
       // Cheap checks first; most messages have no embed, wiki link, `#123`, hex colour or ```svg block.
       const hasEmbed = item.text.includes("![[");
-      // With a vault folder, wiki links to vault names are left for the Markdown rows, which look them up there.
-      const vault = current.vaultFolder.trim() !== "";
-      const text = item.text.includes("[[") ? linkWikiLinks(item.text, { skipVaultNames: vault }) : item.text;
-      const hasVaultName = vault && phase === "complete" && vaultWikiNames(text).length > 0;
+      // Wiki links to box names are left for the Markdown rows, which look them up in the slip boxes.
+      const text = item.text.includes("[[") ? linkWikiLinks(item.text, { skipVaultNames: true }) : item.text;
+      const hasVaultName = phase === "complete" && vaultWikiNames(text).length > 0;
       const hasRef = /#\d\d/.test(item.text) && linkIssueRefs(item.text, () => "") !== item.text;
       // Swatches show in finished replies only; while streaming such a chunk would lose its Markdown.
       const hasHex = SWATCHES && phase === "complete" && /#[\da-f]{3}/i.test(item.text) && addColorSwatches(item.text, () => "x") !== item.text;
