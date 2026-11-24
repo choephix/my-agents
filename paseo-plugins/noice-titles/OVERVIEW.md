@@ -158,7 +158,7 @@ rejected ones. As for tabs, the answer is used exactly as written. A failed
 lookup is logged (`noice-titles: siblings of workspace <id> unavailable: …`) and
 the workspace is titled without siblings.
 
-**When.** Titles tracks workspaces created while it runs (`workspace.created`,
+**When.** Titles tracks workspaces created while it runs (`workspace.create.after`,
 background and internal ones excluded). The first turn start of one of their
 tabs (not sub-agents or Paseo's internal agents) whose prompt is readable
 triggers one Haiku call; if the prompt isn't in the timeline yet, the turn's
@@ -181,7 +181,7 @@ the title is still empty or that placeholder. If Titles lands first, Paseo
 drops its title; if Paseo lands first, Titles replaces it. Paseo marks neither
 its own titles nor hand renames, so Titles watches the workspace's title
 changes (a `workspaces.list` subscription, started with the first
-`workspace.created`) and treats a title as Paseo's only if it is the **first**
+`workspace.create.after`) and treats a title as Paseo's only if it is the **first**
 change away from an empty or placeholder title, **within 3 minutes** of
 creation, and still current. Anything else (a second change, a later one, a
 change from a title given at creation) is hand-named and left alone; the log

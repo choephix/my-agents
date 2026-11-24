@@ -66,15 +66,15 @@ export default function contribute(server: PluginServerContext) {
     }
   };
 
-  const offCreated = server.on("agent.created", ({ agent }) => {
+  const offCreated = server.addHook("agent.create.after", async ({ agent }) => {
     // The hook carries only an explicitly configured title; Paseo's first-prompt
     // placeholder is applied later. An explicit creation name is a hand-chosen name.
     if (!agent.title) awaitingFirstTurn.add(agent.id);
   });
-  const offArchived = server.on("agent.archived", ({ agent }) => { forget(agent.id); promptLines.delete(agent.id); });
-  const offClosed = server.on("agent.closed", ({ agent }) => forget(agent.id));
+  const offArchived = server.addHook("agent.archive.after", async ({ agent }) => { forget(agent.id); promptLines.delete(agent.id); });
+  const offClosed = server.addHook("agent.close.after", async ({ agent }) => { forget(agent.id); });
 
-  const offTurnEnded = server.on("agent.turn_ended", ({ agent, outcome }, { paseo }) => {
+  const offTurnEnded = server.addHook("agent.turn.after", async ({ agent, outcome }, { paseo }) => {
     if (outcome.kind !== "completed") return;
     const firstTurn = awaitingFirstTurn.delete(agent.id);
     const started = Date.now();

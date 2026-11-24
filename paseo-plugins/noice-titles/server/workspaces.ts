@@ -124,7 +124,7 @@ export function registerWorkspaceTitles(server: PluginServerContext, preferences
   const remember = (workspaceId: string, title: string) => chosen.set(workspaceId, title)
     .catch(error => console.warn(`noice-titles: couldn't record workspace ${workspaceId}'s title:`, error instanceof Error ? error.message : error));
 
-  const offCreated = server.on("workspace.created", ({ workspace }, { paseo }) => {
+  const offCreated = server.addHook("workspace.create.after", async ({ workspace }, { paseo }) => {
     pending.set(workspace.id, { createdAt: Date.now(), changes: [] });
     watchTitles(paseo);
     // The record already holds its first title (explicit, first-prompt placeholder or none).
@@ -133,7 +133,7 @@ export function registerWorkspaceTitles(server: PluginServerContext, preferences
       else see(current);
     }, error => console.warn(`noice-titles: workspace ${workspace.id} unreadable:`, error instanceof Error ? error.message : error));
   });
-  const offArchived = server.on("workspace.archived", ({ workspace }) => forget(workspace.id));
+  const offArchived = server.addHook("workspace.archive.after", async ({ workspace }) => { forget(workspace.id); });
 
   // A pending workspace is named at the start of a tab's turn, as early as its
   // prompt is readable, so Titles usually lands before Paseo's generated title
@@ -187,8 +187,8 @@ export function registerWorkspaceTitles(server: PluginServerContext, preferences
       error => console.warn(`noice-titles: workspace ${workspaceId} failed:`, error instanceof Error ? error.message : error),
     );
   };
-  const offTurnStarted = server.on("agent.turn_started", ({ agent }, { paseo }) => onTurn(agent, paseo, true));
-  const offTurnEnded = server.on("agent.turn_ended", ({ agent, outcome }, { paseo }) => { if (outcome.kind === "completed") onTurn(agent, paseo, false); });
+  const offTurnStarted = server.addHook("agent.turn.before", async ({ agent }, { paseo }) => { onTurn(agent, paseo, true); });
+  const offTurnEnded = server.addHook("agent.turn.after", async ({ agent, outcome }, { paseo }) => { if (outcome.kind === "completed") onTurn(agent, paseo, false); });
 
   // Stefan asked for a new title, so the current one is never kept. Works on any
   // workspace, whatever the setting or who named it.
