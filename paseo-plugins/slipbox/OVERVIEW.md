@@ -21,7 +21,6 @@ Configure the folder in **Settings -> Plugins -> Slip-box**, or leave it empty t
 1. The **Slip-box folder** plugin setting.
 2. The `SLIPBOX_DIR` environment variable.
 3. The first box path in `~/.config/slipbox-desk/settings.json`.
-4. `vaultFolder` in `~/.omp/agent/md-embed.json`.
 
 If the folder contains a `memos/` subdirectory, the plugin scans `memos/` plus optionally `captures/`, `scraps/`, and `efforts/` (skipping `mocks/`, `attachments/`, `node_modules/`, and dot-folders such as `.revisions/` and `.git/`), and `/slip` writes new memos into `memos/` and `capture:` notes into `captures/`. Otherwise it scans and writes Markdown files directly inside the configured folder.
 

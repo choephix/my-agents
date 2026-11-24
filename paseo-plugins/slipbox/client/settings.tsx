@@ -18,12 +18,12 @@ type StatusState =
   | {
       kind: "ready";
       folder: string | null;
-      source: "setting" | "env" | "desk-config" | "md-embed" | "none";
+      source: "setting" | "env" | "desk-config" | "none";
       exists: boolean;
       slipCount: number;
     };
 
-function sourceNote(source: "setting" | "env" | "desk-config" | "md-embed" | "none"): string {
+function sourceNote(source: "setting" | "env" | "desk-config" | "none"): string {
   switch (source) {
     case "setting":
       return "from plugin setting";
@@ -31,8 +31,6 @@ function sourceNote(source: "setting" | "env" | "desk-config" | "md-embed" | "no
       return "from SLIPBOX_DIR";
     case "desk-config":
       return "from slipbox-desk config";
-    case "md-embed":
-      return "from md-embed config";
     case "none":
       return "";
   }
@@ -146,7 +144,7 @@ export function SlipboxSettingsScreen() {
         <SettingsRow label="Active folder" hint={formatStatusHint(status)} />
         <SettingsInput
           label="Slip-box folder"
-          hint="Absolute path (or ~/…) on this host. Leave empty to auto-detect from SLIPBOX_DIR, ~/.config/slipbox-desk/settings.json, or ~/.omp/agent/md-embed.json."
+          hint="Absolute path (or ~/…) on this host. Leave empty to auto-detect from SLIPBOX_DIR or ~/.config/slipbox-desk/settings.json."
           initialValue={settings.values.boxFolder}
           placeholder="~/slipbox"
           error={folderError}

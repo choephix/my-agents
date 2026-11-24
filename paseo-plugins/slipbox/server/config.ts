@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
-export type BoxFolderSource = "setting" | "env" | "desk-config" | "md-embed" | "none";
+export type BoxFolderSource = "setting" | "env" | "desk-config" | "none";
 
 export interface ResolvedBoxFolder {
   folder: string | null;
@@ -40,18 +40,11 @@ function readFirstDeskBoxPath(parsed: unknown): string | null {
   return typeof boxPath === "string" && boxPath.trim() ? boxPath : null;
 }
 
-function readMdEmbedVaultPath(parsed: unknown): string | null {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-  const vaultFolder = (parsed as { vaultFolder?: unknown }).vaultFolder;
-  return typeof vaultFolder === "string" && vaultFolder.trim() ? vaultFolder : null;
-}
-
 /**
  * Resolve the slip-box folder in priority order:
  * 1. Explicit `boxFolder` plugin setting
  * 2. `SLIPBOX_DIR` environment variable
  * 3. First box in `~/.config/slipbox-desk/settings.json`
- * 4. `vaultFolder` in `~/.omp/agent/md-embed.json`
  */
 export async function resolveBoxFolder(
   settingFolder: string,
@@ -75,13 +68,6 @@ export async function resolveBoxFolder(
   if (deskPath) {
     const resolved = resolveAbsoluteFolder(deskPath, home);
     if (resolved) return { folder: resolved, source: "desk-config" };
-  }
-
-  const mdEmbedConfig = await readJsonFile(path.join(home, ".omp", "agent", "md-embed.json"));
-  const mdEmbedPath = readMdEmbedVaultPath(mdEmbedConfig);
-  if (mdEmbedPath) {
-    const resolved = resolveAbsoluteFolder(mdEmbedPath, home);
-    if (resolved) return { folder: resolved, source: "md-embed" };
   }
 
   return { folder: null, source: "none" };

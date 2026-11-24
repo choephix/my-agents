@@ -32,15 +32,11 @@ afterEach(async () => {
 });
 
 describe("resolveBoxFolder", () => {
-  it("resolves setting, env, desk config, and md-embed in priority order", async () => {
+  it("resolves setting, env, and desk config in priority order", async () => {
     const home = await makeTempDir("slipbox-home-");
     await writeFixture(
       path.join(home, ".config", "slipbox-desk", "settings.json"),
       JSON.stringify({ boxes: [{ path: "~/desk-box" }] }),
-    );
-    await writeFixture(
-      path.join(home, ".omp", "agent", "md-embed.json"),
-      JSON.stringify({ vaultFolder: "~/embed-box" }),
     );
 
     expect(await resolveBoxFolder("~/custom-box", { home, env: { SLIPBOX_DIR: "~/env-box" } })).toEqual({
@@ -59,12 +55,6 @@ describe("resolveBoxFolder", () => {
     });
 
     await rm(path.join(home, ".config", "slipbox-desk", "settings.json"));
-    expect(await resolveBoxFolder("", { home, env: {} })).toEqual({
-      folder: path.join(home, "embed-box"),
-      source: "md-embed",
-    });
-
-    await rm(path.join(home, ".omp", "agent", "md-embed.json"));
     expect(await resolveBoxFolder("", { home, env: {} })).toEqual({
       folder: null,
       source: "none",

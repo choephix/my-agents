@@ -8,8 +8,7 @@ export const slipboxSettings = defineSettings({
   schema: z.object({
     /**
      * Absolute path (or `~/...`) of the slip-box folder on this host.
-     * When empty, falls back to `SLIPBOX_DIR`, `~/.config/slipbox-desk/settings.json`,
-     * or `~/.omp/agent/md-embed.json`.
+     * When empty, falls back to `SLIPBOX_DIR` or `~/.config/slipbox-desk/settings.json`.
      */
     boxFolder: z.string().default(""),
     /** Include `captures/` slips in attachment search results. */
@@ -29,7 +28,7 @@ export const boxStatusRpc = defineRpc({
   input: z.object({}),
   output: z.object({
     folder: z.string().nullable(),
-    source: z.enum(["setting", "env", "desk-config", "md-embed", "none"]),
+    source: z.enum(["setting", "env", "desk-config", "none"]),
     exists: z.boolean(),
     slipCount: z.number().int().nonnegative(),
   }),
