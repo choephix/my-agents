@@ -90,7 +90,7 @@ export default function contribute(server: PluginServerContext) {
   // Paseo shows this hook only the session config. Chats Stefan starts from the app carry no
   // title there; agents made by agents (MCP create_agent requires one), the side-agent plugin,
   // schedules and `paseo run --title` do. `agent.created` then checks the parent label too.
-  const offCreate = server.before("agent.create", async ({ request }) => {
+  const offCreate = server.addHook("agent.create.before", async ({ request }) => {
     const { config } = request;
     if (config.title?.trim()) return;
     try {
@@ -106,7 +106,7 @@ export default function contribute(server: PluginServerContext) {
       console.error("[noice-omp-slash-aliases] next-chat instructions failed", error);
     }
   });
-  const offCreated = server.on("agent.created", async ({ agent }) => {
+  const offCreated = server.addHook("agent.create.after", async ({ agent }) => {
     const key = `${resolve(agent.cwd)}\n${agent.provider}`;
     const entry = taken.get(key);
     if (!entry) return;
@@ -115,7 +115,7 @@ export default function contribute(server: PluginServerContext) {
     clearTimeout(entry.timer);
     await nextChat.used(entry.workspaceId, agent.id, entry.armed.text);
   });
-  const offArchived = server.on("workspace.archived", ({ workspace }) => nextChat.forget(workspace.id));
+  const offArchived = server.addHook("workspace.archive.after", async ({ workspace }) => { await nextChat.forget(workspace.id); });
 
   const sessions = new TanSessions();
   let processes: { at: number; list: Promise<ProcessInfo[]> } | undefined;
