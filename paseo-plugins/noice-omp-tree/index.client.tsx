@@ -36,7 +36,14 @@ export default function contribute(client: PluginClientContext) {
     dismiss: async agentId => void (await client.rpc(treeDismiss, { agentId })),
     openTab: async (agentId, entryId, before) => (await client.rpc(treeOpenTab, { agentId, entryId, before })).agentId,
   });
-  const PillIcon = createPillIcon(store);
+  const fillComposer = (agentId: string, text: string): boolean => {
+    const composer = client.composers({ agentId })[0];
+    if (!composer) return false;
+    composer.setPrompt(text);
+    void composer.focus({ selection: { start: text.length, end: text.length } }).catch(() => {});
+    return true;
+  };
+  const PillIcon = createPillIcon(store, fillComposer);
   const openAgent = (agentId: string) => client.openScreen({ screenId: "open", params: { agentId } });
 
   // One muted "Tree · N" pill per chat with more than one branch. The native apps and Paseo's compact
@@ -47,7 +54,7 @@ export default function contribute(client: PluginClientContext) {
   const pills = new Map<string, { registration: PluginButtonRegistration; label: string }>();
   /** Workspaces of chats that asked for the sheet with /tree before the next chat list arrived. */
   const workspaceOf = new Map<string, string>();
-  const BranchPopover = createBranchPopover(store);
+  const BranchPopover = createBranchPopover(store, fillComposer);
   const menu = startPhoneMenu(client, { id: "tree", title: "Branches (/tree)", icon: "GitBranch" }, () => syncPills());
   function syncPills() {
     const snapshot = store.getSnapshot();
@@ -138,7 +145,7 @@ export default function contribute(client: PluginClientContext) {
     }),
     client.addTimelineRenderer({ kind: SUMMARY_KIND, version: 1, schema: SummaryItemSchema, Component: SummaryRow }),
     client.addSettingsScreen({ id: displaySettings.id, title: "Session tree", icon: "GitBranch", Component: createSettingsScreen(() => store.refreshChats()) }),
-    NATIVE ? () => {} : startWeb({ store, openAgent }),
+    NATIVE ? () => {} : startWeb({ store, openAgent, fillComposer }),
   ];
 
   return () => {

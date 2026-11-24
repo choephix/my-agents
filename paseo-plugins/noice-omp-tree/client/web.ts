@@ -23,6 +23,8 @@ export interface WebActions {
   store: TreeStore;
   /** Opens a chat in Paseo (through the plugin screen that holds the client navigation). */
   openAgent(agentId: string): void;
+  /** Fills an agent's composer and focuses it; returns false when the composer isn't available. */
+  fillComposer(agentId: string, text: string): boolean;
 }
 
 const ATTR = "data-session-tree";
@@ -191,7 +193,7 @@ function isNewest(scroll: Element, trigger: Element, state: TreeState, map = ali
   return items.at(-1) === trigger;
 }
 
-export function startWeb({ store, openAgent }: WebActions): () => void {
+export function startWeb({ store, openAgent, fillComposer }: WebActions): () => void {
   const style = el("style", "");
   style.textContent = CSS;
   document.head.appendChild(style);
@@ -220,7 +222,7 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
     const button = el("button", "stp-ib", svg("branch", size));
     button.type = "button";
     button.dataset.stpKind = kind;
-    const label = kind === "assistant" ? "Continue from here · keeps the rest" : "Re-ask from here · copies the text";
+    const label = kind === "assistant" ? "Continue from here · keeps the rest" : "Re-ask from here · fills the composer";
     button.dataset.tip = label;
     button.setAttribute("aria-label", label);
     return button;
@@ -299,17 +301,26 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
     const reason = busyReason(state, agentId);
     if (reason) return store.notify(agentId, reason, undefined, true);
     if (!turn?.userId || !turn.userText) return store.notify(agentId, "Could not match this message to the saved chat, so nothing moved.", undefined, true);
-    // Copy inside the click: browsers allow clipboard writes only during a user gesture.
-    void copyToClipboard(turn.userText);
-    store.notify(agentId, "Copied — paste to re-ask", "the old path is kept");
+    if (fillComposer(agentId, turn.userText)) {
+      store.notify(agentId, "Ready in composer to re-ask", "the old path is kept");
+    } else {
+      // Copy inside the click: browsers allow clipboard writes only during a user gesture.
+      void copyToClipboard(turn.userText);
+      store.notify(agentId, "Copied — paste to re-ask", "the old path is kept");
+    }
     void store.goto(agentId, "reask", turn.userId);
   }
 
   async function openInTab(agentId: string, entryId: string, before: boolean, text?: string): Promise<void> {
-    if (text) void copyToClipboard(text);
     const child = await store.openTab(agentId, entryId, before);
     if (!child) return;
-    store.notify(agentId, "Opened in a new tab", text ? "message copied — paste to re-ask" : "with the chat up to this reply");
+    const filled = text ? fillComposer(child, text) : false;
+    if (text && !filled) void copyToClipboard(text);
+    store.notify(
+      agentId,
+      "Opened in a new tab",
+      text ? (filled ? "ready in composer to re-ask" : "message copied — paste to re-ask") : "with the chat up to this reply",
+    );
     openAgent(child);
   }
 
@@ -355,7 +366,7 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
     const userRow = target.closest('[data-testid="user-message"]');
     if (userRow) {
       const turn = turnOf(scroll, userRow, state);
-      items.push({ icon: "pencil", label: "Re-ask from here", sub: "copies the text", run: () => reask(agentId, turn) });
+      items.push({ icon: "pencil", label: "Re-ask from here", sub: "fills the composer", run: () => reask(agentId, turn) });
       if (turn?.userId) items.push({ icon: "external", label: "Open in new tab", run: () => void openInTab(agentId, turn.userId!, true, turn.userText ?? undefined) });
     } else {
       // An assistant turn: everything up to its footer. Past the last footer is the turn still running.

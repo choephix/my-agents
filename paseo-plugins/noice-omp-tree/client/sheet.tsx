@@ -165,11 +165,14 @@ function BranchRow({ branch, onPress, theme }: { branch: Branch; onPress?: () =>
   );
 }
 
+/** Fills an agent's composer and focuses it; returns false when the composer isn't available. */
+export type FillComposer = (agentId: string, text: string) => boolean;
+
 /**
  * Branch list: one row per branch; touch layouts also get the offer and "Go back to" (they have no
  * message icons). Inside the sheet, or a page of the phone ⋯ menu.
  */
-function BranchPanel({ agentId, store, theme, touch, onClose }: { agentId: string; store: TreeStore; theme: PluginTheme; touch: boolean; onClose(): void }) {
+function BranchPanel({ agentId, store, fillComposer, theme, touch, onClose }: { agentId: string; store: TreeStore; fillComposer: FillComposer; theme: PluginTheme; touch: boolean; onClose(): void }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const toast = useToast();
   const state = snapshot.states.get(agentId);
@@ -179,9 +182,14 @@ function BranchPanel({ agentId, store, theme, touch, onClose }: { agentId: strin
 
   function reask(turn: Turn) {
     if (state?.busy) return toast.error("The agent is busy. Try again when it has finished.");
-    void copyToClipboard(turn.userText!)
-      .then(() => toast.show("Copied — paste to re-ask"))
-      .catch(() => toast.error("Could not copy the message; it is still in the branch list."));
+    onClose();
+    if (fillComposer(agentId, turn.userText!)) {
+      toast.show("Ready in composer to re-ask");
+    } else {
+      void copyToClipboard(turn.userText!)
+        .then(() => toast.show("Copied — paste to re-ask"))
+        .catch(() => toast.error("Could not copy the message; it is still in the branch list."));
+    }
     void store.goto(agentId, "reask", turn.userId!);
   }
 
@@ -219,7 +227,7 @@ function BranchPanel({ agentId, store, theme, touch, onClose }: { agentId: strin
             <>
               <Text style={[SMALL, styles.heading, { color: muted }]}>GO BACK TO</Text>
               <Text style={[SMALL, styles.note, { color: muted }]}>
-                Restarts from before that message and copies it, so you can paste, edit and resend.
+                Restarts from before that message and puts it in the composer, ready to edit and resend.
               </Text>
               {mine.map(turn => (
                 <Pressable
@@ -244,14 +252,14 @@ function BranchPanel({ agentId, store, theme, touch, onClose }: { agentId: strin
   );
 }
 
-function BranchSheet({ agentId, store, theme, touch }: { agentId: string; store: TreeStore; theme: PluginTheme; touch: boolean }) {
+function BranchSheet({ agentId, store, fillComposer, theme, touch }: { agentId: string; store: TreeStore; fillComposer: FillComposer; theme: PluginTheme; touch: boolean }) {
   const open = useSyncExternalStore(store.subscribe, () => store.getSnapshot().sheetAgentId === agentId);
   return (
     <Modal transparent visible={open} animationType={touch ? "slide" : "fade"} onRequestClose={() => store.closeSheet()} statusBarTranslucent>
       <View style={[styles.overlay, touch ? styles.overlayTouch : styles.overlayDesktop]}>
         <Pressable accessibilityLabel="Close" style={styles.backdrop} onPress={() => store.closeSheet()} />
         <View style={[styles.frame, touch ? styles.frameTouch : styles.frameDesktop, { backgroundColor: theme.colors.surface1, borderColor: theme.colors.border }]}>
-          <BranchPanel agentId={agentId} store={store} theme={theme} touch={touch} onClose={() => store.closeSheet()} />
+          <BranchPanel agentId={agentId} store={store} fillComposer={fillComposer} theme={theme} touch={touch} onClose={() => store.closeSheet()} />
         </View>
       </View>
     </Modal>
@@ -259,11 +267,11 @@ function BranchSheet({ agentId, store, theme, touch }: { agentId: string; store:
 }
 
 /** A chat's branches as a page of the phone ⋯ menu (Paseo's bottom sheet), instead of the sheet. */
-export function createBranchPopover(store: TreeStore): ComponentType<PluginButtonContentProps> {
+export function createBranchPopover(store: TreeStore, fillComposer: FillComposer): ComponentType<PluginButtonContentProps> {
   return function BranchPopover(props: PluginButtonContentProps) {
     const agentId = props.context === "agent" ? props.agentId : "";
     useEffect(() => store.watch(agentId), [agentId]);
-    return <BranchPanel agentId={agentId} store={store} theme={props.theme} touch onClose={props.close} />;
+    return <BranchPanel agentId={agentId} store={store} fillComposer={fillComposer} theme={props.theme} touch onClose={props.close} />;
   };
 }
 
@@ -287,7 +295,7 @@ function Notices({ agentId, store }: { agentId: string; store: TreeStore }) {
  * The Tree pill's icon. It also hosts the chat's branch sheet: the pill is the plugin UI that lives
  * in a chat's composer on every client, and /tree opens the sheet without a press.
  */
-export function createPillIcon(store: TreeStore): ComponentType<PluginButtonIconProps> {
+export function createPillIcon(store: TreeStore, fillComposer: FillComposer): ComponentType<PluginButtonIconProps> {
   return function TreePillIcon(props: PluginButtonIconProps) {
     const agentId = props.context === "agent" ? props.agentId : "";
     const token = useRef(Symbol(agentId)).current;
@@ -299,7 +307,7 @@ export function createPillIcon(store: TreeStore): ComponentType<PluginButtonIcon
     return (
       <>
         {busy ? <ActivityIndicator size={props.size} color={props.color} /> : <Icon name="GitBranch" size={props.size} color={props.color} />}
-        {host ? <BranchSheet agentId={agentId} store={store} theme={props.theme} touch={touch} /> : null}
+        {host ? <BranchSheet agentId={agentId} store={store} fillComposer={fillComposer} theme={props.theme} touch={touch} /> : null}
         {host && props.layout.platform !== "web" ? <Notices agentId={agentId} store={store} /> : null}
       </>
     );

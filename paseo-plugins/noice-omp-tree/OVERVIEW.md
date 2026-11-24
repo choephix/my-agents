@@ -19,8 +19,8 @@ cannot load it fails at once with a toast naming the overlay (no reload, no wait
 **Web and desktop**
 - A quiet branch icon in each reply's footer next to Copy/Fork: **Continue from here** (not on
   the newest reply). In each of your messages' hover row after Rewind: **Re-ask from here** — goes
-  back to just before that message and copies its text ("Copied — paste to re-ask"; a plugin
-  cannot fill the composer).
+  back to just before that message and puts its text straight into the composer via `client.composers`,
+  ready to edit and resend (falls back to copying if the composer is unavailable).
 - Right-click on a message: Continue from here / Re-ask from here, **Open in new tab**, **Show
   branches**. Shift+right-click, a text selection, links and inputs keep the browser's menu.
 - A click goes back and, by default, summarizes what it leaves, as OMP's `/tree` → Summarize does:
@@ -46,7 +46,7 @@ cannot load it fails at once with a toast naming the overlay (no reload, no wait
 **Phones** (native apps and Paseo's compact web layout): no message icons (no DOM / no pane to
 match rows to a chat). The branch list has the offer (Summarize them with focus field, Undo, ×,
 progress with Cancel), the branches, and **Go back to** (your own messages, newest first; restarts
-before that message and copies it).
+before that message and puts it in the composer).
 - Under 600 px wide (phone layouts, the native phone apps) there is no Tree pill. The workspace ⋯
   menu has a **Branches (/tree)** row listing the workspace's OMP chats, newest first, with their
   state (`Pricing · 3 branches`, `· ↩ 4 set aside`, `· switching…`, `· summarizing…`); picking one
@@ -130,7 +130,6 @@ apply without a reload. `/tree` works whatever is off.
 - Branch summaries made in OMP's own TUI aren't tagged "summarized" (the tag comes from the marker).
 - Turn durations in Paseo can look long after a summary ("Worked for 17m") because Paseo groups the
   summary entry into the turn.
-- Re-ask copies; it cannot put the text into the composer (no plugin API).
 
 ## Files
 
