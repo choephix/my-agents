@@ -22,9 +22,9 @@ export async function importRequest(input: ImportInput, folder: string | null): 
   return cwd === target ? { ...request, workspaceId: input.workspaceId } : request;
 }
 
-// Restore = `refreshAgent` (unarchives and loads an archived agent); Import = `importAgent` (a
-// provider session becomes a Paseo agent). Both go through the CLI's daemon client, ~4 ms; the
-// `paseo` binary (~300 ms of startup per click) is only the fallback when that client won't load.
+// Restore = `paseo.agents.ref(id).reload()` (Paseo 0.17+, unarchives and loads an archived agent);
+// Import = `importAgent` (a provider session becomes a Paseo agent), through the CLI's daemon
+// client (~4 ms) with the `paseo` binary (~300 ms) as fallback.
 async function runPaseo(args: string[]): Promise<unknown> {
   let stdout: string;
   try {
@@ -58,15 +58,13 @@ export async function reopenHandler(
   marks: Marks,
   paseo: PluginHandlerContext["paseo"],
 ): Promise<RpcOutput<typeof reopenPastSession>> {
-  const direct = await daemonClientAvailable();
   if (input.source === "paseo") {
-    const agentId = direct
-      ? await withDaemonClient(async (client) => (await client.refreshAgent(input.agentId)).agentId)
-      : agentIdOf(await runPaseo(["agent", "reload", input.agentId]));
+    await paseo.agents.ref(input.agentId).reload();
     // Reopening a hidden session means it's wanted after all: archived again later, it's listed.
     await marks.hidden.set(`paseo:${input.agentId}`, false);
-    return { agentId };
+    return { agentId: input.agentId };
   }
+  const direct = await daemonClientAvailable();
   // `paseo import` has no workspace option: the binary fallback leaves the pick to the daemon.
   const agentId = direct
     ? await withDaemonClient(async (client) => {

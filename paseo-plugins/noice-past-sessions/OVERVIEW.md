@@ -267,9 +267,10 @@ Finds a chat by something you typed into it, across every OMP chat on the host, 
   daemon-wide on 2026-10-19); Folder and Project scopes find them by cwd.
 - The binary fallback can't choose the workspace (`paseo import` has no workspace option): with
   several workspaces in one folder, the daemon picks one of them.
-- Reopening needs the `paseo` CLI package on the daemon host (on Windows, inside the desktop app's
-  `resources/app.asar`; otherwise next to the daemon's Node, else on `PATH`, which only allows the
-  slower binary fallback).
+- Importing terminal or Claude Code/Codex sessions (and listing the latter) needs the `paseo` CLI
+  package on the daemon host (on Windows, inside the desktop app's `resources/app.asar`; otherwise
+  next to the daemon's Node, else on `PATH`, which only allows the slower binary fallback).
+  Restoring an archived Paseo agent uses `paseo.agents.ref(id).reload()` directly (Paseo 0.17+).
 - Titles come from the first 64 KB: a session whose first prompt starts later shows "Empty session".
   Short automated sessions (e.g. "Reply with just: ok" probes) are listed like any other.
 - Switch lists active Paseo workspaces only. Live agents are not listed (they are in the sidebar).
