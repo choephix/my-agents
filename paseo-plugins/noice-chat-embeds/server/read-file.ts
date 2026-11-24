@@ -225,8 +225,13 @@ async function resolveEmbedPath(
   requested ??= path.resolve(cwd, requestedPath.replace(/^~(?=$|[\\/])/, homedir()));
   const markdown = isMarkdownPath(requested);
   const where = boxes.length ? "the chat's working directory and the slip boxes" : "the chat's working directory";
-  // Checked before touching the disk so "not found" never reveals other files outside the trusted folders.
-  if (!markdown && !isInside(requested, cwd) && !boxes.some((box) => isInside(requested, box))) return error("disallowed", `That file is outside ${where}.`);
+  // A path outside the trusted folders as written is resolved through its symlinks (box paths are real),
+  // so `<symlinked folder>/<box>/pic.svg` counts as inside the box. One that can't be resolved (missing)
+  // gets the same answer as one outside, so "not found" never reveals other files outside the trusted folders.
+  if (!markdown && !isInside(requested, cwd) && !boxes.some((box) => isInside(requested, box))) {
+    const real = await realpath(requested).catch(() => null);
+    if (real === null || !(isInside(real, chat.real) || boxes.some((box) => isInside(real, box)))) return error("disallowed", `That file is outside ${where}.`);
+  }
 
   try {
     // Symlinks are resolved on both sides (box paths are real already), so a link inside a trusted
