@@ -80,6 +80,17 @@ export class LinksStore<T> {
     return run;
   }
 
+  /** Applies a pushed snapshot from a daemon subscription, preserving prior sub-agent links if omitted. */
+  apply(id: string, next: T): void {
+    const prev = this.get(id).data;
+    this.set(id, { data: prev ? this.keep(prev, next) : next, error: null });
+  }
+
+  /** Records a subscription error without discarding already-rendered data. */
+  setError(id: string, error: string): void {
+    this.set(id, { ...this.get(id), error });
+  }
+
   forget(id: string): void {
     this.entries.delete(id);
   }

@@ -32,3 +32,15 @@ export const webshareSettings = defineSettings({
     folder: z.string().default(DEFAULT_WEBSHARE_FOLDER),
   }),
 });
+
+export const GroupingSchema = z.enum(["flat", "tab", "site"]);
+
+/** The links page's grouping on this device (Settings menu → Grouping). */
+export const viewSettings = defineSettings({
+  id: "view",
+  scope: "device",
+  version: 1,
+  schema: z.object({
+    grouping: GroupingSchema.default("flat"),
+  }),
+});

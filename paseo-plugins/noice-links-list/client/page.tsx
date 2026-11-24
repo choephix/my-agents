@@ -1,17 +1,14 @@
-import { useWorkspace, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
+import { useSettings, useWorkspace, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AppState, Pressable, Text, View, type LayoutChangeEvent } from "react-native";
 import type { LinkKind } from "../shared/links";
+import { viewSettings } from "../shared/settings";
 import { KIND_LABEL, LinkRow, listStyles, SubagentsSwitch, TypeTabs, useLinkPress, type PressState } from "./list-ui";
 import { ProviderGlyph } from "./provider-glyph";
 import { kindCounts, shownKind, subagentChoices, typeChoices, type LinksStore, type WorkspaceLinks } from "./store";
-import { loadDeviceValue, saveDeviceValue } from "./web";
 import { byTab, bySite, flatRows, GROUPINGS, searchFilter, subagentExtra, type Grouping, type PageGroup, type PageRow } from "./workspace";
 
-/** While any agent of the workspace runs, a visible links page refetches this often. */
-const RUNNING_REFRESH_MS = 3_000;
-const GROUPING_KEY = "mentioned-links.grouping";
 /** The page's content column; wider tabs center it. */
 const COLUMN_WIDTH = 960;
 
@@ -120,10 +117,10 @@ function pageStyles(theme: Theme, compact: boolean) {
 
 /**
  * The workspace's links as a tab in its main area: a small title, search, the popover's type tabs and
- * `+N subagents` switch, and a settings menu (Grouping: Flat / By tab / By site). Fetched when it
- * becomes visible, every 3 s while any of the workspace's agents runs, nothing while hidden.
+ * `+N subagents` switch, and a settings menu (Grouping: Flat / By tab / By site, stored per device
+ * via `viewSettings`). Subscribes to daemon push updates while visible; nothing runs while hidden.
  */
-export function createLinksPage(store: LinksStore<WorkspaceLinks>, show: (workspaceId: string, refresh: boolean) => () => void) {
+export function createLinksPage(store: LinksStore<WorkspaceLinks>, watch: (workspaceId: string) => () => void) {
   const subscribe = (listener: () => void) => store.subscribe(listener);
 
   return function LinksPage(props: PluginWorkspacePanelProps) {
@@ -131,7 +128,7 @@ export function createLinksPage(store: LinksStore<WorkspaceLinks>, show: (worksp
     const { compact } = layout;
     const entry = useSyncExternalStore(subscribe, () => store.get(workspaceId));
     const name = useWorkspace(workspaceId, (workspace) => workspace.name);
-    const running = useWorkspace(workspaceId, (workspace) => workspace.status === "running") ?? false;
+    const view = useSettings(viewSettings);
     // Hidden workspace decks measure 0 wide; the app in the background is hidden too.
     const [width, setWidth] = useState(-1);
     const active = useSyncExternalStore(subscribeAppState, () => AppState.currentState !== "background");
@@ -141,23 +138,18 @@ export function createLinksPage(store: LinksStore<WorkspaceLinks>, show: (worksp
     const [query, setQuery] = useState("");
     const [choice, setChoice] = useState<LinkKind | undefined>(() => typeChoices.get(workspaceId));
     const [subagentsShown, setSubagentsShown] = useState(() => subagentChoices.has(workspaceId));
-    const [grouping, setGrouping] = useState<Grouping>(() => {
-      const saved = loadDeviceValue(GROUPING_KEY);
-      return GROUPINGS.find((option) => option.value === saved)?.value ?? "flat";
-    });
+    const [pendingGrouping, setPendingGrouping] = useState<Grouping | null>(null);
+    const savedGrouping: Grouping = view.status === "ready" ? view.values.grouping : "flat";
+    const grouping = pendingGrouping ?? savedGrouping;
+    useEffect(() => {
+      if (view.status === "ready") setPendingGrouping(null);
+    }, [view.status, savedGrouping]);
     const [menuOpen, setMenuOpen] = useState(false);
     const [searchFocused, setSearchFocused] = useState(false);
     const [, setFoldsVersion] = useState(0);
     const { press, open, copied } = useLinkPress();
 
-    // Registered before the first refresh, so the page's own fetch already includes sub-agents.
-    useEffect(() => store.watchSubagents(workspaceId), [workspaceId]);
-    useEffect(() => (visible ? show(workspaceId, true) : undefined), [visible, workspaceId]);
-    useEffect(() => {
-      if (!visible || !running) return;
-      const timer = setInterval(() => void store.refresh(workspaceId, true), RUNNING_REFRESH_MS);
-      return () => clearInterval(timer);
-    }, [visible, running, workspaceId]);
+    useEffect(() => (visible ? watch(workspaceId) : undefined), [visible, workspaceId]);
 
     const choose = (kind: LinkKind) => {
       typeChoices.set(workspaceId, kind);
@@ -169,9 +161,13 @@ export function createLinksPage(store: LinksStore<WorkspaceLinks>, show: (worksp
       setSubagentsShown(!subagentsShown);
     };
     const pickGrouping = (value: Grouping) => {
-      saveDeviceValue(GROUPING_KEY, value);
-      setGrouping(value);
       setMenuOpen(false);
+      setPendingGrouping(value);
+      if (view.status === "ready") {
+        void view.save({ ...view.values, grouping: value }, view.revision).then((ok) => {
+          if (ok) setPendingGrouping(null);
+        });
+      }
     };
     const foldKey = (group: PageGroup) => `${workspaceId}|${group.key}`;
     const folded = (group: PageGroup) => folds.get(foldKey(group)) ?? !!group.tab?.closed;

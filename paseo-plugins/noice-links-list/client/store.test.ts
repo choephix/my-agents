@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Link, LinkKind } from "../shared/links";
-import { kindCounts, rowMark, shownKind, withSubagents } from "./store";
+import { keepChatSubagents, kindCounts, LinksStore, rowMark, shownKind, withSubagents, type ChatLinks } from "./store";
 
 const link = (kind: LinkKind, n: number): Link => ({ key: `${kind}:${n}`, kind, title: `${kind} ${n}`, where: "", path: `~/${n}`, glyph: "File", lastAt: n });
 
@@ -48,5 +48,33 @@ describe("sub-agent links", () => {
   it("mark a missing path after the path, keeping the sub-agent", () => {
     expect(rowMark({ ...link("file", 1), missing: true })).toBe("missing");
     expect(rowMark({ ...link("file", 1), missing: true, via: "Scout" })).toBe("missing · ↳ Scout");
+  });
+});
+
+describe("LinksStore push updates", () => {
+  it("applies pushed snapshots, clears prior errors, and preserves data on error", () => {
+    const store = new LinksStore<ChatLinks>(
+      async () => ({ links: [] }),
+      keepChatSubagents,
+    );
+    const seen: string[] = [];
+    const off = store.subscribe((id) => seen.push(id));
+
+    store.setError("a1", "disconnected");
+    expect(store.get("a1")).toEqual({ data: null, error: "disconnected" });
+
+    store.apply("a1", { links: [link("web", 1)], subagentLinks: [link("file", 2)] });
+    expect(store.get("a1")).toEqual({ data: { links: [link("web", 1)], subagentLinks: [link("file", 2)] }, error: null });
+
+    store.setError("a1", "temporary error");
+    expect(store.get("a1").data?.links).toHaveLength(1);
+    expect(store.get("a1").error).toBe("temporary error");
+
+    // Applying a push without subagentLinks preserves the previous subagentLinks via keepChatSubagents.
+    store.apply("a1", { links: [link("web", 3)] });
+    expect(store.get("a1").data?.subagentLinks).toHaveLength(1);
+    expect(store.get("a1").error).toBeNull();
+    expect(seen).toEqual(["a1", "a1", "a1", "a1"]);
+    off();
   });
 });

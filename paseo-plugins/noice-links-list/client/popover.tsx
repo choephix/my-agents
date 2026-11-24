@@ -1,14 +1,11 @@
-import { useAgent, type PluginButtonContentProps } from "@getpaseo/plugin/client";
+import type { PluginButtonContentProps } from "@getpaseo/plugin/client";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Text, View } from "react-native";
 import type { LinkKind } from "../shared/links";
 import { LinkRow, listStyles, SubagentsSwitch, TypeTabs, useLinkPress } from "./list-ui";
 import { kindCounts, shownKind, subagentChoices, typeChoices, withSubagents, type ChatLinks, type LinksStore } from "./store";
 
-/** While the chat's agent runs, an open popover refetches this often. */
-const RUNNING_REFRESH_MS = 3_000;
-
-export function createLinksPopover(store: LinksStore<ChatLinks>) {
+export function createLinksPopover(store: LinksStore<ChatLinks>, watch: (agentId: string) => () => void) {
   const subscribe = (listener: () => void) => store.subscribe(listener);
 
   return function LinksPopover(props: PluginButtonContentProps) {
@@ -29,19 +26,10 @@ export function createLinksPopover(store: LinksStore<ChatLinks>) {
       else subagentChoices.add(agentId);
       setSubagentsShown(!subagentsShown);
     }, [agentId, subagentsShown]);
-    const status = useAgent(agentId, (agent) => agent.status);
     const { press, open, copied } = useLinkPress(close);
 
-    // Registered before the refresh below, so the popover's own fetch already includes sub-agents.
-    useEffect(() => store.watchSubagents(agentId), [agentId]);
-    useEffect(() => {
-      void store.refresh(agentId);
-    }, [agentId]);
-    useEffect(() => {
-      if (status !== "running") return;
-      const timer = setInterval(() => void store.refresh(agentId), RUNNING_REFRESH_MS);
-      return () => clearInterval(timer);
-    }, [agentId, status]);
+    // Subscribes to daemon push updates (with sub-agents) for as long as the popover is open.
+    useEffect(() => (agentId ? watch(agentId) : undefined), [agentId]);
 
     const { compact } = layout;
     const styles = listStyles(theme, compact);

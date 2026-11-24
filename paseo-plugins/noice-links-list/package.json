@@ -2,13 +2,22 @@
   "name": "noice-links-list",
   "private": true,
   "version": "0.0.0",
-  "files": ["paseo-plugin.json", "OVERVIEW.md", "index.client.tsx", "index.server.ts", "client/", "server/", "shared/", "screenshots/"],
+  "files": [
+    "paseo-plugin.json",
+    "OVERVIEW.md",
+    "index.client.tsx",
+    "index.server.ts",
+    "client/",
+    "server/",
+    "shared/",
+    "screenshots/"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "devDependencies": {
-    "@getpaseo/plugin": "0.13.0",
+    "@getpaseo/plugin": "^0.17.3",
     "@types/node": "^24.0.0",
     "@types/react": "~19.2.0",
     "react": "19.1.0",

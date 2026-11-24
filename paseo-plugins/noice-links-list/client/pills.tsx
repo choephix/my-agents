@@ -2,7 +2,7 @@ import type { PluginButtonIconProps, PluginButtonRegistration, PluginClientConte
 import { Icon } from "@getpaseo/plugin/client/ui";
 import { useEffect, useRef } from "react";
 import { Platform, View } from "react-native";
-import { linksForAgent } from "../shared/links";
+import { linksForAgent, watchAgentLinks } from "../shared/links";
 import type { AgentListener, AgentSummary } from "./agents";
 import { popoverFor, startPhoneMenu, tabTitle } from "./phone-menu";
 import { createLinksPopover } from "./popover";
@@ -65,7 +65,51 @@ export function startPills(client: PluginClientContext): { agents: AgentListener
     }, [agentId]);
     return <View ref={ref}>{Platform.OS !== "web" && <Icon name="Link" size={props.size} color={props.color} />}</View>;
   }
-  const Content = createLinksPopover(store);
+  /** Active popover push subscriptions per chat, ref-counted so duplicate popovers share one stream. */
+  const watched = new Map<string, { refs: number; stop(): void }>();
+  const watch = (agentId: string) => {
+    const existing = watched.get(agentId);
+    if (existing) {
+      existing.refs++;
+    } else {
+      let active = true;
+      const offSubagents = store.watchSubagents(agentId);
+      const unsub = client.subscribe(
+        watchAgentLinks,
+        { agentId, subagents: true },
+        (data) => {
+          if (active) store.apply(agentId, data);
+        },
+        {
+          onClosed: ({ error }) => {
+            if (active && error) store.setError(agentId, error.message);
+          },
+        },
+      );
+      watched.set(agentId, {
+        refs: 1,
+        stop() {
+          active = false;
+          offSubagents();
+          unsub();
+        },
+      });
+    }
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const entry = watched.get(agentId);
+      if (!entry) return;
+      entry.refs--;
+      if (entry.refs <= 0) {
+        entry.stop();
+        watched.delete(agentId);
+      }
+    };
+  };
+
+  const Content = createLinksPopover(store, watch);
   // Not "links": that id is the workspace header button's (`header.tsx`), and Paseo rejects a duplicate.
   const menu = startPhoneMenu(client, { id: "chat-links", title: "Mentioned links", icon: "Link" }, () => {
     for (const agentId of pills.keys()) sync(agentId);
@@ -150,6 +194,8 @@ export function startPills(client: PluginClientContext): { agents: AgentListener
     stop() {
       offStore();
       menu.stop();
+      for (const entry of watched.values()) entry.stop();
+      watched.clear();
       for (const pill of pills.values()) pill.registration.remove();
       pills.clear();
     },

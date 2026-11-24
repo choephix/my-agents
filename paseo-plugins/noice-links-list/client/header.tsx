@@ -4,9 +4,8 @@ import { SettingsAction, SettingsInput, SettingsSection, SettingsSwitch } from "
 import { settingsRpc } from "@getpaseo/plugin";
 import { useState } from "react";
 import { AppState, Text, View } from "react-native";
-import { linksForWorkspace } from "../shared/links";
+import { linksForWorkspace, watchWorkspaceLinks } from "../shared/links";
 import { DEFAULT_WEBSHARE_FOLDER, headerSettings, webshareSettings } from "../shared/settings";
-import type { AgentListener, AgentSummary } from "./agents";
 import { createLinksPage } from "./page";
 import { keepWorkspaceSubagents, LinksStore, type WorkspaceLinks } from "./store";
 
@@ -18,33 +17,58 @@ export const PANEL_ID = "links";
  * the buttons off and on at once, on every workspace; **Show composer pill** does the same for
  * `pills`. The settings screen also edits the webshare mapping (`WebshareSettings`).
  *
- * A workspace's links are fetched when its links page becomes visible; again when one of its agents
- * is created, finishes a turn, is closed or renamed while the page is on screen, else on next show.
- * Nothing polls while idle, and the header button itself fetches nothing.
+ * While a workspace's links page is visible, it subscribes to `links.watch-workspace` for instant
+ * push updates from daemon filesystem/lifecycle watchers; nothing runs while hidden or idle, and
+ * the header button itself fetches nothing.
  */
 export function startWorkspaceLinks(client: PluginClientContext, pills: { setVisible(visible: boolean): void }) {
   const store = new LinksStore<WorkspaceLinks>(
     (workspaceId, subagents, poll) => client.rpc(linksForWorkspace, { workspaceId, subagents, poll }),
     keepWorkspaceSubagents,
   );
-  /** Visible links pages per workspace. */
-  const onScreen = new Map<string, number>();
-  /** Workspaces whose agents changed while nothing of theirs was on screen: refetch on next show. */
-  const stale = new Set<string>();
+  /** Active `links.watch-workspace` subscriptions per workspace, ref-counted for split views. */
+  const watched = new Map<string, { refs: number; stop(): void }>();
 
-  /** Marks a workspace on screen until the returned function runs; `refresh` fetches now (a page), else only when needed. */
-  const show = (workspaceId: string, refresh: boolean) => {
-    onScreen.set(workspaceId, (onScreen.get(workspaceId) ?? 0) + 1);
-    if (stale.delete(workspaceId) || refresh || !store.get(workspaceId).data) void store.refresh(workspaceId);
+  const watch = (workspaceId: string) => {
+    const existing = watched.get(workspaceId);
+    if (existing) {
+      existing.refs++;
+    } else {
+      let active = true;
+      const offSubagents = store.watchSubagents(workspaceId);
+      const unsub = client.subscribe(
+        watchWorkspaceLinks,
+        { workspaceId, subagents: true },
+        (data) => {
+          if (active) store.apply(workspaceId, data);
+        },
+        {
+          onClosed: ({ error }) => {
+            if (active && error) store.setError(workspaceId, error.message);
+          },
+        },
+      );
+      watched.set(workspaceId, {
+        refs: 1,
+        stop() {
+          active = false;
+          offSubagents();
+          unsub();
+        },
+      });
+    }
+    let released = false;
     return () => {
-      const left = (onScreen.get(workspaceId) ?? 1) - 1;
-      if (left) onScreen.set(workspaceId, left);
-      else onScreen.delete(workspaceId);
+      if (released) return;
+      released = true;
+      const entry = watched.get(workspaceId);
+      if (!entry) return;
+      entry.refs--;
+      if (entry.refs <= 0) {
+        entry.stop();
+        watched.delete(workspaceId);
+      }
     };
-  };
-  const touch = (workspaceId: string) => {
-    if (onScreen.has(workspaceId)) void store.refresh(workspaceId);
-    else if (store.get(workspaceId).data) stale.add(workspaceId);
   };
 
   // Header buttons, one per workspace, following the daemon's workspace directory.
@@ -72,7 +96,8 @@ export function startWorkspaceLinks(client: PluginClientContext, pills: { setVis
   const removeButton = (workspaceId: string) => {
     buttons.get(workspaceId)?.remove();
     buttons.delete(workspaceId);
-    stale.delete(workspaceId);
+    watched.get(workspaceId)?.stop();
+    watched.delete(workspaceId);
     store.forget(workspaceId);
   };
   const setVisible = (next: boolean) => {
@@ -172,39 +197,14 @@ export function startWorkspaceLinks(client: PluginClientContext, pills: { setVis
     );
   }
 
-  // Agents changing what a workspace's page shows: a new tab, a finished turn, a closed or renamed tab.
-  const agents = new Map<string, { workspaceId: string; status: string; closed: boolean; title: string | null }>();
-  const observe = (agent: AgentSummary, initial: boolean) => {
-    const before = agents.get(agent.id);
-    if (!agent.workspaceId || agent.internal) {
-      agents.delete(agent.id);
-      return;
-    }
-    const now = { workspaceId: agent.workspaceId, status: agent.status, closed: !!agent.archivedAt, title: agent.title ?? null };
-    agents.set(agent.id, now);
-    if (initial) return;
-    const turnEnded = before?.status === "running" && now.status !== "running";
-    if (!before || turnEnded || before.closed !== now.closed || before.title !== now.title) touch(now.workspaceId);
-  };
-  const agentListener: AgentListener = {
-    replace(list) {
-      for (const agent of list) observe(agent, true);
-    },
-    update: (agent) => observe(agent, false),
-    remove(agentId) {
-      const before = agents.get(agentId);
-      agents.delete(agentId);
-      if (before) touch(before.workspaceId);
-    },
-  };
-
   return {
-    Page: createLinksPage(store, show),
+    Page: createLinksPage(store, watch),
     SettingsScreen,
-    agents: agentListener,
     stop() {
       lifetime.abort();
       appState.remove();
+      for (const entry of watched.values()) entry.stop();
+      watched.clear();
       for (const id of [...buttons.keys()]) removeButton(id);
     },
   };

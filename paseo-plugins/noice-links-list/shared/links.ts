@@ -1,4 +1,4 @@
-import { defineRpc } from "@getpaseo/plugin";
+import { defineRpc, defineSubscription } from "@getpaseo/plugin";
 import { z } from "zod";
 
 /**
@@ -93,11 +93,25 @@ export const linksForWorkspace = defineRpc({
   name: "links.for-workspace",
   /**
    * `subagents`: also each tab's sub-agent links (the links page asks, the header button doesn't).
-   * `poll`: the page's timed refresh; it reuses the tabs listed last and reads only their links.
+   * `poll`: reuses the tabs listed last and reads only their links.
    */
   input: z.object({ workspaceId: z.string(), subagents: z.boolean().optional(), poll: z.boolean().optional() }),
   output: z.object({
     /** The workspace's root agents, closed ones included; sub-agents are folded into their root. */
     tabs: z.array(WorkspaceTabSchema),
   }),
+});
+
+/** Pushes a chat's links whenever its transcript, sub-agent transcripts, or timeline changes. */
+export const watchAgentLinks = defineSubscription({
+  name: "links.watch-agent",
+  input: z.object({ agentId: z.string(), subagents: z.boolean().optional() }),
+  event: linksForAgent.output,
+});
+
+/** Pushes a workspace's links while the links page is visible. */
+export const watchWorkspaceLinks = defineSubscription({
+  name: "links.watch-workspace",
+  input: z.object({ workspaceId: z.string(), subagents: z.boolean().optional() }),
+  event: linksForWorkspace.output,
 });

@@ -1,10 +1,12 @@
 import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
+import path from "node:path";
 import type { linksForAgent, linksForWorkspace, WorkspaceTab } from "../shared/links";
 import { TailFold } from "./cache";
 import { addProse, listLinks, siteFor, subagentLinks, type LinkMap } from "./links";
 import { agentTranscripts, findSubagents, harnessSubagents, type SubagentTranscript } from "./subagents";
-import { findTranscript, type ProseReader } from "./transcripts";
+import { findTranscript, type ProseReader, type Transcript } from "./transcripts";
+import type { WatchTargets } from "./watcher";
 import { workspaceTree, type TabAgents } from "./workspace";
 
 /** Transcripts read at once; a session can have hundreds of sub-agents, a workspace dozens of tabs. */
@@ -29,9 +31,25 @@ async function listAllAgents(paseo: PaseoApi): Promise<PaseoAgent[]> {
   return all;
 }
 
+export interface DetailedResult<T> {
+  result: T;
+  targets: WatchTargets;
+}
+
 export interface LinksService {
   forAgent(input: RpcInput<typeof linksForAgent>, paseo: PaseoApi): Promise<RpcOutput<typeof linksForAgent>>;
+  forAgentDetailed(input: RpcInput<typeof linksForAgent>, paseo: PaseoApi): Promise<DetailedResult<RpcOutput<typeof linksForAgent>>>;
   forWorkspace(input: RpcInput<typeof linksForWorkspace>, paseo: PaseoApi): Promise<RpcOutput<typeof linksForWorkspace>>;
+  forWorkspaceDetailed(input: RpcInput<typeof linksForWorkspace>, paseo: PaseoApi): Promise<DetailedResult<RpcOutput<typeof linksForWorkspace>>>;
+}
+
+/** The directory where a transcript's harness sub-agents live, if that harness has one. */
+function subagentDirOf(transcript: Transcript | null): string | null {
+  const folder = transcript?.file.replace(/\.jsonl$/, "");
+  if (!folder) return null;
+  if (transcript?.kind === "omp") return folder;
+  if (transcript?.kind === "claude") return path.join(folder, "subagents");
+  return null;
 }
 
 /**
@@ -59,12 +77,18 @@ export function createLinksService(home: string, webshareOrigin = "", webshareFo
     });
   };
 
-  async function forAgent({ agentId, subagents }: RpcInput<typeof linksForAgent>, paseo: PaseoApi): Promise<RpcOutput<typeof linksForAgent>> {
+  async function forAgentDetailed(
+    { agentId, subagents }: RpcInput<typeof linksForAgent>,
+    paseo: PaseoApi,
+  ): Promise<DetailedResult<RpcOutput<typeof linksForAgent>>> {
+    const files = new Set<string>();
+    const dirs = new Set<string>();
     const handle = paseo.agents.ref(agentId);
     // fetch_agent reads the live or stored record; unlike a timeline fetch it never loads the agent.
     const agent = (await handle.refresh())?.agent;
-    if (!agent) return { source: "none", links: [] };
+    if (!agent) return { result: { source: "none", links: [] }, targets: { files, dirs } };
     const transcript = await findTranscript(agent, home);
+    if (transcript) files.add(transcript.file);
     let source: "transcript" | "timeline" = "transcript";
     let links: LinkMap | null = null;
     if (transcript) {
@@ -83,15 +107,23 @@ export function createLinksService(home: string, webshareOrigin = "", webshareFo
         addProse(links, { role: item.type === "user_message" ? "user" : "assistant", text: item.text, at: Date.parse(timestamp) }, site);
       }
     }
-    if (!subagents) return { source, links: listLinks(links) };
-    const read = await readSubagents(await findSubagents(agentId, transcript, paseo, home));
-    return { source, links: listLinks(links), subagentLinks: subagentLinks(links, read) };
+    if (!subagents) return { result: { source, links: listLinks(links) }, targets: { files, dirs } };
+    const subDir = subagentDirOf(transcript);
+    if (subDir) dirs.add(subDir);
+    const found = await findSubagents(agentId, transcript, paseo, home);
+    for (const sub of found) files.add(sub.file);
+    const read = await readSubagents(found);
+    return { result: { source, links: listLinks(links), subagentLinks: subagentLinks(links, read) }, targets: { files, dirs } };
+  }
+
+  async function forAgent(input: RpcInput<typeof linksForAgent>, paseo: PaseoApi): Promise<RpcOutput<typeof linksForAgent>> {
+    return (await forAgentDetailed(input, paseo)).result;
   }
 
   /**
    * Each workspace's tabs as last listed. Listing them pages through every agent record (616 today:
-   * ~40 ms and 1.2 MB per call), so a poll reuses them; a new, closed or renamed tab makes the
-   * client ask without `poll`.
+   * ~40 ms and 1.2 MB per call), so a transcript-change push reuses them; a new, closed or renamed
+   * tab refreshes the tree.
    */
   const trees = new Map<string, TabAgents<PaseoAgent>[]>();
 
@@ -100,14 +132,18 @@ export function createLinksService(home: string, webshareOrigin = "", webshareFo
    * sub-agents added: its harness sub-agents plus the Paseo agents folded into it. A tab whose
    * transcript can't be read lists no links.
    */
-  async function forWorkspace(
+  async function forWorkspaceDetailed(
     { workspaceId, subagents, poll }: RpcInput<typeof linksForWorkspace>,
     paseo: PaseoApi,
-  ): Promise<RpcOutput<typeof linksForWorkspace>> {
+  ): Promise<DetailedResult<RpcOutput<typeof linksForWorkspace>>> {
+    const files = new Set<string>();
+    const dirs = new Set<string>();
     const tree = (poll && trees.get(workspaceId)) || workspaceTree(await listAllAgents(paseo), workspaceId);
     trees.set(workspaceId, tree);
     const tabs = await inBatches(tree, async ({ root, children }): Promise<WorkspaceTab> => {
       const transcript = await findTranscript(root, home);
+      const closed = !!root.archivedAt;
+      if (!closed && transcript) files.add(transcript.file);
       let links: LinkMap = new Map();
       if (transcript) {
         try {
@@ -120,16 +156,33 @@ export function createLinksService(home: string, webshareOrigin = "", webshareFo
         agentId: root.id,
         title: root.title || root.id.slice(0, 8),
         provider: root.provider,
-        closed: !!root.archivedAt,
+        closed,
         // Every URL link carries its variants, so the page can merge them across tabs (`client/workspace.ts`).
         links: listLinks(links, true),
       };
       if (!subagents) return tab;
+      if (!closed) {
+        const subDir = subagentDirOf(transcript);
+        if (subDir) dirs.add(subDir);
+      }
       const [own, folded] = await Promise.all([harnessSubagents(transcript), agentTranscripts(children, home)]);
+      if (!closed) {
+        for (const sub of own) files.add(sub.file);
+      }
+      for (let i = 0; i < children.length; i++) {
+        // Watch transcripts of open Paseo children even if their root is closed, though normally both match.
+        if (children[i].archivedAt) continue;
+        const found = await findTranscript(children[i], home);
+        if (found) files.add(found.file);
+      }
       return { ...tab, subagentLinks: subagentLinks(links, await readSubagents([...own, ...folded]), true) };
     });
-    return { tabs };
+    return { result: { tabs }, targets: { files, dirs } };
   }
 
-  return { forAgent, forWorkspace };
+  async function forWorkspace(input: RpcInput<typeof linksForWorkspace>, paseo: PaseoApi): Promise<RpcOutput<typeof linksForWorkspace>> {
+    return (await forWorkspaceDetailed(input, paseo)).result;
+  }
+
+  return { forAgent, forAgentDetailed, forWorkspace, forWorkspaceDetailed };
 }
