@@ -1,7 +1,7 @@
 {
   "id": "slipbox",
   "name": "Slip-box",
-  "description": "Search and attach notes from a local slip-box folder to Paseo prompts.",
+  "description": "Attach, view, settle, and capture Markdown notes from a local slip-box folder in Paseo.",
   "requirements": {
     "paseo": ">=0.17.0"
   }

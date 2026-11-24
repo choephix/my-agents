@@ -1,9 +1,12 @@
 import { stat } from "node:fs/promises";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { resolveBoxFolder } from "./server/config";
+import { createSlipFile } from "./server/create";
 import { SlipIndex } from "./server/index";
+import { resolveSlipContext } from "./server/resolve";
 import { searchSlips } from "./server/search";
 import { searchSlipsRpc } from "./shared/attachments";
+import { createSlipRpc, resolveSlipContextRpc, SLIP_CREATED_TIMELINE_KIND } from "./shared/panel";
 import { boxStatusRpc, DEFAULT_SETTINGS, type SlipboxSettings, slipboxSettings } from "./shared/settings";
 
 async function directoryExists(folder: string): Promise<boolean> {
@@ -23,7 +26,7 @@ export default function contribute(server: PluginServerContext) {
     return state.status === "ready" ? state.values : DEFAULT_SETTINGS;
   };
 
-  server.handle(searchSlipsRpc, async ({ query }) => {
+  const requireBoxFolder = async (): Promise<{ folder: string; current: SlipboxSettings }> => {
     const current = await readSettings();
     const resolved = await resolveBoxFolder(current.boxFolder);
     if (!resolved.folder) {
@@ -35,8 +38,62 @@ export default function contribute(server: PluginServerContext) {
     if (!(await directoryExists(resolved.folder))) {
       throw new Error(`Slip-box folder not found: ${resolved.folder}`);
     }
-    const slips = await index.list(resolved.folder, current);
+    return { folder: resolved.folder, current };
+  };
+
+  server.handle(searchSlipsRpc, async ({ query }) => {
+    const { folder, current } = await requireBoxFolder();
+    const slips = await index.list(folder, current);
     return searchSlips(slips, query);
+  });
+
+  server.handle(resolveSlipContextRpc, async ({ filePath, targets, embedRequests, includeBacklinks }) => {
+    const current = await readSettings();
+    const resolved = await resolveBoxFolder(current.boxFolder);
+    return resolveSlipContext({
+      boxFolder: resolved.folder,
+      filePath,
+      targets,
+      embedRequests,
+      includeBacklinks,
+      index,
+    });
+  });
+
+  server.handle(createSlipRpc, async (input, { paseo }) => {
+    const { folder } = await requireBoxFolder();
+    const created = await createSlipFile({
+      boxFolder: folder,
+      title: input.title,
+      body: input.body,
+      kind: input.kind,
+      emoji: input.emoji,
+      about: input.about,
+      from: input.from,
+    });
+
+    if (input.agentId) {
+      try {
+        await paseo.agents.ref(input.agentId).timeline.append({
+          type: "plugin",
+          id: `slip-created:${created.wikiName}`,
+          kind: SLIP_CREATED_TIMELINE_KIND,
+          version: 1,
+          data: {
+            absolutePath: created.absolutePath,
+            relativePath: created.relativePath,
+            wikiName: created.wikiName,
+            title: created.title,
+            kind: created.kind,
+            emoji: created.emoji,
+          },
+        });
+      } catch (error) {
+        console.warn("Could not append slip confirmation row to timeline:", error);
+      }
+    }
+
+    return created;
   });
 
   server.handle(boxStatusRpc, async () => {

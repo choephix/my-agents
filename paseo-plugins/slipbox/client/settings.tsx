@@ -140,7 +140,7 @@ export function SlipboxSettingsScreen() {
   return (
     <SettingsSection
       title={TITLE}
-      info="Search and attach Markdown notes from a slip-box folder via the composer attachment menu."
+      info="Attach, view, settle, and capture Markdown notes from a slip-box folder."
     >
       <SettingsCard>
         <SettingsRow label="Active folder" hint={formatStatusHint(status)} />
