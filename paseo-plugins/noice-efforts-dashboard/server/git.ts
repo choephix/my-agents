@@ -35,6 +35,56 @@ function lookUpTop(dir: string): Promise<string | null> {
   return top;
 }
 
+const gitDirs = new Lru<string, { at: number; dir: Promise<string | null> }>(500);
+
+/** Absolute `.git` directory (worktree gitdir or repo `.git`) for a real path, null when not in a repo. */
+export function gitDir(dir: string): Promise<string | null> {
+  const cached = gitDirs.get(dir);
+  if (!cached) return lookUpGitDir(dir);
+  return cached.dir.then((found) => (found || Date.now() - cached.at < NO_REPO_MS ? found : lookUpGitDir(dir)));
+}
+
+function lookUpGitDir(dir: string): Promise<string | null> {
+  const found = git(dir, ["rev-parse", "--git-dir"]).then(
+    (out) => {
+      const trimmed = out.trim();
+      return trimmed ? path.resolve(dir, trimmed) : null;
+    },
+    () => null,
+  );
+  gitDirs.set(dir, { at: Date.now(), dir: found });
+  return found;
+}
+
+/**
+ * Drops cached `git status` and `git log` entries after a filesystem or gitdir change so pushed
+ * detail snapshots reflect edits and commits immediately instead of waiting for cache TTLs.
+ */
+export function invalidateGit(target?: { root?: string; top?: string }): void {
+  if (!target?.root && !target?.top) {
+    statusCache.clear();
+    logCache.clear();
+    return;
+  }
+  const { root, top } = target;
+  if (root) {
+    statusCache.delete(root);
+    const prefix = root + path.sep;
+    for (const key of [...logCache.keys()]) {
+      if (key === root || key.startsWith(prefix)) logCache.delete(key);
+    }
+  }
+  if (top) {
+    const prefix = top + path.sep;
+    for (const key of [...statusCache.keys()]) {
+      if (key === top || key.startsWith(prefix)) statusCache.delete(key);
+    }
+    for (const key of [...logCache.keys()]) {
+      if (key === top || key.startsWith(prefix)) logCache.delete(key);
+    }
+  }
+}
+
 export interface Change {
   /** Path relative to the effort folder. */
   rel: string;

@@ -1,4 +1,4 @@
-import { defineRpc } from "@getpaseo/plugin";
+import { defineRpc, defineSubscription } from "@getpaseo/plugin";
 import { z } from "zod";
 
 /**
@@ -107,6 +107,13 @@ export const overviewRpc = defineRpc({
   name: "efforts.overview",
   input: SinceSchema,
   output: z.union([OverviewSchema, UnchangedSchema]),
+});
+
+/** Live push of the overview whenever efforts, bindings, workspaces, or settings change. */
+export const overviewWatch = defineSubscription({
+  name: "efforts.overview.watch",
+  input: z.object({}),
+  event: OverviewSchema,
 });
 
 export const TicketSchema = z.object({
@@ -226,6 +233,13 @@ export const detailRpc = defineRpc({
   name: "efforts.detail",
   input: SinceSchema.extend({ root: z.string(), slug: z.string() }),
   output: z.union([EffortDetailSchema, UnchangedSchema]),
+});
+
+/** Live push of one effort's detail while an effort panel or popover is visible. */
+export const detailWatch = defineSubscription({
+  name: "efforts.detail.watch",
+  input: z.object({ root: z.string(), slug: z.string() }),
+  event: EffortDetailSchema,
 });
 
 export const readRpc = defineRpc({

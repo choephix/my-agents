@@ -1,6 +1,6 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import type { ToastApi } from "@getpaseo/plugin/client/react-native";
-import { bindRpc, overviewRpc, type Overview } from "../shared/rpc";
+import { bindRpc, overviewRpc, overviewWatch, type Overview } from "../shared/rpc";
 
 /** The client context of this installation, set by `contribute`; popovers get no props for it. */
 let current: PluginClientContext | null = null;
@@ -24,6 +24,8 @@ const listeners = new Set<(overview: Overview) => void>();
 /** Bumped by every bind; a poll that started before the newest bind doesn't publish. */
 let generation = 0;
 let bindsInFlight = 0;
+/** Covers `bindRpc` + its confirming `fetchOverview`, blocking pre-bind pushes from flashing old state. */
+let settlingBinds = 0;
 
 export function latestOverview(): Overview | null {
   return latest;
@@ -42,6 +44,34 @@ export function onOverview(listener: (overview: Overview) => void): () => void {
 function publish(overview: Overview): void {
   latest = overview;
   listeners.forEach((listener) => listener(overview));
+}
+
+/**
+ * Keeps the shared overview store live via daemon push (`overviewWatch`), with zero periodic
+ * polling. Unchanged etags keep the same object reference so nothing re-renders, and pushes
+ * arriving while a bind is settling cannot overwrite the optimistic binding.
+ */
+export function startOverviewWatch(target: PluginClientContext): () => void {
+  let active = true;
+  const unsub = target.subscribe(
+    overviewWatch,
+    {},
+    (overview) => {
+      if (!active || settlingBinds > 0) return;
+      latestAt = Date.now();
+      if (latest?.etag === overview.etag) return;
+      publish(overview);
+    },
+    {
+      onClosed: ({ error }) => {
+        if (error && active) console.warn("[efforts] overview subscription closed", error);
+      },
+    },
+  );
+  return () => {
+    active = false;
+    unsub();
+  };
 }
 
 /**
@@ -75,6 +105,7 @@ type Target = { kind: "effort"; root: string; slug: string } | { kind: "none" } 
 export async function bind(workspaceId: string, target: Target): Promise<void> {
   generation++;
   bindsInFlight++;
+  settlingBinds++;
   const before = latest;
   let optimistic: Overview | null = null;
   if (latest) {
@@ -87,15 +118,19 @@ export async function bind(workspaceId: string, target: Target): Promise<void> {
     publish(optimistic);
   }
   try {
-    await client().rpc(bindRpc, { workspaceId, target });
-  } catch (error) {
-    // Put back what the server still has, unless a newer bind already replaced it.
-    if (before && latest === optimistic) publish(before);
-    throw error;
+    try {
+      await client().rpc(bindRpc, { workspaceId, target });
+    } catch (error) {
+      // Put back what the server still has, unless a newer bind already replaced it.
+      if (before && latest === optimistic) publish(before);
+      throw error;
+    } finally {
+      bindsInFlight--;
+    }
+    await fetchOverview();
   } finally {
-    bindsInFlight--;
+    settlingBinds--;
   }
-  await fetchOverview();
 }
 
 /**

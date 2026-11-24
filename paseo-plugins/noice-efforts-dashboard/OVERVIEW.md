@@ -32,6 +32,13 @@ effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<s
   Show menu as **Effort**): `Map` icon + the effort's short name and `done/total` count when it has
   tickets (`success` green once all tickets are done, `muted` otherwise). Unbound workspaces
   (including suggestions) and "No effort" render nothing. Works on web, desktop, and phones.
+- **New workspace effort picker** (`addNewWorkspaceItem` → searchable `Effort` combobox beside the
+  project/branch setup controls; badge on desktop, full-width field on phones): appears only for
+  projects with `.scratch` efforts, lets you bind the new workspace to an effort (or explicitly
+  mark **No effort**, or **Clear effort**) before creating it. Stores the choice in workspace
+  metadata (`noice-efforts-dashboard.effort`) and records the binding in `bindings.json` from
+  `workspace.create.after`, pushing an immediate overview update so the sidebar row badge and
+  header pill appear right away.
 - **Sidebar row "Efforts"** → global screen (⌘K "All efforts"): search over efforts, tickets, docs
   and workspace names (results grouped, replacing the table while typing; `/` focuses), project
   chips, a muted warnings line under them only when the server noticed a problem (an Extra folder
@@ -107,7 +114,13 @@ effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<s
   order: the folder's `.omp/RULES.md`, `.scratch/<slug>/` mentions in the last 256 KB of the
   workspace's chats of the last 3 days (3+ and twice the runner-up), workspace name, newest files
   (only when no other workspace shares the `.scratch`).
-- Files are cached by mtime; the client re-reads every 5 s only while the surface is on screen.
+- Files are cached by mtime; the daemon pushes updates via Paseo 0.17 `defineSubscription`
+  (`efforts.overview.watch` and `efforts.detail.watch`) with zero periodic client polling.
+  An `EffortsWatcher` watches active `.scratch` roots two levels deep (`root`, `<slug>`, and
+  first-level subfolders) plus the owning repo's `.git` dir (`index`/`HEAD`/`logs/HEAD`) while an
+  effort detail surface is visible, closing all `FSWatcher`s whenever no client is subscribed.
+  Bindings, settings saves, workspace creation/archival/renames, and chat turns in unbound
+  workspaces also push updates immediately.
 - Colours come only from Paseo's theme. One derived colour: the done-bar track and quote bars use
   surface2 on dark themes, and on light ones 35 % of the muted text over surface0 (light surface2
   is near-white and the empty bar vanished). Chips and the Status tag on a highlighted row
@@ -122,18 +135,19 @@ effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<s
   a file's `git status` v2 record (HEAD/index blob hashes) and mtime/size stay the same.
 - 2026-10-29, 7 roots (~3,600 stats per overview): synchronous directory reads took an overview
   from 31 to 21 ms of plugin CPU (wall 23 → 19 ms). What remains is mostly the stats.
-- Polls send the etag of what they hold (`since`); an unchanged overview or detail comes back as
-  `{ unchanged: true }` (55 B) and the client keeps the same object, so nothing re-renders. Idle
-  relay traffic with the tab open: ~115 KB → ~1.4 KB per 5 s; 0 React commits per idle poll.
+- Live updates travel over `efforts.overview.watch` and `efforts.detail.watch` subscriptions (zero
+  idle polling or relay traffic; unchanged etags are never pushed and keep the same client object so
+  nothing re-renders). On-demand RPC reads (`efforts.overview`, `efforts.detail`) still support
+  `since` etags (`{ unchanged: true }`, 55 B) for hover prefetch and warm-detail refreshes.
 - Detail folds don't carry Markdown the client never draws (fold bodies with bullets, Decisions
   bullets): a larger effort 96 → 48 KB, a smaller effort 34 → 25 KB.
 - Feels instant: Bind / Unbind / No effort show at once, popovers close at once; a failed write
-  puts the old binding back with an error toast, and a poll already in flight can't undo a bind.
-  Hovering a global row reads its detail ahead (row → column 436 → ~150 ms), hovering a ticket
+  puts the old binding back with an error toast, and an in-flight read or pre-bind push can't undo a
+  bind. Hovering a global row reads its detail ahead (row → column 436 → ~150 ms), hovering a ticket
   row reads its text (click → body 330 → 90 ms), hovering Grill/Work reads the chat settings
   (kept 5 s; click → chat 760 ms). The global list holds its order while the pointer is over it and
-  re-sorts when it leaves. Polls never show a spinner. Header labels call the host's `update`
-  only when they change; the 30 s header refresh is skipped while a surface polls.
+  re-sorts when it leaves. Push updates never show a spinner. Header labels call the host's `update`
+  only when they change, and `warmDetail` re-reads a bound effort only when its `touchedMs` advances.
 
 ## Limits
 - Plugins can't open a file in Paseo's file tab or write into the current composer: the viewer is
@@ -146,8 +160,9 @@ effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<s
 - A poll that fails keeps showing what was on screen, with no stale marker.
 
 ## Files
-`index.server.ts`, `server/` (scan, git, suggest, bindings, service), `shared/` (RPC contracts,
-parser, settings), `client/` (panel, row-badge, effort view, unbound view, search results, marks, Markdown
-renderer copied from noice-omp-slash-aliases). Tests: `npx vitest run` (parser variants, symlinked
-roots, bindings store, uncommitted line counts, bind/poll races, row badge, ticket body, links). Screenshots:
-`screenshots/`.
+`index.server.ts`, `server/` (scan, git, suggest, bindings, watcher, service), `shared/` (RPC &
+subscription contracts, new-workspace metadata/RPC, parser, settings), `client/` (panel, row-badge,
+new-workspace picker, effort view, unbound view, search results, marks, Markdown renderer copied
+from noice-omp-slash-aliases). Tests: `npx vitest run` (parser variants, symlinked roots, bindings
+store, filesystem/git watcher, uncommitted line counts, bind/push races, row badge, new-workspace
+picker and create hook, ticket body, links). Screenshots: `screenshots/`.

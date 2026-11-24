@@ -18,6 +18,11 @@ import type {
   readRpc,
   searchRpc,
 } from "../shared/rpc";
+import {
+  parseNewWorkspaceEffort,
+  type ProjectEffort,
+  type projectEffortsRpc,
+} from "../shared/new-workspace";
 import { MAX_COMMITS, type folderSettings } from "../shared/settings";
 import type { BindingStore } from "./bindings";
 import { commits, effortChanges, numstat, sectionChanges, type Change } from "./git";
@@ -122,10 +127,22 @@ export class EffortsService {
   constructor(
     private readonly bindings: BindingStore,
     private readonly settings: FolderSettings,
+    private readonly onRoots?: (roots: ReadonlySet<string>) => void,
   ) {}
 
   /** Roots this service has listed; reads are refused anywhere else. */
   private knownRoots = new Set<string>();
+
+  /** Drops the cached agent list so transcript-based suggestions re-read after a chat turn. */
+  invalidateAgents(): void {
+    agentsCache = null;
+  }
+
+  /** True when the workspace already has an explicit binding (an effort or "no effort"). */
+  async hasBinding(workspaceId: string): Promise<boolean> {
+    const bindings = await this.bindings.all();
+    return Boolean(bindings[workspaceId]);
+  }
 
   async overview({ since }: RpcInput<typeof overviewRpc>, { paseo }: PluginHandlerContext): Promise<RpcOutput<typeof overviewRpc>> {
     const warnings: string[] = [];
@@ -161,6 +178,7 @@ export class EffortsService {
     }
     out.sort((a, b) => (b.efforts[0]?.touchedMs ?? 0) - (a.efforts[0]?.touchedMs ?? 0));
     this.knownRoots = new Set(out.map((root) => root.root));
+    this.onRoots?.(rootSet);
 
     const sharedCount = new Map<string, number>();
     roots.forEach((root) => root && sharedCount.set(root, (sharedCount.get(root) ?? 0) + 1));
@@ -518,5 +536,89 @@ export class EffortsService {
       await this.bindings.set(workspaceId, { kind: "effort", root: target.root, slug: target.slug, at });
     }
     return { ok: true };
+  }
+
+  /**
+   * Lists efforts available for one project on the New workspace screen: the project's own
+   * `.scratch`, any live workspace `.scratch` under that project, and any Extra folder inside it.
+   */
+  async projectEfforts(
+    { projectId, query }: RpcInput<typeof projectEffortsRpc>,
+    { paseo }: PluginHandlerContext,
+  ): Promise<RpcOutput<typeof projectEffortsRpc>> {
+    const [projectList, workspaces, settings] = await Promise.all([
+      paseo.projects.list().catch(() => ({ projects: [] })),
+      listAll((cursor) => paseo.workspaces.list({ page: { limit: 200, ...(cursor ? { cursor } : {}) } })).catch(() => []),
+      this.settings.read(),
+    ]);
+    const excludedFolders = settings.status === "ready" ? settings.values.excludedFolders : [];
+    const extraRoots = new Set<string>();
+    if (settings.status === "ready") {
+      for (const folder of settings.values.extraFolders) {
+        const root = await scratchFor(folder, home);
+        if (root) extraRoots.add(root);
+      }
+    }
+
+    const projectRoots = new Set<string>();
+    const addIfAllowed = (root: string | null) => {
+      if (!root) return;
+      if (extraRoots.has(root) || !skipReason(root, home, excludedFolders)) projectRoots.add(root);
+    };
+
+    const project = projectList.projects.find((candidate) => candidate.projectId === projectId);
+    if (project?.projectRootPath) {
+      addIfAllowed(await realOrNull(path.join(project.projectRootPath, ".scratch")));
+      const projectReal = await realOrNull(project.projectRootPath);
+      if (projectReal) {
+        for (const extraRoot of extraRoots) {
+          if (extraRoot === projectReal || extraRoot.startsWith(projectReal + path.sep)) projectRoots.add(extraRoot);
+        }
+      }
+    }
+    const projectWorkspaces = workspaces.filter((workspace) => !workspace.archivingAt && !workspace.internal && workspace.projectId === projectId);
+    const workspaceRoots = await Promise.all(projectWorkspaces.map(workspaceRoot));
+    workspaceRoots.forEach(addIfAllowed);
+
+    const all: ProjectEffort[] = [];
+    let rootCount = 0;
+    await Promise.all(
+      [...projectRoots].map(async (root) => {
+        const scans = await scanRoot(root);
+        if (!scans.length) return;
+        rootCount++;
+        this.knownRoots.add(root);
+        const shorts = shortsFor(scans);
+        const label = rootLabel(root);
+        const summaries = await Promise.all(scans.map((scan) => summarize(scan, scans, shorts)));
+        for (const summary of summaries) all.push({ ...summary, rootLabel: label });
+      }),
+    );
+    all.sort((a, b) => b.touchedMs - a.touchedMs);
+
+    const words = (query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+    const filtered = words.length
+      ? all.filter((effort) => {
+          const hay = `${effort.slug}\n${effort.short}\n${effort.title ?? ""}\n${effort.destination ?? ""}\n${effort.rootLabel}`.toLowerCase();
+          return words.every((word) => hay.includes(word));
+        })
+      : all;
+    return {
+      hasEfforts: all.length > 0,
+      rootCount,
+      efforts: filtered.slice(0, 50),
+    };
+  }
+
+  /** Applies an effort selection carried in workspace metadata when Paseo creates a workspace. */
+  async applyInitialBinding(workspaceId: string, metadata: Readonly<Record<string, unknown>> | null | undefined): Promise<boolean> {
+    const choice = parseNewWorkspaceEffort(metadata);
+    if (!choice) return false;
+    if (choice.kind === "none") {
+      await this.bind({ workspaceId, target: { kind: "none" } });
+      return true;
+    }
+    await this.bind({ workspaceId, target: { kind: "effort", root: choice.root, slug: choice.slug } });
+    return true;
   }
 }

@@ -40,4 +40,13 @@ export class Lru<K, V> {
     this.entries.delete(key);
     this.total -= entry.weight;
   }
+
+  keys(): IterableIterator<K> {
+    return this.entries.keys();
+  }
+
+  clear(): void {
+    this.entries.clear();
+    this.total = 0;
+  }
 }

@@ -1,14 +1,10 @@
 import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
-import { AppState } from "react-native";
 import type { Overview, WorkspaceInfo } from "../shared/rpc";
 import { warmDetail } from "./data";
 import { HeaderPie } from "./header-icon";
 import { findEffort } from "./model";
 import { EffortPopover } from "./popover";
-import { fetchOverview, latestOverview, latestOverviewAt, onOverview } from "./runtime";
-
-/** Labels refresh this often in the background (the explorer tab polls every 5 s while visible). */
-const REFRESH_MS = 30_000;
+import { latestOverview, onOverview, startOverviewWatch } from "./runtime";
 
 /**
  * The icon-only header button's tooltip (and accessible name):
@@ -26,8 +22,9 @@ function headerTitle(overview: Overview, workspace: WorkspaceInfo): string | nul
 }
 
 /**
- * One icon-only header button per workspace (progress pie + chevron; popover option B). Phone
- * layouts list it as a row of the workspace ⋯ menu, which opens the same popover as a sheet.
+ * One icon-only header button per workspace (progress pie + chevron; popover option B), driven by
+ * the live `overviewWatch` push subscription (also feeding sidebar row badges and Efforts surfaces).
+ * Phone layouts list it as a row of the workspace ⋯ menu, which opens the same popover as a sheet.
  */
 export function startButtons(client: PluginClientContext): () => void {
   /** What each registration shows now; `update` is only called when that changes. */
@@ -44,8 +41,12 @@ export function startButtons(client: PluginClientContext): () => void {
     }
     for (const workspace of overview.workspaces) {
       const title = overview.showHeaderButton ? headerTitle(overview, workspace) : null;
-      // The popover is sized on its first frame, so its effort is read before it opens.
-      if (workspace.binding?.kind === "effort") warmDetail(workspace.binding);
+      // The popover is sized on its first frame, so its effort is read before it opens (and
+      // refreshed whenever the pushed overview reports a newer `touchedMs`).
+      if (workspace.binding?.kind === "effort") {
+        const effort = findEffort(overview, workspace.binding.root, workspace.binding.slug);
+        warmDetail(workspace.binding, effort?.touchedMs);
+      }
       const current = headers.get(workspace.id);
       if (!title) {
         if (current?.visible) {
@@ -73,14 +74,12 @@ export function startButtons(client: PluginClientContext): () => void {
     }
   };
   const offOverview = onOverview(sync);
-  const refresh = () => void fetchOverview().catch((error: unknown) => console.warn("[efforts] overview failed", error));
-  refresh();
-  // Only when no surface polled lately: an open Efforts tab already refreshes every 5 s.
-  const timer = setInterval(() => AppState.currentState === "active" && Date.now() - latestOverviewAt() >= REFRESH_MS - 1_000 && refresh(), REFRESH_MS);
+  const stopWatch = startOverviewWatch(client);
+  sync();
 
   return () => {
+    stopWatch();
     offOverview();
-    clearInterval(timer);
     headers.forEach((header) => header.registration.remove());
   };
 }

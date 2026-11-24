@@ -2,11 +2,9 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { AppState, type LayoutChangeEvent } from "react-native";
-import { detailRpc, readRpc, searchRpc, type EffortDetail } from "../shared/rpc";
+import { detailRpc, detailWatch, readRpc, searchRpc, type EffortDetail } from "../shared/rpc";
 import { client, fetchOverview, latestOverview, onOverview } from "./runtime";
 
-/** Files change under agents; surfaces re-read every 5 s while they are on screen. */
-const POLL_MS = 5_000;
 /** A hover this long reads ahead what the click will open; passing over rows reads nothing. */
 const PREFETCH_DELAY_MS = 120;
 
@@ -26,17 +24,26 @@ export function useVisible(): { visible: boolean; width: number; onLayout(event:
   return { visible: active && width !== 0, width, onLayout };
 }
 
-export function useOverview(visible: boolean) {
+/**
+ * Live overview fed by the daemon's `overviewWatch` push subscription (zero periodic polling).
+ * Falls back to a single `fetchOverview` only if mounted before the first push arrives.
+ */
+export function useOverview(_visible?: boolean) {
   const queryClient = useQueryClient();
-  // Bindings changed elsewhere (header popover, another panel) land here at once.
-  useEffect(() => onOverview((overview) => queryClient.setQueryData(["efforts", "overview"], overview)), [queryClient]);
+  // Sync with the newest pushed overview on mount and on every subsequent push or bind.
+  useEffect(() => {
+    const current = latestOverview();
+    if (current) queryClient.setQueryData(["efforts", "overview"], current);
+    return onOverview((overview) => queryClient.setQueryData(["efforts", "overview"], overview));
+  }, [queryClient]);
   return useQuery({
     queryKey: ["efforts", "overview"],
     queryFn: fetchOverview,
-    initialData: latestOverview() ?? undefined,
-    staleTime: 2_000,
-    refetchInterval: visible ? POLL_MS : false,
-    refetchOnMount: true,
+    initialData: () => latestOverview() ?? undefined,
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchInterval: false,
   });
 }
 
@@ -45,29 +52,32 @@ type EffortRef = { root: string; slug: string };
 /**
  * The last detail read per effort, kept outside React. Paseo sizes a header popover once, on its
  * first frame; a popover whose detail arrives later is cut off at the bottom. `warmDetail` reads it
- * ahead when the header button appears, and `useDetail` starts from it. `detail` is absent while
- * the first read is in flight.
+ * ahead when the header button appears (and re-warms when the effort's `touchedMs` advances), and
+ * `useDetail` starts from it. `detail` is absent while the first read is in flight.
  */
-const warmDetails = new Map<string, { detail?: EffortDetail; at: number }>();
-const WARM_MS = 30_000;
+const warmDetails = new Map<string, { detail?: EffortDetail; touchedMs?: number; at: number }>();
 const warmKey = (effort: EffortRef) => `${effort.root}\0${effort.slug}`;
 
-export function warmDetail(effort: EffortRef): void {
+export function warmDetail(effort: EffortRef, touchedMs?: number): void {
   const key = warmKey(effort);
   const held = warmDetails.get(key);
-  if (held && Date.now() - held.at < WARM_MS) return;
-  warmDetails.set(key, { detail: held?.detail, at: Date.now() });
+  if (held && held.at > 0 && (touchedMs === undefined || held.touchedMs === touchedMs)) return;
+  warmDetails.set(key, { detail: held?.detail, touchedMs, at: Date.now() });
   client()
     .rpc(detailRpc, { root: effort.root, slug: effort.slug, since: held?.detail?.etag })
     .then((result) => {
-      if (!("unchanged" in result)) warmDetails.set(key, { detail: result, at: Date.now() });
+      if (!("unchanged" in result)) {
+        warmDetails.set(key, { detail: result, touchedMs: result.summary.touchedMs, at: Date.now() });
+      } else if (held) {
+        warmDetails.set(key, { detail: held.detail, touchedMs: touchedMs ?? held.touchedMs, at: Date.now() });
+      }
     })
-    .catch(() => warmDetails.set(key, { detail: held?.detail, at: 0 }));
+    .catch(() => warmDetails.set(key, { detail: held?.detail, touchedMs: held?.touchedMs, at: 0 }));
 }
 
 /**
- * The detail query. A poll sends the etag of the detail it holds; an unchanged effort comes back
- * as `{ unchanged }` and keeps the same object, so nothing re-renders.
+ * On-demand detail read (used for hover prefetch and initial mount when not yet warm). Live
+ * updates while visible arrive via `detailWatch` push instead of polling.
  */
 function detailOptions(queryClient: QueryClient, effort: EffortRef) {
   const queryKey = ["efforts", "detail", effort.root, effort.slug];
@@ -77,12 +87,13 @@ function detailOptions(queryClient: QueryClient, effort: EffortRef) {
       const previous = queryClient.getQueryData<EffortDetail>(queryKey);
       const result = await client().rpc(detailRpc, { root: effort.root, slug: effort.slug, since: previous?.etag });
       if (!("unchanged" in result)) {
-        warmDetails.set(warmKey(effort), { detail: result, at: Date.now() });
+        warmDetails.set(warmKey(effort), { detail: result, touchedMs: result.summary.touchedMs, at: Date.now() });
         return result;
       }
       if (previous) return previous;
       const fresh = await client().rpc(detailRpc, { root: effort.root, slug: effort.slug });
       if ("unchanged" in fresh) throw new Error("Efforts server answered “unchanged” to a first read");
+      warmDetails.set(warmKey(effort), { detail: fresh, touchedMs: fresh.summary.touchedMs, at: Date.now() });
       return fresh;
     },
     staleTime: 2_000,
@@ -102,21 +113,66 @@ function docOptions(effort: EffortRef, rel: string) {
 
 export function useDetail(effort: EffortRef | null, visible: boolean) {
   const queryClient = useQueryClient();
-  const options = effort ? detailOptions(queryClient, effort) : { queryKey: ["efforts", "detail", undefined, undefined], queryFn: () => Promise.reject(new Error("No effort")) };
+  const root = effort?.root;
+  const slug = effort?.slug;
+  const options = effort
+    ? detailOptions(queryClient, effort)
+    : { queryKey: ["efforts", "detail", undefined, undefined], queryFn: () => Promise.reject(new Error("No effort")) };
   const warm = effort ? warmDetails.get(warmKey(effort)) : undefined;
+
+  // Push live updates only while this effort surface is visible; unchanged etags skip re-renders,
+  // and changed etags also refresh any open ticket/doc page for this effort.
+  useEffect(() => {
+    if (!root || !slug || !visible) return;
+    const queryKey = ["efforts", "detail", root, slug];
+    const key = warmKey({ root, slug });
+    let active = true;
+    const unsub = client().subscribe(
+      detailWatch,
+      { root, slug },
+      (detail) => {
+        if (!active) return;
+        warmDetails.set(key, { detail, touchedMs: detail.summary.touchedMs, at: Date.now() });
+        const previous = queryClient.getQueryData<EffortDetail>(queryKey);
+        if (previous?.etag === detail.etag) return;
+        queryClient.setQueryData(queryKey, detail);
+        if (previous) void queryClient.invalidateQueries({ queryKey: ["efforts", "doc", root, slug] });
+      },
+      {
+        onClosed: ({ error }) => {
+          if (error && active) console.warn("[efforts] detail subscription closed", error);
+        },
+      },
+    );
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, [queryClient, root, slug, visible]);
+
   return useQuery({
     ...options,
-    // Start from the read-ahead copy and re-read it at once (updatedAt 0 marks it stale).
     initialData: warm?.detail,
-    initialDataUpdatedAt: 0,
+    initialDataUpdatedAt: warm?.at,
     enabled: !!effort,
-    refetchInterval: visible ? POLL_MS : false,
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchInterval: false,
     retry: false,
   });
 }
 
-export function useDoc(effort: EffortRef, rel: string, visible: boolean) {
-  return useQuery({ ...docOptions(effort, rel), refetchInterval: visible ? POLL_MS : false });
+/**
+ * Reads a ticket or doc file on demand; refreshed automatically whenever `detailWatch` pushes a
+ * changed effort snapshot while the parent `EffortView` is visible (no periodic polling).
+ */
+export function useDoc(effort: EffortRef, rel: string, _visible?: boolean) {
+  return useQuery({
+    ...docOptions(effort, rel),
+    refetchOnWindowFocus: false,
+    refetchInterval: false,
+  });
 }
 
 let hoverTimer: ReturnType<typeof setTimeout> | undefined;
