@@ -1,13 +1,16 @@
-// Revisions: a copy of what an embed shows, taken when the embed is written, kept in `.revisions/` in the vault
-// folder (the slip box). Readers (the desk, anyone) look the copy up instead of today's file. The plan and its
-// reviews: the slip box memo `2026-11-22-revisions-copying-proposal`. The store describes itself in
-// `.revisions/README.md` (README below), so it can be read with no code from here.
+// Revisions: a copy of what an embed shows, taken when the embed is written, kept in `.revisions/` in the slip box
+// holding the embedded file (a file in no box: the session's box, else the first listed box). Readers (the desk,
+// anyone) look the copy up instead of today's file. The plan and its reviews: the slip box memo
+// `2026-11-22-revisions-copying-proposal`. The store describes itself in `.revisions/README.md` (README below), so it
+// can be read with no code from here.
 //
 // - A reply: on `assistant_message`, which omp awaits before it saves the reply or runs its tool calls. The copy is
 //   named by the reply's `message.timestamp`.
 // - A memo: at the end of a run, embed lines that are new since this session last looked, in box files this
-//   session's own tools wrote. Tagged ` @<embedding file>`. Embeds inside a copied part: one level, as md-embed draws.
-// - Never throws into omp: every failure goes to `.revisions/errors.log`.
+//   session's own tools wrote, box by box. Tagged ` @<embedding file>`. Embeds inside a copied part: one level, as
+//   md-embed draws.
+// - Never throws into omp: every failure goes to `.revisions/errors.log` in the session's box (else the first listed
+//   box); a failed first look of a box, to that box's.
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { createHash, randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, linkSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -15,15 +18,18 @@ import { homedir } from "node:os";
 import { isAbsolute, join, normalize, relative, sep } from "node:path";
 import {
 	EMBED,
+	type From,
 	MARKDOWN,
+	type Target,
+	boxFiles,
+	boxOf,
+	boxes,
 	fencedLines,
-	isVaultName,
+	isBoxName,
 	maskCode,
 	parseTarget,
 	readLines,
 	slice,
-	vaultFiles,
-	vaultFolder,
 } from "./md-embed.ts";
 
 export const STORE = ".revisions";
@@ -69,7 +75,7 @@ function inside(folder: string, path: string): boolean {
 
 /**
  * The store folder for a link, from the link as written (label and part dropped): box-relative for a path in the
- * box, `_home/…` or `_root/…` for one outside it, a vault name as written. Undefined for a vault name md-embed
+ * box, `_home/…` or `_root/…` for one outside it, a box name as written. Undefined for a box name md-embed
  * would never resolve.
  */
 export function revisionFolder(raw: string, box: string, home = homedir()): string | undefined {
@@ -90,7 +96,7 @@ export function revisionFolder(raw: string, box: string, home = homedir()): stri
 			fromBox = false;
 		}
 	} else {
-		if (!isVaultName(path)) return undefined;
+		if (!isBoxName(path)) return undefined;
 		segments = path.split("/");
 	}
 	const lastIndex = segments.length - 1;
@@ -230,20 +236,37 @@ interface Copied {
 	text: string;
 }
 
+/** The box copies go into for a file in no box: the box holding `cwd`, else the first listed box. */
+export function fallbackBox(cwd: string | undefined): string | undefined {
+	return boxOf(cwd) ?? boxes()[0];
+}
+
 /**
- * Copies one embed: undefined when md-embed would not show it as text (unresolved, several matches, not Markdown,
- * over 2 MB, a part that names nothing), when it embeds a file in `stack`, or when it is a capture.
+ * Where an embed's copy goes: the file it names, resolved as md-embed does from `from`; the box holding that file,
+ * else `fallback`; and its store folder in that box. Undefined when it names no single file.
+ */
+export function placeOf(raw: string, from: From, fallback: string): { target: Target; box: string; folder: string } | undefined {
+	const target = parseTarget(raw, from);
+	if (!target || target.several) return undefined;
+	const box = boxOf(target.path) ?? fallback;
+	const folder = revisionFolder(raw, box);
+	return folder ? { target, box, folder } : undefined;
+}
+
+/**
+ * Copies one embed into the box holding the embedded file, else into `fallback`: undefined when md-embed would not
+ * show it as text (unresolved, several matches, not Markdown, over 2 MB, a part that names nothing), when it embeds
+ * a file in `stack`, or when it is a capture.
  */
 export function copyOne(
-	box: string,
+	fallback: string,
 	raw: string,
 	time: number,
-	opts: { tag?: string; nested?: boolean; stack?: readonly string[] } = {},
+	opts: { tag?: string; nested?: boolean; stack?: readonly string[]; from?: From } = {},
 ): Copied | undefined {
-	const folder = revisionFolder(raw, box);
-	if (!folder) return undefined;
-	const target = parseTarget(raw);
-	if (!target || target.several || !MARKDOWN.test(target.path)) return undefined;
+	const place = placeOf(raw, opts.from ?? {}, fallback);
+	if (!place || !MARKDOWN.test(place.target.path)) return undefined;
+	const { target, box, folder } = place;
 	if (opts.stack?.includes(target.path)) return undefined;
 	if (inside(join(box, "captures"), target.path)) return undefined; // captures never change
 	const lines = readLines(target.path);
@@ -254,21 +277,24 @@ export function copyOne(
 	return { path: target.path, text };
 }
 
-/** Copies an embed and the embeds inside what it shows (one level); each failure is logged on its own. */
-export function copyWithNested(box: string, raw: string, time: number, session: string, tag?: string): void {
+/**
+ * Copies an embed written at `from` and the embeds inside what it shows (one level, resolved from the embedded
+ * file); each failure is logged in `fallback` on its own.
+ */
+export function copyWithNested(fallback: string, raw: string, time: number, session: string, from: From, tag?: string): void {
 	let top: Copied | undefined;
 	try {
-		top = copyOne(box, raw, time, { tag });
+		top = copyOne(fallback, raw, time, { tag, from });
 	} catch (err) {
-		logError(box, session, raw, err);
+		logError(fallback, session, raw, err);
 		return;
 	}
 	if (!top) return;
 	for (const inner of embedsIn(top.text)) {
 		try {
-			copyOne(box, inner, time, { tag, nested: true, stack: [top.path] });
+			copyOne(fallback, inner, time, { tag, nested: true, stack: [top.path], from: { file: top.path, cwd: from.cwd } });
 		} catch (err) {
-			logError(box, session, inner, err);
+			logError(fallback, session, inner, err);
 		}
 	}
 }
@@ -301,12 +327,14 @@ export function embedKey(raw: string, box: string): string | undefined {
 	return `${folder}\u0000${partKey(hash < 0 ? undefined : ref.slice(hash + 1)) ?? ""}`;
 }
 
-/** Every Markdown file in the box with its embeds; a file that can't be read counts as absent. */
+/** Every Markdown file in the box (not in a deeper box nested in it) with its embeds; a file that can't be read counts as absent. */
 export function boxEmbeds(box: string): Map<string, Embeds> {
 	const out = new Map<string, Embeds>();
-	for (const [name, paths] of vaultFiles(box)) {
+	const deeper = boxes().filter(other => inside(box, other));
+	for (const [name, paths] of boxFiles(box)) {
 		if (!MARKDOWN.test(name)) continue;
 		for (const path of paths) {
+			if (deeper.some(other => inside(other, path))) continue;
 			try {
 				const stat = statSync(path);
 				const hit = parsed.get(path);
@@ -363,69 +391,79 @@ function bornBefore(file: string, time: number): boolean {
 
 export default function revisions(pi: ExtensionAPI) {
 	pi.on("assistant_message", (event, ctx) => {
-		const box = vaultFolder();
-		if (!box) return;
+		const fallback = fallbackBox(ctx.cwd);
+		if (!fallback) return;
 		const session = ctx.sessionManager.getSessionId();
 		const text = event.message.content.flatMap(block => (block.type === "text" ? [block.text] : [])).join("\n");
-		for (const raw of embedsIn(text)) copyWithNested(box, raw, event.message.timestamp, session);
+		for (const raw of embedsIn(text)) copyWithNested(fallback, raw, event.message.timestamp, session, { cwd: ctx.cwd });
 		// returns undefined: the message is never rewritten
 	});
 
 	// Per factory call: omp runs the factory once per session, subagents included. Nothing touches the disk here:
 	// a factory that throws loses the extension for the whole session.
-	let known: Map<string, Embeds> | undefined;
-	let knownBox: string | undefined;
-	let lookedAt = 0;
-	const mine = new Set<string>(); // box files this session's tools wrote since the last scan
+	const known = new Map<string, { at: number; embeds: Map<string, Embeds> }>(); // per box: its baseline and when taken
+	const mine = new Set<string>(); // files this session's tools wrote since the last scan
 
 	const look = (box: string) => {
-		lookedAt = Date.now();
-		known = boxEmbeds(box);
-		knownBox = box;
+		const at = Date.now();
+		known.set(box, { at, embeds: boxEmbeds(box) });
 	};
 
 	const scan = (ctx: ExtensionContext) => {
-		const box = vaultFolder();
-		if (!box) return;
 		const session = ctx.sessionManager.getSessionId();
-		try {
-			if (!known || box !== knownBox) return look(box); // no baseline for this box yet: take one, copy nothing
-			const at = Date.now();
-			const now = boxEmbeds(box);
-			for (const file of mine) {
-				const embeds = now.get(file);
-				if (!embeds) continue;
-				const before = known.get(file);
-				// New to `known` but born before the last look: moved or restored, not written. No copies.
-				if (!before && bornBefore(file, lookedAt)) continue;
-				const tag = tagOf(file, box);
-				for (const [key, raw] of embeds) {
-					if (before?.has(key)) continue;
-					const [folder, part] = key.split("\u0000") as [string, string];
-					try {
-						if (hasTagged(box, folder, part || undefined, tag)) continue;
-						copyWithNested(box, raw, at, session, tag);
-					} catch (err) {
-						logError(box, session, raw, err);
+		const written = new Map<string, string[]>(); // box -> the files in it this session wrote
+		for (const file of mine) {
+			const box = boxOf(file);
+			if (box) written.set(box, [...(written.get(box) ?? []), file]);
+		}
+		mine.clear();
+		const fallback = fallbackBox(ctx.cwd);
+		for (const [box, files] of written) {
+			const spare = fallback ?? box; // copies of files in no box, and errors
+			try {
+				const before = known.get(box);
+				if (!before) {
+					look(box); // no baseline for this box yet: take one, copy nothing
+					continue;
+				}
+				const at = Date.now();
+				const now = boxEmbeds(box);
+				for (const file of files) {
+					const embeds = now.get(file);
+					if (!embeds) continue;
+					const old = before.embeds.get(file);
+					// New to the baseline but born before it was taken: moved or restored, not written. No copies.
+					if (!old && bornBefore(file, before.at)) continue;
+					const tag = tagOf(file, box);
+					const from = { file, cwd: ctx.cwd };
+					for (const [key, raw] of embeds) {
+						if (old?.has(key)) continue;
+						const part = key.split("\u0000")[1];
+						try {
+							const place = placeOf(raw, from, spare);
+							if (place && hasTagged(place.box, place.folder, part || undefined, tag)) continue;
+							copyWithNested(spare, raw, at, session, from, tag);
+						} catch (err) {
+							logError(spare, session, raw, err);
+						}
 					}
 				}
+				// always advances: a copy that failed isn't retried by this session; the import repairs it
+				known.set(box, { at, embeds: now });
+			} catch (err) {
+				logError(spare, session, "scan", err);
 			}
-			known = now; // always advances: a copy that failed isn't retried by this session; the import repairs it
-			lookedAt = at;
-		} catch (err) {
-			logError(box, session, "scan", err);
-		} finally {
-			mine.clear();
 		}
 	};
 
 	pi.on("agent_start", (_event, ctx) => {
-		const box = vaultFolder();
-		if (!box || known) return;
-		try {
-			look(box);
-		} catch (err) {
-			logError(box, ctx.sessionManager.getSessionId(), "first look", err);
+		for (const box of boxes()) {
+			if (known.has(box)) continue;
+			try {
+				look(box);
+			} catch (err) {
+				logError(box, ctx.sessionManager.getSessionId(), "first look", err);
+			}
 		}
 	});
 
@@ -480,8 +518,8 @@ searches should leave it out: it holds old text.
 **Folder**, from the link as written, \`|label\` and \`#part\` dropped and trimmed:
 - \`~\`, \`~/…\` or an absolute path: \`~\` expanded, the path normalized. Inside this box it becomes box-relative;
   inside the home folder \`_home/<rest>\`; anywhere else \`_root/<rest>\`.
-- otherwise a vault name, as written (no empty, \`.\` or \`..\` part, or it has no copies).
-- A final \`.md\` dropped, split on \`/\`, each segment encoded (below). A box-relative or vault-name path whose
+- otherwise a name looked up in the slip boxes, as written (no empty, \`.\` or \`..\` part, or it has no copies).
+- A final \`.md\` dropped, split on \`/\`, each segment encoded (below). A box-relative path or a name whose
   first segment starts with \`_\` has that \`_\` written \`%5F\`.
 
 **Time:** UTC, ISO 8601 with \`:\` written \`-\` and milliseconds: \`2026-11-20T11-51-46.512Z\`, always 24 characters.

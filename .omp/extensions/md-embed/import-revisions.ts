@@ -1,13 +1,16 @@
 #!/usr/bin/env bun
 // The revisions import, also the repair tool. It rebuilds, from omp's session transcripts, the copies the live copier
-// (`revisions.ts`) takes into the box's `.revisions/`: what each embed showed when it was written. The plan and the
+// (`revisions.ts`) takes into one box's `.revisions/`: what each embed showed when it was written. The plan and the
 // rules: the slip box memo `2026-11-22-revisions-copying-proposal`, section "The import, also the repair tool".
 //
-//   bun import-revisions.ts [--dry-run] [--box <path>] [--sessions <dir>...] [--until <iso>]
+//   bun import-revisions.ts [--dry-run] [--box <path>] [--copy <path>] [--sessions <dir>...] [--until <iso>]
 //
 // - `--dry-run` writes nothing and prints what it would write, skips by reason, joined moves and checks.
-// - `--box` is the box to write into; default md-embed's vault folder. Transcripts name the vault folder's paths;
-//   with `--box` pointing at a copy, those paths are read as paths into the copy (for trying it on a copy).
+// - `--box` names the box to rebuild, by its folder; default the one box in the slip box desk's settings (with
+//   several listed, `--box` is required). Bare names resolve in that box only; embeds of files in another listed box
+//   are skipped. Embeds of files in no box are copied into this box.
+// - `--copy` is a copy of that box: today's files are read from it and copies are written into it, while
+//   transcripts' paths into the box are read as paths into the copy (for trying it on a copy).
 // - `--sessions` replaces the session roots (default `~/.omp/agent/sessions` and `~/.omp/profiles/*/agent/sessions`).
 // - `--until` ignores entries stamped after that time (to check against an earlier research window).
 //
@@ -21,7 +24,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { MARKDOWN, isVaultName, vaultFiles, vaultFolder } from "./md-embed.ts";
+import { MARKDOWN, boxOf, boxes, boxFiles, isBoxName } from "./md-embed.ts";
 import {
 	STORE,
 	copyText,
@@ -45,7 +48,7 @@ const TRIGGER = { folder: "2026-11-19-space-naming-prompt", part: "your picks" }
 // ---------------------------------------------------------------------------------------------------------------
 // Arguments
 
-const USAGE = "usage: bun import-revisions.ts [--dry-run] [--box <path>] [--sessions <dir>...] [--until <iso>]";
+const USAGE = "usage: bun import-revisions.ts [--dry-run] [--box <path>] [--copy <path>] [--sessions <dir>...] [--until <iso>]";
 
 function fail(message: string): never {
 	console.error(`${message}\n${USAGE}`);
@@ -55,12 +58,14 @@ function fail(message: string): never {
 function parseArgs(argv: string[]) {
 	let dryRun = false;
 	let box: string | undefined;
+	let copy: string | undefined;
 	let until = Number.POSITIVE_INFINITY;
 	const sessions: string[] = [];
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i]!;
 		if (arg === "--dry-run") dryRun = true;
 		else if (arg === "--box" && argv[i + 1]) box = resolve(argv[++i]!.replace(/^~(?=$|\/)/, homedir()));
+		else if (arg === "--copy" && argv[i + 1]) copy = resolve(argv[++i]!.replace(/^~(?=$|\/)/, homedir()));
 		else if (arg === "--until" && argv[i + 1]) {
 			until = Date.parse(argv[++i]!);
 			if (Number.isNaN(until)) fail(`--until: not a time: ${argv[i]}`);
@@ -76,29 +81,30 @@ function parseArgs(argv: string[]) {
 			}
 		} catch { }
 	}
-	return { dryRun, box, until, sessions };
+	return { dryRun, box, copy, until, sessions };
 }
 
 const args = parseArgs(process.argv.slice(2));
-const sourceBox = vaultFolder();
+const listed = boxes();
+if (!args.box && listed.length > 1) fail(`several boxes in the desk's settings, pass --box: ${listed.join(", ")}`);
 /** The box as transcripts and links name it. */
-const BOX = sourceBox ?? args.box;
+const BOX = args.box ?? listed[0];
 /** The box on disk: read for today's files, written for the store. */
-const DISK_BOX = args.box ?? sourceBox;
-if (!BOX || !DISK_BOX) fail("no box: set vaultFolder in md-embed.json or pass --box");
+const DISK_BOX = args.copy ?? BOX;
+if (!BOX || !DISK_BOX) fail("no box: list one in ~/.config/slipbox-desk/settings.json or pass --box");
 
 function inside(folder: string, path: string): boolean {
 	const rel = relative(folder, path);
 	return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }
 
-/** Where a path named in a transcript lives on disk: under `--box` when it names a file in the box. */
+/** Where a path named in a transcript lives on disk: under `--copy` when it names a file in the box. */
 function disk(path: string): string {
 	return BOX !== DISK_BOX && inside(BOX!, path) ? join(DISK_BOX!, relative(BOX!, path)) : path;
 }
 
-/** A box path md-embed's vault lookup can see: no dot-folder or `node_modules` on the way. */
-function vaultVisible(path: string): boolean {
+/** A box path md-embed's box lookup can see: no dot-folder or `node_modules` on the way. */
+function boxVisible(path: string): boolean {
 	if (!inside(BOX!, path)) return false;
 	const folders = relative(BOX!, path).split(sep).slice(0, -1);
 	return folders.every(name => !name.startsWith(".") && name !== "node_modules");
@@ -551,8 +557,8 @@ function buildHistories(results: Map<string, ToolRecord>): Histories {
 		if (!list) byName.set(basename(path), [path]);
 		else if (!list.includes(path)) list.push(path);
 	};
-	for (const path of own.keys()) if (vaultVisible(path)) addName(path);
-	for (const paths of vaultFiles(DISK_BOX!).values()) for (const path of paths) addName(join(BOX!, relative(DISK_BOX!, path)));
+	for (const path of own.keys()) if (boxVisible(path)) addName(path);
+	for (const paths of boxFiles(DISK_BOX!).values()) for (const path of paths) addName(join(BOX!, relative(DISK_BOX!, path)));
 
 	// Moves: a slip gone today joins the one other slip path with its file name.
 	const joined = new Map<string, string>();
@@ -687,7 +693,7 @@ function makeResolver(h: Histories): Resolver {
 		const hash = ref.indexOf("#");
 		let path = (hash < 0 ? ref : ref.slice(0, hash)).trim();
 		const fragment = hash < 0 ? undefined : ref.slice(hash + 1).trim() || undefined;
-		if (isVaultName(path)) {
+		if (isBoxName(path)) {
 			const want = /\.[a-z\d]+$/i.test(path) ? path : `${path}.md`;
 			const matches = new Set(
 				(h.byName.get(basename(want)) ?? [])
@@ -802,6 +808,8 @@ function makeCopier(resolver: Resolver) {
 		const target = resolver.resolveAt(raw, time);
 		if ("skip" in target) return skip(target.skip);
 		if (!MARKDOWN.test(target.path)) return skip("not text");
+		const own = boxOf(target.path);
+		if (own && own !== BOX) return skip("in another box");
 		if (opts.stack?.includes(target.path)) return skip("embeds itself");
 		if (inside(join(BOX!, "captures"), target.path)) return skip("capture");
 		const found = resolver.textAt(target.path, time);
@@ -910,7 +918,7 @@ for (const reply of [...replies.values()].sort((a, b) => a.messageTs - b.message
 
 // Memos: embed lines a version holds and the text before it doesn't, copied at the end of the writer's run.
 for (const [path, list] of h.versions) {
-	if (!vaultVisible(path) || !MARKDOWN.test(path)) continue;
+	if (!boxVisible(path) || !MARKDOWN.test(path)) continue;
 	const tag = tagOf(path, BOX!);
 	const seen = new Set<string>();
 	const keysOf = (text: string) => {

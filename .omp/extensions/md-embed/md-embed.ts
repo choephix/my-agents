@@ -6,23 +6,23 @@
 //   ![[~/file.md|Label]]         any of the above under another label
 //   ![[~/shot.svg]]              a picture (png, jpg, gif, webp, avif, svg) under its file link
 //   [[~/any/file]]               a plain link to the file
-//   ![[2026-11-18-note]]         a name looked up in the vault folder
-//   ![[efforts/slip-box/map]]    the vault file whose path ends with these folders and name
+//   ![[2026-11-18-note]]         a name looked up in the slip boxes
+//   ![[efforts/slip-box/map]]    the box file whose path ends with these folders and name
 //
 // An embed draws as a `> [!NOTE]` callout whose first line links the file with
 // the title EMBED_TITLE; the md-embed Tern plugin (tern-plugins/md-embed) keys its styling on that
 // title. Tern's native view draws the callout as a card; a plain terminal gets
 // a quote without the `[!NOTE]` line, since omp's terminal Markdown has no
 // callouts. Only `.md` files and pictures on absolute or `~` paths, or names found
-// in the vault folder, embed; anything that does not resolve stays as written.
+// in a slip box, embed; anything that does not resolve stays as written.
 // Needs `extensionRenderers.assistantText` on.
 //
-// Vault folder: `vaultFolder` in `$PI_CODING_AGENT_DIR/md-embed.json`, re-read when the file changes.
+// Boxes: `boxes[].path` in the slip box desk's `~/.config/slipbox-desk/settings.json`, re-read when the file changes.
 import type { Dirent } from "node:fs";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join, normalize, relative } from "node:path";
+import { basename, isAbsolute, join, normalize, relative, resolve } from "node:path";
 
 export const EMBED_TITLE = "Embedded file";
 const MAX_LINES = 300;
@@ -41,14 +41,22 @@ const HEADING = /^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/;
 export interface RenderOptions {
 	/** Whether a Tern native view draws the text; false drops the `[!NOTE]` line. */
 	callouts: boolean;
+	/** The session's working folder: its box is the second place a name is looked up. */
+	cwd?: string;
 }
 
-interface Target {
+export interface Target {
 	path: string;
 	fragment: string | undefined;
 	alias: string | undefined;
-	/** A vault name several vault files match: their paths, and `path` is the vault folder. */
+	/** A name several box files match: their paths, and `path` is the box of the first. */
 	several?: string[];
+}
+
+/** Where a link is written: the file that embeds it, and the session's working folder. */
+export interface From {
+	file?: string;
+	cwd?: string;
 }
 
 interface Cached {
@@ -59,39 +67,74 @@ interface Cached {
 
 const cache = new Map<string, Cached>();
 
-let config: { stamp: string | null; vault: string | undefined } = { stamp: null, vault: undefined };
+let settingsFile = join(homedir(), ".config", "slipbox-desk", "settings.json");
+let listed: { stamp: string | null; boxes: string[] } = { stamp: null, boxes: [] };
 
-/** The vault folder from `md-embed.json` (`{ "vaultFolder": "/abs/path" }`); undefined when unset or invalid. */
-export function vaultFolder(): string | undefined {
-	// Per lookup: named profiles point PI_CODING_AGENT_DIR at their own agent dir.
-	const file = join(process.env.PI_CODING_AGENT_DIR?.trim() || join(homedir(), ".omp", "agent"), "md-embed.json");
-	let stamp: string | null;
+/** Reads the box list from `path` instead of the desk's settings file. */
+export function useSettingsFile(path: string): void {
+	settingsFile = path;
+	listed = { stamp: null, boxes: [] };
+}
+
+function isFolder(path: string): boolean {
 	try {
-		const stat = statSync(file);
-		stamp = `${file}:${stat.mtimeMs}:${stat.size}`;
+		return statSync(path).isDirectory();
 	} catch {
-		stamp = null;
+		return false;
 	}
-	if (stamp === config.stamp) return config.vault;
-	let vault: string | undefined;
-	try {
-		const value: unknown = stamp && JSON.parse(readFileSync(file, "utf8")).vaultFolder;
-		const path = typeof value === "string" ? value.trim().replace(/^~(?=$|\/)/, homedir()) : "";
-		if (path && isAbsolute(path)) vault = normalize(path);
-	} catch { }
-	config = { stamp, vault };
-	return vault;
 }
 
 /**
- * The vault's files by file name, with each folder's mtime when it was read. Reused while every
+ * The boxes: each `boxes[].path` in the desk's settings file, `~` expanded and made absolute, in the file's order.
+ * Folders that don't exist are left out; an unreadable or invalid file lists none.
+ */
+export function boxes(): string[] {
+	let stamp: string | null;
+	try {
+		const stat = statSync(settingsFile);
+		stamp = `${settingsFile}:${stat.mtimeMs}:${stat.size}`;
+	} catch {
+		stamp = null;
+	}
+	if (stamp !== listed.stamp) {
+		const paths: string[] = [];
+		try {
+			const value: unknown = stamp && JSON.parse(readFileSync(settingsFile, "utf8")).boxes;
+			if (Array.isArray(value)) {
+				for (const box of value) {
+					const path: unknown = box && typeof box === "object" ? Reflect.get(box, "path") : undefined;
+					if (typeof path !== "string" || !path.trim()) continue;
+					const full = resolve(path.trim().replace(/^~(?=$|\/)/, homedir()));
+					if (!paths.includes(full)) paths.push(full);
+				}
+			}
+		} catch { }
+		listed = { stamp, boxes: paths };
+	}
+	return listed.boxes.filter(isFolder);
+}
+
+/** The box holding `path` (the box folder itself counts), the nearest one when boxes nest; undefined when none does. */
+export function boxOf(path: string | undefined): string | undefined {
+	if (!path) return undefined;
+	let best: string | undefined;
+	for (const box of boxes()) {
+		const rel = relative(box, path);
+		if (rel.startsWith("..") || isAbsolute(rel)) continue;
+		if (!best || box.length > best.length) best = box;
+	}
+	return best;
+}
+
+/**
+ * Each box's files by file name, with each folder's mtime when it was read. Reused while every
  * folder keeps its mtime (a file added, removed or renamed changes its folder's), so a lookup costs
  * one stat per folder; nothing runs between lookups. Dot-folders and `node_modules` are skipped;
- * symlinked folders are not followed.
+ * symlinked folders are not followed. One index per box folder.
  */
-let vaultIndex: { root: string; folders: Map<string, number>; files: Map<string, string[]> } | undefined;
+const indexes = new Map<string, { folders: Map<string, number>; files: Map<string, string[]> }>();
 
-export function vaultFiles(root: string): Map<string, string[]> {
+export function boxFiles(root: string): Map<string, string[]> {
 	const fresh = (folder: string, mtimeMs: number) => {
 		try {
 			return statSync(folder).mtimeMs === mtimeMs;
@@ -99,8 +142,9 @@ export function vaultFiles(root: string): Map<string, string[]> {
 			return false;
 		}
 	};
-	if (vaultIndex?.root === root && [...vaultIndex.folders].every(([folder, mtimeMs]) => fresh(folder, mtimeMs))) {
-		return vaultIndex.files;
+	const index = indexes.get(root);
+	if (index && [...index.folders].every(([folder, mtimeMs]) => fresh(folder, mtimeMs))) {
+		return index.files;
 	}
 	const folders = new Map<string, number>();
 	const files = new Map<string, string[]>();
@@ -125,47 +169,62 @@ export function vaultFiles(root: string): Map<string, string[]> {
 			}
 		}
 	}
-	vaultIndex = { root, folders, files };
+	indexes.set(root, { folders, files });
 	return files;
 }
 
 /**
- * A target looked up in the vault folder: not absolute, not `~/`, and every `/`-separated part a
+ * A target looked up in the boxes: not absolute, not `~/`, and every `/`-separated part a
  * name (no empty, `.` or `..` part).
  */
-export function isVaultName(path: string): boolean {
+export function isBoxName(path: string): boolean {
 	if (path.startsWith("/") || path === "~" || path.startsWith("~/")) return false;
 	return path.split("/").every(part => part !== "" && part !== "." && part !== "..");
 }
 
 /**
- * The vault files a vault name names, `<name>.md` when it has no extension: those whose
- * vault-relative path is the name or ends with `/` + it, so `a/map` finds `efforts/a/map.md` but
- * `map` never finds `roadmap.md`. Only files sharing the name's file name are compared.
+ * The box files a box name names, `<name>.md` when it has no extension: those whose
+ * box-relative path is the name or ends with `/` + it, so `a/map` finds `efforts/a/map.md` but
+ * `map` never finds `roadmap.md`. Only files sharing the name's file name are compared; files
+ * inside a deeper box nested in this one are left to that box.
  */
-function vaultMatches(vault: string, name: string): string[] {
+function boxMatches(box: string, name: string): string[] {
 	const want = /\.[a-z\d]+$/i.test(name) ? name : `${name}.md`;
-	return (vaultFiles(vault).get(basename(want)) ?? []).filter(full => {
-		const rel = relative(vault, full);
-		return rel === want || rel.endsWith(`/${want}`);
+	return (boxFiles(box).get(basename(want)) ?? []).filter(full => {
+		const rel = relative(box, full);
+		return (rel === want || rel.endsWith(`/${want}`)) && boxOf(full) === box;
 	});
 }
 
 /**
- * `path[#fragment][|alias]` with the path made absolute; undefined unless it names an existing file.
- * A path that is not absolute and not `~/` is looked up in the vault folder by `vaultMatches`; with
- * no match it resolves as before (and, being relative, does not resolve).
+ * The files a box name names, looked up in order: the box holding `from.file`, the box holding `from.cwd`, every
+ * box. The first of these with a match gives the result: one file, or several. Empty when none matches.
  */
-export function parseTarget(raw: string): Target | undefined {
+export function lookUp(name: string, from: From = {}): string[] {
+	const own = boxOf(from.file);
+	const session = boxOf(from.cwd);
+	const steps = [own ? [own] : [], session && session !== own ? [session] : [], boxes()];
+	for (const step of steps) {
+		const matches = step.flatMap(box => boxMatches(box, name));
+		if (matches.length) return matches;
+	}
+	return [];
+}
+
+/**
+ * `path[#fragment][|alias]` with the path made absolute; undefined unless it names an existing file.
+ * A path that is not absolute and not `~/` is looked up in the boxes by `lookUp`; with no match it
+ * resolves as before (and, being relative, does not resolve).
+ */
+export function parseTarget(raw: string, from: From = {}): Target | undefined {
 	const [ref, ...aliasParts] = raw.split("|");
 	const alias = aliasParts.join("|").trim() || undefined;
 	const hash = ref!.indexOf("#");
 	let path = (hash < 0 ? ref! : ref!.slice(0, hash)).trim();
 	const fragment = hash < 0 ? undefined : ref!.slice(hash + 1).trim() || undefined;
-	const vault = isVaultName(path) ? vaultFolder() : undefined;
-	if (vault) {
-		const matches = vaultMatches(vault, path);
-		if (matches.length > 1) return { path: vault, fragment, alias: alias ?? path, several: matches };
+	if (isBoxName(path)) {
+		const matches = lookUp(path, from);
+		if (matches.length > 1) return { path: boxOf(matches[0])!, fragment, alias: alias ?? path, several: matches };
 		if (matches.length === 1) path = matches[0]!;
 	}
 	if (path === "~" || path.startsWith("~/")) path = homedir() + path.slice(1);
@@ -249,11 +308,20 @@ function link(label: string, path: string, title?: string): string {
 	return `[${label.replace(/([\\\[\]])/g, "\\$1")}](${dest}${title ? ` "${title}"` : ""})`;
 }
 
-/** The callout for a vault name several vault files match: a note linking each of them. */
+/**
+ * The callout for a box name several box files match: a note linking each of them, named by their box path when
+ * all share one box, else by their path with the home folder as `~`.
+ */
 function severalBlock(target: Target, opts: RenderOptions): string[] {
-	const names = target.several!.map(path => link(relative(target.path, path), path)).sort();
+	const paths = target.several!;
+	const oneBox = paths.every(path => boxOf(path) === target.path);
+	const home = homedir();
+	const name = (path: string) =>
+		oneBox ? relative(target.path, path) : path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+	const names = paths.map(path => link(name(path), path)).sort();
 	const header = link(target.alias!, target.path, EMBED_TITLE);
-	const block = [...(opts.callouts ? ["[!NOTE]"] : []), header, "", `*Several files in the vault folder have this name: ${names.join(", ")}.*`];
+	const where = oneBox ? "the slip box" : "the slip boxes";
+	const block = [...(opts.callouts ? ["[!NOTE]"] : []), header, "", `*Several files in ${where} have this name: ${names.join(", ")}.*`];
 	return block.map(line => (line === "" ? ">" : `> ${line}`));
 }
 
@@ -268,7 +336,7 @@ function pictureBlock(target: Target, opts: RenderOptions): string[] {
 
 /** The callout lines for one embed, unprefixed; undefined when it does not resolve or embeds a file already open above it. */
 function embedBlock(raw: string, opts: RenderOptions, stack: readonly string[]): string[] | undefined {
-	const target = parseTarget(raw);
+	const target = parseTarget(raw, { file: stack.at(-1), cwd: opts.cwd });
 	if (target?.several) return severalBlock(target, opts);
 	if (target && PICTURE.test(target.path)) return pictureBlock(target, opts);
 	if (!target || !MARKDOWN.test(target.path) || stack.includes(target.path)) return undefined;
@@ -283,7 +351,7 @@ function embedBlock(raw: string, opts: RenderOptions, stack: readonly string[]):
 	while (body.length && body[body.length - 1]!.trim() === "") body = body.slice(0, -1);
 	const inner = [...stack, target.path];
 	const rendered =
-		inner.length >= MAX_DEPTH ? linkOnly(body.join("\n")) : transform(body.join("\n"), opts, inner);
+		inner.length >= MAX_DEPTH ? linkOnly(body.join("\n"), { file: target.path, cwd: opts.cwd }) : transform(body.join("\n"), opts, inner);
 	const lines = rendered.split("\n");
 	if (cut > 0) lines.push("", `*… ${cut} more lines in ${link(basename(target.path), target.path)}*`);
 
@@ -309,9 +377,9 @@ function isSettled(lines: readonly string[]): boolean {
 }
 
 /** Embeds MAX_DEPTH levels down, drawn as plain links. */
-function linkOnly(text: string): string {
+function linkOnly(text: string, from: From): string {
 	return text.replace(EMBED, (whole, raw: string) => {
-		const target = parseTarget(raw);
+		const target = parseTarget(raw, from);
 		return target && !target.several ? link(target.alias ?? basename(target.path), target.path) : whole;
 	});
 }
@@ -377,7 +445,7 @@ export function transform(text: string, opts: RenderOptions, stack: readonly str
 			if (fenced[i] || !line.includes("[[")) return line;
 			const { plain: masked, restore } = maskCode(line);
 			const plain = masked.replace(WIKILINK, (whole, raw: string) => {
-				const target = parseTarget(raw);
+				const target = parseTarget(raw, { file: stack.at(-1), cwd: opts.cwd });
 				if (!target || target.several) return whole;
 				return link(target.alias ?? `${basename(target.path)}${target.fragment ? `#${target.fragment}` : ""}`, target.path);
 			});
@@ -395,10 +463,19 @@ export default async function mdEmbed(pi: ExtensionAPI) {
 		native = state.isNativeRendering;
 	} catch { }
 
+	// The session's working folder: omp's process folder until a session event hands over `ctx.cwd`.
+	let cwd = process.cwd();
+	pi.on("session_start", (_event, ctx) => {
+		cwd = ctx.cwd;
+	});
+	pi.on("session_switch", (_event, ctx) => {
+		cwd = ctx.cwd;
+	});
+
 	pi.registerAssistantTextRenderer(({ text, streaming }) => {
 		try {
 			const source = streaming ? text.replace(OPEN_TAIL, "") : text;
-			const out = transform(source, { callouts: native() });
+			const out = transform(source, { callouts: native(), cwd });
 			return out === text ? undefined : out;
 		} catch {
 			return undefined;
