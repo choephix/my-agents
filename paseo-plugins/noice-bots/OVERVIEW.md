@@ -146,7 +146,7 @@ with the newest N threads under their questions (emitted as above), the old hub 
   (measured: `omp --mode rpc-ui` gone ~1 s after the turn; archive at the same second).
 - Exception: a thread whose chat the user opened (**Open ›** on a running block, or **Wake**) is
   `awake` (saved on its row, so it survives reloads) and doesn't sleep at turn end: archiving
-  closes an open chat tab. Closing that tab archives it (Paseo), and the `agent.archived` hook
+  closes an open chat tab. Closing that tab archives it (Paseo), and the `agent.archive.after` hook
   clears `awake`.
 - **Wake**: `refreshAgent` restores the archived agent with its history; the chat opens as a
   normal tab and takes follow-ups (~3 s on the lab).
@@ -231,7 +231,7 @@ Built for a handful of questions a day per bot; the hub keeps all of them (see G
 
 ## The one session-open hook
 
-`agent.session_open`, for bot threads only (`noice-bots.thread` label), adds the
+`agent.open.before`, for bot threads only (`noice-bots.thread` label), adds the
 `thread_progress` tool and sets `PI_CODING_AGENT_SESSION_DIR`. Needed because agent tools are only
 added there. Cost: every agent on the daemon reopens when this plugin reloads.
 

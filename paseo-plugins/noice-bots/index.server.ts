@@ -45,10 +45,11 @@ export default function contribute(server: PluginServerContext) {
   server.handle(listUnread, ({ botId }) => bots.unread(botId));
   server.handle(listProviders, () => bots.providers());
 
-  const offStart = server.on("agent.turn_started", ({ agent }) => bots.turnStarted(agent.id, agent.workspaceId));
-  const offEnd = server.on("agent.turn_ended", ({ agent, outcome }) =>
-    bots.turnEnded(agent.id, agent.workspaceId, outcome.kind === "completed" ? "done" : outcome.kind === "failed" ? "failed" : "stopped"));
-  const offArchived = server.on("agent.archived", ({ agent }) => bots.archived(agent.id));
+  const offStart = server.addHook("agent.turn.before", async ({ agent }) => { bots.turnStarted(agent.id, agent.workspaceId); });
+  const offEnd = server.addHook("agent.turn.after", async ({ agent, outcome }) => {
+    await bots.turnEnded(agent.id, agent.workspaceId, outcome.kind === "completed" ? "done" : outcome.kind === "failed" ? "failed" : "stopped");
+  });
+  const offArchived = server.addHook("agent.archive.after", async ({ agent }) => { await bots.archived(agent.id); });
 
   // The one session-open hook, for bot threads only: the progress tool, and session files kept in
   // the plugin's folder (OMP's PI_CODING_AGENT_SESSION_DIR) so session lists and searches skip them.
@@ -63,7 +64,7 @@ export default function contribute(server: PluginServerContext) {
     execute: ({ note, title }, { agent }) => !note && !title ? { isError: true, text: "Send a note, a title or both." }
       : bots.progress(agent.id, { note, title }) ? { text: "Shown." } : { isError: true, text: "This thread is not running." },
   });
-  const offTools = server.before("agent.session_open", ({ request }) => {
+  const offTools = server.addHook("agent.open.before", async ({ request }) => {
     if (!request.labels[THREAD_LABEL]) return;
     return { ...request, env: { ...request.env, PI_CODING_AGENT_SESSION_DIR: sessionsDir() }, tools: [...request.tools, threadProgress] };
   });
