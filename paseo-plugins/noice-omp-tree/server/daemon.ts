@@ -4,14 +4,12 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 
-export type DaemonOp =
-  | { op: "reload"; agentId: string }
-  | {
-    op: "openTab";
-    request: Parameters<DaemonClient["importAgent"]>[0];
-    name: string;
-    config: Parameters<DaemonClient["applyAgentConfig"]>[1];
-  };
+export type DaemonOp = {
+  op: "openTab";
+  request: Parameters<DaemonClient["importAgent"]>[0];
+  name: string;
+  config: Parameters<DaemonClient["applyAgentConfig"]>[1];
+};
 
 export type DaemonOpResult = { ok: true; agentId?: string } | { ok: false; error: string };
 
@@ -43,13 +41,8 @@ async function runOp(op: DaemonOp): Promise<string | undefined> {
   return result.agentId;
 }
 
-/** Restarts the chat's OMP process from its session file and replays its current path in Paseo. */
-export async function reloadChat(agentId: string): Promise<void> {
-  await runOp({ op: "reload", agentId });
-}
-
 /** Imports a copied session file as a new agent, then names and configures it; returns its id. */
-export async function openBranchTab(op: Omit<Extract<DaemonOp, { op: "openTab" }>, "op">): Promise<string> {
+export async function openBranchTab(op: Omit<DaemonOp, "op">): Promise<string> {
   const agentId = await runOp({ op: "openTab", ...op });
   if (!agentId) throw new Error("Paseo did not return the new tab's agent.");
   return agentId;

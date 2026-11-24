@@ -13,7 +13,7 @@ import {
 import { DEFAULT_DISPLAY, displaySettings } from "./shared/settings";
 import { entriesOf, readEntries, readLines, SessionTree } from "./server/session-file";
 import { awaitResult, cancelRequest, cleanUp, linkRoot, type LinkRequest, loadsExtension, ompHosts, sendRequest, servingPids } from "./server/link";
-import { openBranchTab, reloadChat } from "./server/daemon";
+import { openBranchTab } from "./server/daemon";
 import { copyBranch, removeCopy } from "./server/branch-copy";
 
 const UNSUPPORTED: TreeState = { supported: false, ready: false, busy: false, turns: [], branches: [], offer: null, op: null, last: null };
@@ -203,7 +203,7 @@ export default function contribute(server: PluginServerContext) {
    * current REVISION) was installed, or no process at all, is reloaded once. One whose setup never loads the extension
    * fails at once, without reloading the chat for nothing.
    */
-  async function ensureServing(agentId: string): Promise<void> {
+  async function ensureServing(paseo: PaseoApi, agentId: string): Promise<void> {
     const ready = async () => {
       const hosts = await ompHosts(agentId);
       const serving = await servingPids(agentId);
@@ -212,7 +212,7 @@ export default function contribute(server: PluginServerContext) {
       return false;
     };
     if (await ready()) return;
-    await reloadChat(agentId);
+    await paseo.agents.ref(agentId).reload();
     for (const deadline = Date.now() + 10_000; Date.now() < deadline; await sleep(250)) {
       if (await ready()) return;
     }
@@ -220,7 +220,7 @@ export default function contribute(server: PluginServerContext) {
   }
 
   /** Runs one request against the OMP extension, then reloads the chat so Paseo shows the new path. */
-  function startOp(agentId: string, file: string, kind: OpKind, request: LinkRequest, focus?: string): string {
+  function startOp(paseo: PaseoApi, agentId: string, file: string, kind: OpKind, request: LinkRequest, focus?: string): string {
     const summarizing = request.op === "summarize" || !!request.summarize;
     const op: Op & { requestId?: string } = {
       id: `op${Date.now().toString(36)}`, kind, phase: summarizing ? "summarizing" : "switching", startedAt: Date.now(),
@@ -234,7 +234,7 @@ export default function contribute(server: PluginServerContext) {
       let outcome: Outcome["status"] = "error";
       let error: string | undefined;
       try {
-        await ensureServing(agentId);
+        await ensureServing(paseo, agentId);
         op.requestId = await sendRequest(agentId, file, request);
         const result = await awaitResult(agentId, op.requestId, {
           claimMs: 10_000,
@@ -244,7 +244,7 @@ export default function contribute(server: PluginServerContext) {
         else if (result.status === "cancelled") outcome = "cancelled";
         else {
           op.phase = "reloading";
-          await reloadChat(agentId);
+          await paseo.agents.ref(agentId).reload();
           outcome = "done";
         }
       } catch (caught) {
@@ -336,7 +336,7 @@ export default function contribute(server: PluginServerContext) {
     }
     if (!to || !tree.byId.has(to)) throw new Error("That message is not in this chat any more.");
     if (to === tree.leafId) throw new Error("The chat is already there.");
-    return { opId: startOp(agentId, file, kind, { op: "goto", target: to, kind, ...(summarize && kind !== "undo" ? { summarize: true } : {}) }) };
+    return { opId: startOp(paseo, agentId, file, kind, { op: "goto", target: to, kind, ...(summarize && kind !== "undo" ? { summarize: true } : {}) }) };
   });
 
   server.handle(treeSummarize, async ({ agentId, focus }, { paseo }) => {
@@ -345,7 +345,7 @@ export default function contribute(server: PluginServerContext) {
     if (!offer) throw new Error("A message was sent after going back, so there is nothing to summarize at the branch point.");
     if (offer.summarized) throw new Error("What you left is already summarized.");
     const trimmed = focus.trim();
-    return { opId: startOp(agentId, file, "summarize", { op: "summarize", from: offer.from, fork: offer.fork, focus: trimmed }, trimmed) };
+    return { opId: startOp(paseo, agentId, file, "summarize", { op: "summarize", from: offer.from, fork: offer.fork, focus: trimmed }, trimmed) };
   });
 
   server.handle(treeCancel, async ({ agentId }) => {

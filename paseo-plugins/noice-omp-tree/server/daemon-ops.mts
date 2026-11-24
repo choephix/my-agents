@@ -7,7 +7,7 @@ import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { z } from "zod";
 import type { DaemonOp, DaemonOpResult } from "./daemon";
 
-// PaseoApi has no reload ("refresh") or import. Use the installed SDK's native RPCs over this
+// PaseoApi has no import or config-apply call. Use the installed SDK's native RPCs over this
 // daemon's published local endpoint, never a remote host (same as noice-side-agent).
 async function connect(home: string): Promise<DaemonClient> {
   const instance = z.object({ pid: z.number(), listen: z.string() }).parse(JSON.parse(await readFile(join(home, "paseo.pid"), "utf8")));
@@ -31,10 +31,6 @@ async function connect(home: string): Promise<DaemonClient> {
 }
 
 async function run(daemon: DaemonClient, op: DaemonOp): Promise<string | undefined> {
-  if (op.op === "reload") {
-    await daemon.refreshAgent(op.agentId);
-    return undefined;
-  }
   const child = await daemon.importAgent(op.request);
   try {
     await daemon.updateAgent(child.id, { name: op.name });

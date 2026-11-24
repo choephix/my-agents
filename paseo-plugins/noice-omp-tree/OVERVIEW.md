@@ -101,10 +101,10 @@ apply without a reload. `/tree` works whatever is off.
   exit; the server prunes markers of killed processes. Polls check only a chat's own markers; the
   server walks every process only before a move, and reloads a chat whose OMP runs an older
   REVISION (or no marker) first.
-- After each move the server reloads the chat (`DaemonClient.refreshAgent`, the same as
-  `paseo agent reload`), because Paseo does not see in-place moves. Daemon calls (reload, open
-  in new tab) run in a short-lived `node server/daemon-ops.mts` process: bundling the client SDK
-  into the plugin would keep its 8 MB of bundle source and schemas (~17 MB heap) in memory.
+- After each move the server reloads the chat via `paseo.agents.ref(id).reload()` (Paseo 0.17+),
+  because Paseo does not see in-place moves. "Open in new tab" still runs `importAgent` in a
+  short-lived `node server/daemon-ops.mts` process: bundling the client SDK into the plugin would
+  keep its 8 MB of bundle source and schemas (~17 MB heap) in memory.
 - Web DOM (`client/web.ts`): icons after `assistant-fork-menu-trigger` / `rewind-menu-trigger`,
   strip, menu, toasts, Paseo's `--colors-*` CSS variables. Paseo mounts only part of a long chat,
   with gaps, so the user rows and reply footers on screen are lined up in order with the path's user
