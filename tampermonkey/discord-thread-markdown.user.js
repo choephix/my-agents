@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discord Thread → Markdown (for AI agents)
 // @namespace    local.tools
-// @version      0.12.0
+// @version      0.13.0
 // @description  Copy a Discord conversation as markdown, auto-scrolling through lazy-loaded messages, with per-message permalinks, attachment URLs and author avatars.
 // @match        https://discord.com/channels/*
 // @grant        GM_setClipboard
@@ -17,6 +17,7 @@
   const FORMAT         = 'markdown';   // 'markdown' | 'json'
   const MAX_ALL        = 500;          // safety cap for full-view auto-scroll (md / Alt+Shift+C)
   const MAX_ANCHORED   = 100;          // cap when copying from a clicked message (pick / Alt+Shift+X)
+  const MAX_RANGE      = 500;          // cap when copying an explicit start..end range (range / Alt+Shift+R)
   const SCROLL_OVERLAP = 0.72;         // fraction of viewport height per fallback scroll step
   const STEP_WAIT_MS   = 80;           // settle time after a page loads / local scroll step
   const REARM_MS       = 550;          // wait before re-arming Discord's post-eviction edge trigger
@@ -25,8 +26,9 @@
   const EDGE_MAX_MS    = 6000;         // hard cap waiting on a single stalled fetch
   const MAX_STEPS      = 600;          // safety guard against runaway scroll loops
 
-  const HOTKEY_ALL  = e => e.altKey && e.shiftKey && e.code === 'KeyC';  // whole view / selection
-  const HOTKEY_PICK = e => e.altKey && e.shiftKey && e.code === 'KeyX';  // click a start message
+  const HOTKEY_ALL   = e => e.altKey && e.shiftKey && e.code === 'KeyC';  // whole view / selection
+  const HOTKEY_PICK  = e => e.altKey && e.shiftKey && e.code === 'KeyX';  // click a start message (to bottom)
+  const HOTKEY_RANGE = e => e.altKey && e.shiftKey && e.code === 'KeyR';  // click start & end messages
 
   // Both <li> messages and the thread-starter <div> carry this id prefix.
   const MSG     = '[id^="chat-messages-"]';
@@ -389,6 +391,8 @@
   function finalize(state, {
     anchorId = null,
     anchorIsStarter = false,
+    endId = null,
+    endIsStarter = false,
     max = Infinity,
     keepNewest = false,
     meta = {},
@@ -426,6 +430,9 @@
     let messages = resolved;
     if (anchorId && !anchorIsStarter) {
       messages = messages.filter(m => cmpId(m.id, anchorId) >= 0);
+    }
+    if (endId) {
+      messages = messages.filter(m => (endIsStarter ? m.isThreadStarter : cmpId(m.id, endId) <= 0));
     }
 
     const truncated = messages.length > max;
@@ -625,6 +632,7 @@
     harvestFn,
     countFn,
     max,
+    stopWhen = null,
     signal,
     startPath,
     updateStatus,
@@ -635,6 +643,7 @@
     for (let step = 0; step < MAX_STEPS; step++) {
       if (signal.aborted || !scroller.isConnected || location.pathname !== startPath) return;
       harvestFn();
+      if (stopWhen?.()) return;
       if (countFn() > max) return;
 
       const skel = skeletonEdges(scroller);
@@ -693,6 +702,7 @@
     directions,
     max,
     countFn,
+    stopWhen = null,
     restoreMode = 'from-bottom',
   }) {
     const startPath       = location.pathname;
@@ -738,6 +748,7 @@
           harvestFn,
           countFn,
           max,
+          stopWhen,
           signal: ac.signal,
           startPath,
           updateStatus,
@@ -895,11 +906,145 @@
     }
   }
 
+  /** Compare two range endpoints chronologically (thread starter is always oldest). */
+  function cmpEndpoint(a, b) {
+    if (a.isStarter !== b.isStarter) return a.isStarter ? -1 : 1;
+    return cmpId(a.id, b.id);
+  }
+
+  /** Capture author/avatar hint and a short UI label for the first clicked message in range mode. */
+  function describeRangeAnchor(host, scroller, ctx) {
+    const id = messageId(host);
+    if (!id) return null;
+    const isStarter = !!host.closest(STARTER);
+    const state = createHarvestState();
+    openSandbox();
+    try {
+      harvestSnapshot(scroller || document, ctx, state);
+    } finally {
+      closeSandbox();
+    }
+    const rec = state.byId.get(id);
+    const author = rec?.ownAuthor || rec?.hintAuthor || null;
+    const avatar = rec?.avatar || (author ? state.avatars.get(author) : null) || null;
+    const iso = host.querySelector('time[datetime]')?.getAttribute('datetime') || '';
+    const hhmm = iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const label = [author || `#${id.slice(-4)}`, hhmm].filter(Boolean).join(' · ');
+    return {
+      id,
+      domId: host.id || null,
+      isStarter,
+      channelId: ctx.channelId,
+      startPath: location.pathname,
+      authorHint: author,
+      avatarHint: avatar,
+      label,
+    };
+  }
+
+  /** Between two clicked messages (in either order), auto-scrolling across lazy-loaded pages. */
+  async function scrapeRange(first, secondHost) {
+    const secondId = messageId(secondHost);
+    if (!secondId) throw new Error("Couldn't identify that message.");
+    const scroller = scrollerFor(secondHost);
+    const ctx      = context(scroller);
+    if (ctx.channelId !== first.channelId || location.pathname !== first.startPath) {
+      throw new Error('Range endpoints must be in the same channel or thread.');
+    }
+
+    const second = { id: secondId, isStarter: !!secondHost.closest(STARTER) };
+    const cmp = cmpEndpoint(first, second);
+    const start    = cmp <= 0 ? first : second;
+    const end      = cmp <= 0 ? second : first;
+    const sweepDir = cmp <= 0 ? 'up' : 'down';   // viewport is at `second`, so sweep back toward `first`
+
+    const state = createHarvestState();
+    const inRange = m => (start.isStarter || cmpId(m.id, start.id) >= 0)
+      && (end.isStarter ? m.isThreadStarter : cmpId(m.id, end.id) <= 0);
+    const countInRange = () => {
+      let n = 0;
+      for (const m of state.byId.values()) if (inRange(m)) n++;
+      return n;
+    };
+    const hasReachedFirst = () => {
+      if (start.id === end.id) return true;
+      if (!scroller) return true;
+      const b = domBoundaryIds(scroller);
+      if (sweepDir === 'up') {
+        return start.isStarter
+          ? !!scroller.querySelector(STARTER)
+          : (!!b.first && cmpId(b.first, start.id) <= 0);
+      }
+      return end.isStarter
+        ? !!scroller.querySelector(STARTER)
+        : (!!b.last && cmpId(b.last, end.id) >= 0);
+    };
+
+    openSandbox();
+    try {
+      harvestSnapshot(scroller || document, ctx, state);
+      if (!state.byId.has(second.id)) {
+        harvestSnapshot(document, ctx, state);
+      }
+
+      let stoppedEarly = false;
+      const needScroll = scroller
+        && scroller.scrollHeight > scroller.clientHeight + 2
+        && !hasReachedFirst()
+        && countInRange() <= MAX_RANGE;
+
+      if (needScroll) {
+        const res = await runAutoHarvest(scroller, ctx, state, {
+          which: 'range',
+          directions: [sweepDir],
+          max: MAX_RANGE,
+          countFn: countInRange,
+          stopWhen: hasReachedFirst,
+          restoreMode: sweepDir === 'down' ? 'down-only' : 'from-bottom',
+        });
+        stoppedEarly = res.stoppedEarly;
+      }
+
+      // Backstop the first clicked message's author/avatar if it was a continuation message
+      // sitting at the very top of the final swept page.
+      const firstRec = state.byId.get(first.id);
+      if (firstRec) {
+        if (!firstRec.ownAuthor && !firstRec.hintAuthor && first.authorHint) {
+          firstRec.hintAuthor = first.authorHint;
+        }
+        if (!firstRec.avatar && first.avatarHint) {
+          firstRec.avatar = first.avatarHint;
+        }
+      }
+      if (first.authorHint && first.avatarHint && !state.avatars.has(first.authorHint)) {
+        state.avatars.set(first.authorHint, first.avatarHint);
+      }
+
+      return finalize(state, {
+        anchorId: start.id,
+        anchorIsStarter: start.isStarter,
+        endId: end.id,
+        endIsStarter: end.isStarter,
+        max: MAX_RANGE,
+        keepNewest: sweepDir === 'up',
+        meta: {
+          mode: 'range',
+          startId: start.id,
+          endId: end.id,
+          ...(stoppedEarly ? { stoppedEarly: true } : {}),
+        },
+      });
+    } finally {
+      closeSandbox();
+    }
+  }
+
   // ---------------------------------------------------------------- render
   function toMarkdown(d) {
     const parts = [];
     if (d.mode === 'selection') parts.push('selection only');
     if (d.mode === 'anchored')  parts.push(`from ${d.anchorId} onward`);
+    if (d.mode === 'range')     parts.push(`range ${d.startId}..${d.endId}`);
     if (d.truncated)            parts.push(`capped at ${d.cap || MAX_ANCHORED}`);
     if (d.stoppedEarly)         parts.push('stopped early');
     const scope = parts.length ? ` (${parts.join(', ')})` : '';
@@ -998,41 +1143,81 @@
   let setPickActive = () => {};   // wired up by the floating buttons
   let setFabBusy = () => {};      // wired up by the floating buttons
 
-  function startPicking() {
+  function startPicking(mode = 'pick') {
     if (harvesting) return;
-    if (picking) return;
+    if (picking) {
+      const same = picking.mode === mode;
+      picking.stop();
+      if (same) return;
+    }
 
+    const isRange = mode === 'range';
     const style = document.createElement('style');
     style.textContent = '*{cursor:crosshair !important}';
     const mk = css => { const d = document.createElement('div'); d.style.cssText = css; return d; };
 
     const head = mk(`position:fixed;pointer-events:none;z-index:2147483646;display:none;
       border:2px solid #5865f2;border-radius:6px;background:rgba(88,101,242,.18)`);
+    // Persistent highlight for the first endpoint in range mode while picking the second.
+    const anchorBox = mk(`position:fixed;pointer-events:none;z-index:2147483646;display:none;
+      border:2px solid #12d18e;border-radius:6px;background:rgba(18,209,142,.16)`);
     // the rest of the range — messages are contiguous, so one rect beats 99 boxes
     const tail = mk(`position:fixed;pointer-events:none;z-index:2147483645;display:none;
       border-left:2px solid rgba(88,101,242,.5);background:rgba(88,101,242,.07)`);
     const hint = mk(`position:fixed;top:16px;left:50%;transform:translateX(-50%);
       z-index:2147483647;padding:8px 14px;border-radius:8px;pointer-events:none;
-      font:13px/1.4 system-ui,sans-serif;color:#fff;background:#5865f2;box-shadow:0 4px 14px rgba(0,0,0,.4)`);
-    hint.textContent = `Click a message — auto-scrolls from there down (max ${MAX_ANCHORED}). Esc to cancel.`;
+      font:13px/1.4 system-ui,sans-serif;color:#fff;background:${isRange ? '#7c3aed' : '#5865f2'};
+      box-shadow:0 4px 14px rgba(0,0,0,.4)`);
+    hint.textContent = isRange
+      ? `Range: click first message (either end, max ${MAX_RANGE}). Esc to cancel.`
+      : `Click a message — auto-scrolls from there down (max ${MAX_ANCHORED}). Esc to cancel.`;
 
     document.head.appendChild(style);
-    document.body.append(tail, head, hint);
+    document.body.append(tail, anchorBox, head, hint);
 
     let activeScroller = null;
     let hosts   = [];
     let current = null;
+    let first   = null;   // populated after click #1 in range mode
     let dirty   = true;
     let frame   = 0;
 
     const hostAt = t => (t instanceof Element ? t.closest(`${MSG}, ${STARTER}`) : null);
-    const hide = () => { head.style.display = tail.style.display = 'none'; };
+    const hideHover = () => { head.style.display = tail.style.display = 'none'; };
+    const placeBox = (el, r) => Object.assign(el.style, {
+      display: 'block', top: `${r.top}px`, left: `${r.left}px`,
+      width: `${r.width}px`, height: `${r.height}px`,
+    });
+
+    function findFirstEl(sc) {
+      if (!first) return null;
+      const byDom = first.domId && document.getElementById(first.domId);
+      if (byDom && (!sc || sc.contains(byDom))) return byDom;
+      if (first.isStarter) return (sc || document).querySelector(STARTER);
+      return (sc || document).querySelector(`[id$="-${first.id}"]`);
+    }
+
+    function redrawAnchor(sc) {
+      if (!first) { anchorBox.style.display = 'none'; return null; }
+      const el = findFirstEl(sc);
+      if (!el || !el.isConnected) { anchorBox.style.display = 'none'; return null; }
+      const r = el.getBoundingClientRect();
+      const sRect = sc?.getBoundingClientRect();
+      if (sRect && (r.bottom <= sRect.top || r.top >= sRect.bottom)) {
+        anchorBox.style.display = 'none';
+        return el;
+      }
+      placeBox(anchorBox, r);
+      return el;
+    }
 
     function redraw() {
       const host = current;
-      if (!host || !host.isConnected) return hide();
+      const sc = host?.isConnected ? scrollerFor(host) : activeScroller;
+      const firstEl = redrawAnchor(sc);
 
-      const sc = scrollerFor(host);
+      if (!host || !host.isConnected) return hideHover();
+
       if (dirty || sc !== activeScroller) {
         activeScroller = sc;
         hosts = messageHosts(sc || document);
@@ -1042,32 +1227,86 @@
       // identity lookup, no id parsing — this runs on every mousemove
       let i = hosts.indexOf(host);
       if (i < 0) { hosts = messageHosts(sc || document); i = hosts.indexOf(host); }
-      if (i < 0) return hide();
+      if (i < 0) return hideHover();
 
-      const visibleBelow = hosts.length - i;
-      const count = Math.min(visibleBelow, MAX_ANCHORED);
       const a = host.getBoundingClientRect();
-      const b = hosts[i + count - 1].getBoundingClientRect();
+      const sRect = sc?.getBoundingClientRect();
+      const clipTop = sRect?.top ?? 0;
+      const clipBottom = sRect?.bottom ?? Infinity;
 
-      Object.assign(head.style, { display: 'block', top: `${a.top}px`, left: `${a.left}px`,
-        width: `${a.width}px`, height: `${a.height}px` });
+      if (!isRange) {
+        const visibleBelow = hosts.length - i;
+        const count = Math.min(visibleBelow, MAX_ANCHORED);
+        const b = hosts[i + count - 1].getBoundingClientRect();
 
-      const clipBottom = sc?.getBoundingClientRect().bottom ?? Infinity;
-      const bottom = Math.min(b.bottom, clipBottom);
-      if (bottom - a.bottom > 2) {
-        Object.assign(tail.style, { display: 'block', top: `${a.bottom}px`, left: `${a.left}px`,
-          width: `${a.width}px`, height: `${bottom - a.bottom}px` });
-      } else {
-        tail.style.display = 'none';
+        placeBox(head, a);
+        const bottom = Math.min(b.bottom, clipBottom);
+        if (bottom - a.bottom > 2) {
+          Object.assign(tail.style, { display: 'block', top: `${a.bottom}px`, left: `${a.left}px`,
+            width: `${a.width}px`, height: `${bottom - a.bottom}px` });
+        } else {
+          tail.style.display = 'none';
+        }
+
+        const moreBelow = hasMoreBelow(sc);
+        if (count === MAX_ANCHORED) {
+          hint.textContent = `${MAX_ANCHORED} messages from here (cap) — Esc to cancel`;
+        } else if (moreBelow) {
+          hint.textContent = `${count}+ messages from here (auto-scrolls down, max ${MAX_ANCHORED}) — Esc to cancel`;
+        } else {
+          hint.textContent = `${count} message${count === 1 ? '' : 's'} from here — Esc to cancel`;
+        }
+        return;
       }
 
-      const moreBelow = hasMoreBelow(sc);
-      if (count === MAX_ANCHORED) {
-        hint.textContent = `${MAX_ANCHORED} messages from here (cap) — Esc to cancel`;
-      } else if (moreBelow) {
-        hint.textContent = `${count}+ messages from here (auto-scrolls down, max ${MAX_ANCHORED}) — Esc to cancel`;
+      // Range mode — step 1 (choosing first endpoint)
+      placeBox(head, a);
+      if (!first) {
+        tail.style.display = 'none';
+        hint.textContent = `Range: click first message (either end, max ${MAX_RANGE}). Esc to cancel.`;
+        return;
+      }
+
+      // Range mode — step 2 (choosing second endpoint)
+      const fi = firstEl ? hosts.indexOf(firstEl) : -1;
+      if (fi >= 0) {
+        const lo = Math.min(fi, i), hi = Math.max(fi, i);
+        const count = hi - lo + 1;
+        const rLo = hosts[lo].getBoundingClientRect();
+        const rHi = hosts[hi].getBoundingClientRect();
+        const top = Math.max(rLo.top, clipTop);
+        const bottom = Math.min(rHi.bottom, clipBottom);
+        if (bottom - top > 2) {
+          Object.assign(tail.style, { display: 'block', top: `${top}px`, left: `${a.left}px`,
+            width: `${a.width}px`, height: `${bottom - top}px` });
+        } else {
+          tail.style.display = 'none';
+        }
+        hint.textContent = `Range: ${count} message${count === 1 ? '' : 's'} (start: ${first.label}) — click to copy · Esc cancels`;
       } else {
-        hint.textContent = `${count} message${count === 1 ? '' : 's'} from here — Esc to cancel`;
+        const hid = messageId(host);
+        const hoverIsNewer = !hid || cmpEndpoint(first, { id: hid, isStarter: !!host.closest(STARTER) }) <= 0;
+        if (hoverIsNewer) {
+          const top = clipTop;
+          const bottom = Math.max(top, a.top);
+          if (bottom - top > 2) {
+            Object.assign(tail.style, { display: 'block', top: `${top}px`, left: `${a.left}px`,
+              width: `${a.width}px`, height: `${bottom - top}px` });
+          } else {
+            tail.style.display = 'none';
+          }
+          hint.textContent = `Range: ${i + 1}+ messages back to ${first.label} (auto-scrolls up) — click to copy · Esc cancels`;
+        } else {
+          const top = a.bottom;
+          const bottom = Math.max(top, clipBottom);
+          if (bottom - top > 2) {
+            Object.assign(tail.style, { display: 'block', top: `${top}px`, left: `${a.left}px`,
+              width: `${a.width}px`, height: `${bottom - top}px` });
+          } else {
+            tail.style.display = 'none';
+          }
+          hint.textContent = `Range: ${hosts.length - i}+ messages down to ${first.label} (auto-scrolls down) — click to copy · Esc cancels`;
+        }
       }
     }
 
@@ -1078,7 +1317,7 @@
 
     const onMove = e => {
       const host = hostAt(e.target);
-      if (!host) { current = null; return hide(); }
+      if (!host) { current = null; redrawAnchor(activeScroller); return hideHover(); }
       current = host;
       redraw();
     };
@@ -1092,8 +1331,29 @@
       const host = hostAt(e.target);
       if (!host) return;
       eat(e);
+
+      if (!isRange) {
+        stop();
+        emit(() => scrapeFrom(host), 'pick');
+        return;
+      }
+
+      if (!first) {
+        const sc = scrollerFor(host);
+        let ctx;
+        try { ctx = context(sc); } catch (err) { toast(err.message, false); stop(); return; }
+        const anchor = describeRangeAnchor(host, sc, ctx);
+        if (!anchor) { toast("Couldn't identify that message.", false); return; }
+        first = anchor;
+        activeScroller = sc;
+        redraw();
+        hint.textContent = `Start: ${first.label} — scroll & click end message (Esc cancels)`;
+        return;
+      }
+
+      const startAnchor = first;
       stop();
-      emit(() => scrapeFrom(host), 'pick');
+      emit(() => scrapeRange(startAnchor, host), 'range');
     };
     const onKey = e => { if (e.key === 'Escape') { eat(e); stop(); } };
 
@@ -1105,13 +1365,13 @@
       document.removeEventListener('mouseup', onDown, true);
       document.removeEventListener('click', onClick, true);
       document.removeEventListener('keydown', onKey, true);
-      style.remove(); head.remove(); tail.remove(); hint.remove();
+      style.remove(); head.remove(); anchorBox.remove(); tail.remove(); hint.remove();
       picking = null;
-      setPickActive(false);
+      setPickActive(mode, false);
     }
 
-    picking = { stop };
-    setPickActive(true);
+    picking = { stop, mode };
+    setPickActive(mode, true);
     document.addEventListener('mousemove', onMove, true);
     document.addEventListener('scroll', onScroll, true);
     document.addEventListener('mousedown', onDown, true);
@@ -1121,7 +1381,7 @@
   }
 
   // -------------------------------------------------------- floating buttons
-  // Two tiny pills, absolutely overlaid in the empty leading corner of the
+  // Three tiny pills, absolutely overlaid in the empty leading corner of the
   // title bar. Bright enough to find instantly, small enough to ignore.
   let flashFab = () => {};
 
@@ -1143,8 +1403,10 @@
       .dmd-btn:active{filter:brightness(.9)}
       .dmd-copy{border-radius:11px 0 0 11px;background:linear-gradient(135deg,#00c2ff,#5865f2 55%,#7b3ff2)}
       .dmd-copy:hover{box-shadow:0 2px 12px rgba(88,101,242,.65), inset 0 1px 0 rgba(255,255,255,.25)}
-      .dmd-pick{border-radius:0 11px 11px 0;background:linear-gradient(135deg,#ffb03a,#ff5e62 60%,#ff2e88)}
+      .dmd-pick{border-radius:0;background:linear-gradient(135deg,#ffb03a,#ff5e62 60%,#ff2e88)}
       .dmd-pick:hover{box-shadow:0 2px 12px rgba(255,94,98,.6), inset 0 1px 0 rgba(255,255,255,.25)}
+      .dmd-range{border-radius:0 11px 11px 0;background:linear-gradient(135deg,#a855f7,#7c3aed 55%,#db2777)}
+      .dmd-range:hover{box-shadow:0 2px 12px rgba(168,85,247,.65), inset 0 1px 0 rgba(255,255,255,.25)}
       .dmd-btn.dmd-on{background:linear-gradient(135deg,#12d18e,#00b8d9);
         animation:dmd-pulse 1.1s ease-in-out infinite}
       @keyframes dmd-pulse{
@@ -1178,23 +1440,33 @@
         <circle cx="12" cy="12" r="3.4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
       </svg>`, 'pick');
 
+    const rangeBtn = btn('dmd-range', `Pick start & end messages (either order), auto-scrolls between them up to ${MAX_RANGE} msgs (Alt+Shift+R · Esc cancels/stops)`,
+      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 4H5v16h3M16 4h3v16h-3M9 12h6"/>
+      </svg>`, 'range');
+
     copyBtn.addEventListener('click', () => {
       if (picking) picking.stop();
       emit(scrapeAll, 'copy');
     });
     pickBtn.addEventListener('click', () => {
       if (harvesting) { harvesting.stop(); return; }
-      picking ? picking.stop() : startPicking();
+      startPicking('pick');
+    });
+    rangeBtn.addEventListener('click', () => {
+      if (harvesting) { harvesting.stop(); return; }
+      startPicking('range');
     });
 
-    wrap.append(copyBtn, pickBtn);
+    wrap.append(copyBtn, pickBtn, rangeBtn);
     document.head.appendChild(css);
     document.body.appendChild(wrap);
 
-    setPickActive = on => pickBtn.classList.toggle('dmd-on', on);
-    setFabBusy = (which, on) => (which === 'copy' ? copyBtn : pickBtn).classList.toggle('dmd-on', on);
+    const btnFor = which => (which === 'copy' ? copyBtn : which === 'range' ? rangeBtn : pickBtn);
+    setPickActive = (which, on) => btnFor(which).classList.toggle('dmd-on', on);
+    setFabBusy = (which, on) => btnFor(which).classList.toggle('dmd-on', on);
     flashFab = which => {
-      const b = which === 'copy' ? copyBtn : pickBtn;
+      const b = btnFor(which);
       const label = b.querySelector('span'), old = label.textContent;
       b.classList.add('dmd-ok');
       label.textContent = '✓';
@@ -1218,11 +1490,12 @@
   }
 
   window.addEventListener('keydown', e => {
-    if (HOTKEY_ALL(e))  { e.preventDefault(); if (picking) picking.stop(); emit(scrapeAll, 'copy'); }
-    if (HOTKEY_PICK(e)) { e.preventDefault(); if (!harvesting) startPicking(); }
+    if (HOTKEY_ALL(e))   { e.preventDefault(); if (picking) picking.stop(); emit(scrapeAll, 'copy'); }
+    if (HOTKEY_PICK(e))  { e.preventDefault(); if (!harvesting) startPicking('pick'); }
+    if (HOTKEY_RANGE(e)) { e.preventDefault(); if (!harvesting) startPicking('range'); }
   }, true);
 
   window.dcopy = () => emit(scrapeAll, 'copy');
   window.dprobe = dprobe;
-  console.info('[discord→md] ready — Alt+Shift+C all (auto-scroll), Alt+Shift+X pick. Debug: dprobe()');
+  console.info('[discord→md] ready — Alt+Shift+C all, Alt+Shift+X pick, Alt+Shift+R range. Debug: dprobe()');
 })();
